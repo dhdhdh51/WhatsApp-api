@@ -65,7 +65,7 @@ function import_field(string $h): ?string
 }
 
 /** Finds or creates a CBC login. Returns [id, ?generated-credentials]. */
-function import_cbc(string $name, ?string $phone, array &$cache): array
+function import_cbc(string $name, ?string $phone, array &$cache, string $fixedPass = ''): array
 {
     $key = mb_strtolower(trim($name));
     if (isset($cache[$key])) {
@@ -89,8 +89,8 @@ function import_cbc(string $name, ?string $phone, array &$cache): array
         $username = $base . $i;
     }
     $alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
-    $pass = '';
-    for ($i = 0; $i < 10; $i++) {
+    $pass = $fixedPass;
+    for ($i = 0; $pass === '' || ($fixedPass === '' && $i < 10); $i++) {
         $pass .= $alphabet[random_int(0, strlen($alphabet) - 1)];
     }
     $id = DB::insert("INSERT INTO users (name, username, password_hash, role, phone, receive_summary, is_active) VALUES (?, ?, ?, 'cbc', ?, ?, 1)",
@@ -103,6 +103,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $f = $_FILES['csv'] ?? null;
     if (!$f || $f['error'] !== UPLOAD_ERR_OK || $f['size'] > 8 * 1024 * 1024) {
         flash('danger', 'Upload an Excel (.xlsx) or CSV file (max 8 MB) / एक्सेल या CSV फ़ाइल अपलोड करें');
+        redirect('/bc_import.php');
+    }
+    $fixedPass = (string) ($_POST['cbc_password'] ?? '');
+    if ($fixedPass !== '' && mb_strlen($fixedPass) < 8) {
+        flash('danger', 'CBC password must be at least 8 characters / पासवर्ड कम से कम 8 अक्षर');
         redirect('/bc_import.php');
     }
     try {
@@ -182,7 +187,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $cbcId = null;
         if (($row['cbc'] ?? '') !== '') {
-            [$cbcId, $creds] = import_cbc($row['cbc'], Phone::normalize($row['cbc_phone'] ?? ''), $cbcCache);
+            [$cbcId, $creds] = import_cbc($row['cbc'], Phone::normalize($row['cbc_phone'] ?? ''), $cbcCache, $fixedPass);
             if ($creds) {
                 $result['cbc_new'][] = $creds;
             }
@@ -244,6 +249,8 @@ View::header('Import BCs (Excel / CSV) / बीसी इम्पोर्ट',
     <input type="file" name="csv" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="form-control" style="max-width:360px" required>
     <div class="form-check align-self-center"><input class="form-check-input" type="checkbox" name="send_welcome" value="1" id="sw" checked>
       <label class="form-check-label small" for="sw"><?= L('Send welcome message to new BCs', 'नए बीसी को स्वागत संदेश भेजें') ?></label></div>
+    <input type="text" name="cbc_password" class="form-control" style="max-width:260px" minlength="8" maxlength="100" autocomplete="off"
+      placeholder="Password for new CBC logins (blank = random)">
     <button class="btn btn-success"><i class="bi bi-upload"></i> <?= L('Import', 'इम्पोर्ट') ?></button>
   </form>
   <p class="small text-muted mt-2 mb-0">Welcome messages go out one by one through the safe queue (daily limit applies – large imports may take more than a day during warm-up).</p>
