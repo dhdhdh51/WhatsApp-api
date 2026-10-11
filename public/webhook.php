@@ -61,7 +61,9 @@ if (isset($event['session']) && $event['session'] !== $expectedSession) {
 // Answer WAHA immediately, then do the work (the BC reply is still sent right away).
 echo '{"ok":true}';
 if (function_exists('fastcgi_finish_request')) {
-    fastcgi_finish_request();
+    fastcgi_finish_request();          // PHP-FPM (Nginx)
+} elseif (function_exists('litespeed_finish_request')) {
+    litespeed_finish_request();        // LiteSpeed / OpenLiteSpeed (aaPanel)
 }
 ignore_user_abort(true);
 set_time_limit(60);
