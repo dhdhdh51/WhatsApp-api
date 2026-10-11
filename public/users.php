@@ -14,6 +14,39 @@ $me = Auth::requireAdmin();
 $editId = (int) q('edit');
 $errors = [];
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(p('action'), ['delete', 'delete_all_cbc'], true)) {
+    $ids = p('action') === 'delete'
+        ? [(int) p('id')]
+        : array_map('intval', array_column(DB::all("SELECT id FROM users WHERE role = 'cbc'"), 'id'));
+    $deleted = [];
+    foreach ($ids as $did) {
+        $u = DB::one('SELECT id, name, username, role FROM users WHERE id = ?', [$did]);
+        if (!$u) {
+            continue;
+        }
+        if ($did === (int) $me['id']) {
+            flash('danger', 'You cannot delete yourself / आप खुद को नहीं हटा सकते');
+            continue;
+        }
+        if ($u['role'] === 'admin' && (int) DB::val("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1") <= 1) {
+            flash('danger', 'Cannot delete the last admin');
+            continue;
+        }
+        $bcs = (int) DB::val('SELECT COUNT(*) FROM bcs WHERE cbc_id = ?', [$did]);
+        DB::tx(static function () use ($did): void {
+            DB::exec('UPDATE bcs SET cbc_id = NULL WHERE cbc_id = ?', [$did]);   // BCs stay, only unassigned
+            DB::exec('DELETE FROM user_branches WHERE user_id = ?', [$did]);
+            DB::exec('DELETE FROM users WHERE id = ?', [$did]);
+        });
+        Audit::log((int) $me['id'], 'user_delete', 'user', $did, ['username' => $u['username'], 'name' => $u['name'], 'role' => $u['role'], 'bcs_unassigned' => $bcs]);
+        $deleted[] = $u['name'];
+    }
+    if ($deleted) {
+        flash('success', count($deleted) . ' user(s) deleted / हटाए गए: ' . implode(', ', $deleted) . '. Their BCs are kept (now without CBC).');
+    }
+    redirect('/users.php');
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $id = (int) p('id');
     $name = (string) p('name');
@@ -96,6 +129,11 @@ View::header('Users / यूज़र (Admin & Managers)', 'users');
 <?php foreach ($errors as $er): ?><div class="alert alert-danger py-2"><?= e($er) ?></div><?php endforeach; ?>
 <div class="row g-3">
 <div class="col-lg-7">
+  <?php $cbcCount = (int) DB::val("SELECT COUNT(*) FROM users WHERE role = 'cbc'"); if ($cbcCount): ?>
+  <form method="post" class="mb-2"><?= Csrf::field() ?>
+    <button name="action" value="delete_all_cbc" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete ALL <?= $cbcCount ?> CBC logins? BCs are kept, only unassigned.')"><i class="bi bi-trash"></i> <?= L("Delete all CBC logins ({$cbcCount})", 'सभी सीबीसी लॉगिन हटाएँ') ?></button>
+  </form>
+  <?php endif; ?>
   <div class="table-responsive"><table class="table table-sm table-striped align-middle">
     <thead><tr><th><?= L('Name', 'नाम') ?></th><th>Username</th><th>Role</th><th><?= L('Branches', 'शाखाएँ') ?></th><th>Phone</th><th>Last login</th><th></th></tr></thead>
     <tbody><?php foreach ($users as $u): ?>
@@ -104,7 +142,9 @@ View::header('Users / यूज़र (Admin & Managers)', 'users');
         <td class="small"><?php if (in_array($u['role'], ['admin', 'supervisor'], true)): ?>All BCs<?php elseif ($u['role'] === 'cbc'): ?><a href="/bcs.php?cbc_id=<?= (int) $u['id'] ?>"><?= (int) $u['cbc_bcs'] ?> BCs</a><?php else: ?><?= e($u['branches']) ?><?php endif; ?></td>
         <td class="small"><?= e(Phone::display($u['phone'])) ?><?= $u['receive_summary'] ? ' 📊' : '' ?></td>
         <td class="small"><?= e(fmt_dt($u['last_login_at'])) ?></td>
-        <td><a href="/users.php?edit=<?= (int) $u['id'] ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil"></i></a></td></tr>
+        <td class="text-nowrap"><a href="/users.php?edit=<?= (int) $u['id'] ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil"></i></a>
+          <?php if ((int) $u['id'] !== (int) $me['id']): ?><form method="post" class="d-inline"><?= Csrf::field() ?><input type="hidden" name="id" value="<?= (int) $u['id'] ?>">
+            <button name="action" value="delete" class="btn btn-sm btn-outline-danger" title="Delete" onclick="return confirm('Delete login of <?= e(addslashes($u['name'])) ?>? BCs are kept, only unassigned.')"><i class="bi bi-trash"></i></button></form><?php endif; ?></td></tr>
     <?php endforeach; ?></tbody></table></div>
 </div>
 <div class="col-lg-5">
