@@ -48,6 +48,15 @@ final class Scheduler
             Logger::info("Scheduler {$slot['job']}: queued {$n} messages");
         }
 
+        // ---- morning target message
+        $tgtTime = Settings::padTime(Settings::get('target_msg_time') ?: '09:00');
+        if (Settings::bool('send_target_msg') && $tgtTime <= $now && time() <= Calendar::cutoffTs($today)
+            && self::markRun($today, 'target', 'running', '')) {
+            $n = Targets::enqueueMorning($today);
+            self::finishRun($today, 'target', 'done', "queued {$n}");
+            Logger::info("Scheduler target: queued {$n} messages");
+        }
+
         // ---- daily summary
         $sumTime = Settings::padTime(Settings::get('summary_time') ?: '21:00');
         if (Settings::bool('send_summary') && $sumTime <= $now && self::markRun($today, 'summary', 'running', '')) {

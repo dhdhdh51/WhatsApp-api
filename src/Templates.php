@@ -15,6 +15,7 @@ final class Templates
         'reminder'       => ['Reminder', 'रिमाइंडर'],
         'final_reminder' => ['Final reminder', 'अंतिम रिमाइंडर'],
         'welcome'        => ['Welcome (new BC)', 'स्वागत संदेश (नया बीसी)'],
+        'target'         => ['Morning target', 'सुबह का लक्ष्य संदेश'],
     ];
 
     /** Types that are copied back by the BC and therefore must contain exactly one {form}. */
@@ -26,6 +27,7 @@ final class Templates
         'form'           => "{form}\n\n" . self::INSTRUCTION,
         'reminder'       => "⏰ {name} ji, aaj ki report abhi baaki hai.\n\n{form}\n\n" . self::INSTRUCTION,
         'final_reminder' => "⚠️ {name} ji, aakhri reminder! Report {cutoff} tak bhej dein.\n\n{form}\n\n" . self::INSTRUCTION,
+        'target'         => "🎯 Namaste {name} ji!\n\n*{month} ka aapka target* (ab tak / target):\n{target_lines}\n\nMahine ke {days_left} din bache hain. Shaam ko roz ki report bhejna na bhoolein 🙏",
         'welcome'        => "🙏 Namaste {name} ji!\n\nAapko *BC Daily Report* system mein jod diya gaya hai ✅\nBC ID: {bc_code}\n\n📌 *Kaise kaam karega*\n1️⃣ Roz {form_time} baje isi number se aapko ek form aayega.\n2️⃣ Form copy karein, har line ke aage aaj ka number likhein aur bhej dein:\nAPY: 2\nPMJJBY: 1\nPMSBY: 3\nPMJDY: 5\nAPY OFFLINE: 0\nJJBY OFFLINE: 0\nSBY OFFLINE: 0\n3️⃣ Kuch nahi kiya to 0 likhein.\n4️⃣ Chhota tareeka: sirf 4 number bhejein – 2 1 3 5 (kram: APY, PMJJBY, PMSBY, PMJDY). Offline bhi ho to 7 number: 2 1 3 5 0 1 0\n5️⃣ Galti ho jaye to {cutoff} tak form dobara bhej dein – report update ho jayegi.\n\n🔤 *Commands*\nFORM – aaj ka form mangwayein\nSTATUS – aaj ki report dekhein\nHELP – madad\n\n👉 Kripya is number ko apne phone mein save kar lein. Dhanyavad 🙏",
     ];
 
@@ -43,7 +45,7 @@ final class Templates
         return self::formBlock($name, $date) . "\n\n" . self::INSTRUCTION;
     }
 
-    public static function render(string $body, array $bc, string $date): string
+    public static function render(string $body, array $bc, string $date, array $extra = []): string
     {
         $vars = [
             '{form}'    => self::formBlock((string) $bc['name'], $date),
@@ -53,6 +55,9 @@ final class Templates
             '{cutoff}'  => fmt_time12(Settings::padTime(Settings::get('cutoff_time') ?: '23:59')),
             '{form_time}' => fmt_time12(Settings::padTime(Settings::get('form_time') ?: '18:00')),
         ];
+        foreach ($extra as $k => $v) {
+            $vars['{' . $k . '}'] = (string) $v;
+        }
         return strtr($body, $vars);
     }
 
@@ -67,9 +72,9 @@ final class Templates
         return $rows[($dayIndex + $bcId) % count($rows)]['body'];
     }
 
-    public static function build(string $type, array $bc, string $date): string
+    public static function build(string $type, array $bc, string $date, array $extra = []): string
     {
-        return self::render(self::pick($type, (int) $bc['id'], $date), $bc, $date);
+        return self::render(self::pick($type, (int) $bc['id'], $date), $bc, $date, $extra);
     }
 
     /** @return list<string> validation errors for a template body */

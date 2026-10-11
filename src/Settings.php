@@ -31,6 +31,10 @@ final class Settings
         'high_value_threshold'       => '50',
         'unknown_reply_cooldown_min' => '10',
         'queue_paused'               => '0',
+        // morning target message to BCs
+        'send_target_msg'            => '1',
+        'target_msg_time'            => '09:00',
+        'target_msg_mode'            => 'on_change',
         // people who are not in the BC team
         'unknown_auto_reply'         => '1',
         'unknown_reply_hours'        => '24',

@@ -178,6 +178,7 @@ CREATE TABLE IF NOT EXISTS targets (
   pmsby_off_target  INT UNSIGNED NOT NULL DEFAULT 0,
   updated_by     INT UNSIGNED NULL,
   updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  notified_at    DATETIME NULL COMMENT 'last WhatsApp target message queued',
   PRIMARY KEY (id),
   UNIQUE KEY uq_target_bc_month (bc_id, month),
   CONSTRAINT fk_target_bc FOREIGN KEY (bc_id) REFERENCES bcs(id) ON DELETE CASCADE
@@ -186,7 +187,7 @@ CREATE TABLE IF NOT EXISTS targets (
 -- ------------------------------------------------------------------ messaging
 CREATE TABLE IF NOT EXISTS templates (
   id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  type        ENUM('form','reminder','final_reminder','welcome') NOT NULL,
+  type        ENUM('form','reminder','final_reminder','welcome','target') NOT NULL,
   variant_no  TINYINT UNSIGNED NOT NULL,
   body        TEXT NOT NULL,
   is_active   TINYINT(1) NOT NULL DEFAULT 1,
@@ -200,7 +201,7 @@ CREATE TABLE IF NOT EXISTS message_queue (
   bc_id          INT UNSIGNED NULL,
   chat_id        VARCHAR(64) NOT NULL,
   body           TEXT NOT NULL,
-  kind           ENUM('form','reminder','final_reminder','manual_reminder','welcome','summary','escalation') NOT NULL,
+  kind           ENUM('form','reminder','final_reminder','manual_reminder','welcome','target','summary','escalation') NOT NULL,
   priority       TINYINT UNSIGNED NOT NULL DEFAULT 5 COMMENT 'lower = sent first',
   report_date    DATE NULL,
   status         ENUM('pending','sending','sent','failed','cancelled') NOT NULL DEFAULT 'pending',
@@ -349,3 +350,7 @@ INSERT IGNORE INTO templates (type, variant_no, body, is_active) VALUES
 -- Welcome message sent to a BC when they are added (scheme names allowed here, it is not a form).
 INSERT IGNORE INTO templates (type, variant_no, body, is_active) VALUES
 ('welcome', 1, '🙏 Namaste {name} ji!\n\nAapko *BC Daily Report* system mein jod diya gaya hai ✅\nBC ID: {bc_code}\n\n📌 *Kaise kaam karega*\n1️⃣ Roz {form_time} baje isi number se aapko ek form aayega.\n2️⃣ Form copy karein, har line ke aage aaj ka number likhein aur bhej dein:\nAPY: 2\nPMJJBY: 1\nPMSBY: 3\nPMJDY: 5\nAPY OFFLINE: 0\nJJBY OFFLINE: 0\nSBY OFFLINE: 0\n3️⃣ Kuch nahi kiya to 0 likhein.\n4️⃣ Chhota tareeka: sirf 4 number bhejein – 2 1 3 5 (kram: APY, PMJJBY, PMSBY, PMJDY). Offline bhi ho to 7 number: 2 1 3 5 0 1 0\n5️⃣ Galti ho jaye to {cutoff} tak form dobara bhej dein – report update ho jayegi.\n\n🔤 *Commands*\nFORM – aaj ka form mangwayein\nSTATUS – aaj ki report dekhein\nHELP – madad\n\n👉 Kripya is number ko apne phone mein save kar lein. Dhanyavad 🙏', 1);
+
+-- Morning target message to the BC (free text).
+INSERT IGNORE INTO templates (type, variant_no, body, is_active) VALUES
+('target', 1, '🎯 Namaste {name} ji!\n\n*{month} ka aapka target* (ab tak / target):\n{target_lines}\n\nMahine ke {days_left} din bache hain. Shaam ko roz ki report bhejna na bhoolein 🙏', 1);

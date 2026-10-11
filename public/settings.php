@@ -33,9 +33,11 @@ $times = [
     'cutoff_time' => ['Cutoff time (BC can edit until)', 'कटऑफ समय'],
     'summary_time' => ['Admin summary time', 'सारांश का समय'],
     'escalation_time' => ['Escalation check time', 'एस्केलेशन समय'],
+    'target_msg_time' => ['Morning target message time', 'सुबह लक्ष्य संदेश का समय'],
 ];
 $bools = ['send_summary' => ['Send daily summary', 'दैनिक सारांश भेजें'], 'send_escalation' => ['Send escalations', 'एस्केलेशन भेजें'],
     'warmup_enabled' => ['Warm-up mode (low limit for the first days)', 'वार्म-अप मोड'],
+    'send_target_msg' => ['Send monthly target to BCs in the morning', 'सुबह बीसी को लक्ष्य भेजें'],
     'unknown_auto_reply' => ['Auto-reply to people who are not in the BC team', 'टीम से बाहर वालों को अपने-आप जवाब']];
 
 $errors = [];
@@ -99,6 +101,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $new['unknown_reply_text'] = $ut;
 
+    $new['target_msg_mode'] = p('target_msg_mode') === 'daily' ? 'daily' : 'on_change';
+
     $ws = (string) p('warmup_start_date');
     if ($ws !== '' && !valid_date($ws)) {
         $errors[] = 'Warm-up start date invalid';
@@ -161,6 +165,11 @@ View::header('Settings / सेटिंग्स', 'settings');
       <div class="col-12"><label class="form-label small"><?= L('Weekly off days (no messages)', 'साप्ताहिक अवकाश') ?></label><div>
         <?php foreach ($dayNames as $i => $dn): ?><div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="weekly_off_days[]" value="<?= $i ?>" id="wd<?= $i ?>" <?= in_array($i, $offDays, true) ? 'checked' : '' ?>><label class="form-check-label small" for="wd<?= $i ?>"><?= $dn ?></label></div><?php endforeach; ?>
       </div></div>
+      <div class="col-12 border-top pt-2"><div class="form-check"><input class="form-check-input" type="checkbox" name="send_target_msg" value="1" id="send_target_msg" <?= $s['send_target_msg'] === '1' ? 'checked' : '' ?>><label class="form-check-label small" for="send_target_msg"><?= L(...$bools['send_target_msg']) ?></label></div>
+        <select name="target_msg_mode" class="form-select form-select-sm mt-1">
+          <option value="on_change" <?= $s['target_msg_mode'] !== 'daily' ? 'selected' : '' ?>>Only the morning after a target is set / changed – लक्ष्य बदलने के बाद अगली सुबह</option>
+          <option value="daily" <?= $s['target_msg_mode'] === 'daily' ? 'selected' : '' ?>>Every working morning with progress – रोज़ सुबह प्रगति के साथ</option>
+        </select></div>
       <div class="col-6"><label class="form-label small"><?= L($ints['escalation_days'][2], $ints['escalation_days'][3]) ?></label><input type="number" name="escalation_days" value="<?= e($s['escalation_days']) ?>" class="form-control form-control-sm"></div>
       <div class="col-6 pt-4">
         <?php foreach (['send_summary', 'send_escalation'] as $k): ?><div class="form-check"><input class="form-check-input" type="checkbox" name="<?= $k ?>" value="1" id="<?= $k ?>" <?= $s[$k] === '1' ? 'checked' : '' ?>><label class="form-check-label small" for="<?= $k ?>"><?= L(...$bools[$k]) ?></label></div><?php endforeach; ?>

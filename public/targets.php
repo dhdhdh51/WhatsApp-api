@@ -27,6 +27,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         http_response_code(403);
         exit('Not allowed');
     }
+    if (p('action') === 'send_now') {
+        $n = App\Targets::enqueueMorning(date('Y-m-d'), true, (int) $user['id']);
+        Audit::log((int) $user['id'], 'targets_send_now', 'targets', null, ['queued' => $n]);
+        flash($n ? 'success' : 'info', $n ? "{$n} target messages queued now / लक्ष्य संदेश भेजे जा रहे हैं" : 'No BC with a target this month (or all on leave / STOP)');
+        redirect('/targets.php' . qs());
+    }
     $n = 0;
     foreach ((array) ($_POST['t'] ?? []) as $bcId => $vals) {
         $bcId = (int) $bcId;
@@ -48,7 +54,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $n++;
     }
     Audit::log((int) $user['id'], 'targets_save', 'targets', null, ['month' => $month, 'bcs' => $n]);
-    flash('success', "Targets saved for {$n} BCs / लक्ष्य सेव हुए");
+    $when = App\Settings::bool('send_target_msg') ? ' – BCs get it on WhatsApp tomorrow at ' . fmt_time12(App\Settings::padTime(App\Settings::get('target_msg_time'))) . ' / कल सुबह व्हाट्सऐप पर जाएगा' : '';
+    flash('success', "Targets saved / लक्ष्य सेव हुए{$when}");
     redirect('/targets.php' . qs());
 }
 
@@ -110,6 +117,7 @@ View::header('Monthly targets / मासिक लक्ष्य', 'targets');
   <?php foreach (ReportParser::LABELS as $k => $l): ?><input type="number" min="0" class="form-control form-control-sm" style="width:90px" placeholder="<?= $l ?>" data-fill="<?= $k ?>"><?php endforeach; ?>
   <button type="button" class="btn btn-sm btn-outline-primary" id="fillAll"><?= L('Apply', 'लागू') ?></button>
   <button class="btn btn-sm btn-success ms-auto"><i class="bi bi-save"></i> <?= L('Save targets', 'लक्ष्य सेव करें') ?></button>
+  <button name="action" value="send_now" class="btn btn-sm btn-outline-success" formnovalidate onclick="return confirm('Send this month\'s target to all BCs on WhatsApp now?')"><i class="bi bi-whatsapp"></i> <?= L('Send to BCs now', 'अभी भेजें') ?></button>
 </div></div>
 <?php endif; ?>
 <div class="table-responsive">
