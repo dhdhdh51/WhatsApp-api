@@ -110,10 +110,10 @@ final class QueueWorker
 
     private function skipReason(array $job): ?string
     {
-        if ($job['kind'] === 'target' && (string) $job['report_date'] !== Calendar::today()) {
+        if (in_array($job['kind'], ['target', 'morning'], true) && (string) $job['report_date'] !== Calendar::today()) {
             return 'expired (report date passed)';
         }
-        if ($job['kind'] === 'welcome' || $job['kind'] === 'target') {
+        if (in_array($job['kind'], ['welcome', 'target', 'morning'], true)) {
             $bc = $job['bc_id'] ? DB::one('SELECT is_active, opted_out FROM bcs WHERE id = ?', [$job['bc_id']]) : null;
             return (!$bc || (int) $bc['is_active'] !== 1 || (int) $bc['opted_out'] === 1) ? 'BC inactive / STOP' : null;
         }

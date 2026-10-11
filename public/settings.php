@@ -101,7 +101,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $new['unknown_reply_text'] = $ut;
 
-    $new['target_msg_mode'] = p('target_msg_mode') === 'daily' ? 'daily' : 'on_change';
+    $new['target_msg_mode'] = in_array(p('target_msg_mode'), ['daily', 'on_change', 'daily_perf'], true) ? (string) p('target_msg_mode') : 'daily_perf';
+    foreach (['apy', 'pmjjby', 'pmsby', 'pmjdy'] as $dk) {
+        $dv = (string) p("daily_target_{$dk}");
+        if (!preg_match('/^\d{1,4}$/', $dv)) {
+            $errors[] = "Daily target {$dk}: whole number";
+        } else {
+            $new["daily_target_{$dk}"] = (string) (int) $dv;
+        }
+    }
 
     $ws = (string) p('warmup_start_date');
     if ($ws !== '' && !valid_date($ws)) {
@@ -167,9 +175,14 @@ View::header('Settings / सेटिंग्स', 'settings');
       </div></div>
       <div class="col-12 border-top pt-2"><div class="form-check"><input class="form-check-input" type="checkbox" name="send_target_msg" value="1" id="send_target_msg" <?= $s['send_target_msg'] === '1' ? 'checked' : '' ?>><label class="form-check-label small" for="send_target_msg"><?= L(...$bools['send_target_msg']) ?></label></div>
         <select name="target_msg_mode" class="form-select form-select-sm mt-1">
-          <option value="on_change" <?= $s['target_msg_mode'] !== 'daily' ? 'selected' : '' ?>>Only the morning after a target is set / changed – लक्ष्य बदलने के बाद अगली सुबह</option>
+          <option value="daily_perf" <?= $s['target_msg_mode'] === 'daily_perf' ? 'selected' : '' ?>>Every morning: yesterday's performance + today's target (Supervisor message) – रोज़ सुबह कल का प्रदर्शन + आज का लक्ष्य</option>
+          <option value="on_change" <?= $s['target_msg_mode'] === 'on_change' ? 'selected' : '' ?>>Only the morning after a target is set / changed – लक्ष्य बदलने के बाद अगली सुबह</option>
           <option value="daily" <?= $s['target_msg_mode'] === 'daily' ? 'selected' : '' ?>>Every working morning with progress – रोज़ सुबह प्रगति के साथ</option>
-        </select></div>
+        </select>
+        <div class="row g-1 mt-1"><div class="col-12 small text-muted"><?= L("Default daily target (all BCs) – per-BC change on Targets page", 'रोज़ का लक्ष्य (सभी बीसी)') ?></div>
+        <?php foreach (['apy' => 'APY', 'pmjjby' => 'PMJJBY', 'pmsby' => 'PMSBY', 'pmjdy' => 'PMJDY'] as $dk => $dl): ?>
+          <div class="col-3"><label class="form-label small mb-0"><?= $dl ?></label><input type="number" min="0" name="daily_target_<?= $dk ?>" value="<?= e($s["daily_target_{$dk}"]) ?>" class="form-control form-control-sm"></div>
+        <?php endforeach; ?></div></div>
       <div class="col-6"><label class="form-label small"><?= L($ints['escalation_days'][2], $ints['escalation_days'][3]) ?></label><input type="number" name="escalation_days" value="<?= e($s['escalation_days']) ?>" class="form-control form-control-sm"></div>
       <div class="col-6 pt-4">
         <?php foreach (['send_summary', 'send_escalation'] as $k): ?><div class="form-check"><input class="form-check-input" type="checkbox" name="<?= $k ?>" value="1" id="<?= $k ?>" <?= $s[$k] === '1' ? 'checked' : '' ?>><label class="form-check-label small" for="<?= $k ?>"><?= L(...$bools[$k]) ?></label></div><?php endforeach; ?>

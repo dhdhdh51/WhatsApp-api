@@ -34,7 +34,11 @@ final class Settings
         // morning target message to BCs
         'send_target_msg'            => '1',
         'target_msg_time'            => '09:00',
-        'target_msg_mode'            => 'on_change',
+        'target_msg_mode'            => 'daily_perf',
+        'daily_target_apy'           => '5',
+        'daily_target_pmjjby'        => '5',
+        'daily_target_pmsby'         => '10',
+        'daily_target_pmjdy'         => '5',
         // people who are not in the BC team
         'unknown_auto_reply'         => '1',
         'unknown_reply_hours'        => '24',

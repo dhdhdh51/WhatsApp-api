@@ -16,6 +16,7 @@ final class Templates
         'final_reminder' => ['Final reminder', 'अंतिम रिमाइंडर'],
         'welcome'        => ['Welcome (new BC)', 'स्वागत संदेश (नया बीसी)'],
         'target'         => ['Morning target', 'सुबह का लक्ष्य संदेश'],
+        'morning'        => ['Daily morning (yesterday + today target)', 'रोज़ सुबह (कल का प्रदर्शन + आज का लक्ष्य)'],
     ];
 
     /** Types that are copied back by the BC and therefore must contain exactly one {form}. */
@@ -27,6 +28,7 @@ final class Templates
         'form'           => "{form}\n\n" . self::INSTRUCTION,
         'reminder'       => "⏰ {name} ji, aaj ki report abhi baaki hai.\n\n{form}\n\n" . self::INSTRUCTION,
         'final_reminder' => "⚠️ {name} ji, aakhri reminder! Report {cutoff} tak bhej dein.\n\n{form}\n\n" . self::INSTRUCTION,
+        'morning'        => "*प्रिय BCA {name} जी,*\n\n📊 *कल दिनांक {yesterday} को आपके द्वारा किया गया प्रदर्शन:*\n\n- *APY: {y_apy}*\n- *PMJJBY: {y_pmjjby}*\n- *PMSBY: {y_pmsby}*\n- *PMJDY: {y_pmjdy}*\n- APY Offline: {y_apy_off}\n- JJBY Offline: {y_pmjjby_off}\n- SBY Offline: {y_pmsby_off}\n\n🎯 *आज का निर्धारित लक्ष्य:*\n\n- *APY: {t_apy}*\n- *PMJJBY: {t_pmjjby}*\n- *PMSBY: {t_pmsby}*\n- *PMJDY: {t_pmjdy}*\n\nआपसे अपेक्षा है कि आज अपने प्रदर्शन में सुधार करते हुए *निर्धारित लक्ष्य को अनिवार्य रूप से पूरा करें।*\n\n*महत्वपूर्ण निर्देश:* उपरोक्त सभी योजनाओं में नामांकन *ऑनलाइन या ऑफलाइन, किसी भी माध्यम से* किया जा सकता है। अतः किसी भी प्रकार की तकनीकी समस्या या अन्य कारण से नामांकन कार्य बाधित न होने दें और सभी योजनाओं में निर्धारित लक्ष्य पूरा करने का हरसंभव प्रयास करें।\n\nकृपया इस निर्देश को *गंभीरता से लें* तथा आज बेहतर प्रदर्शन सुनिश्चित करें।\n\nसादर,\n*BC Supervisor*\n*Agra Region*",
         'target'         => "🎯 Namaste {name} ji!\n\n*{month} ka aapka target* (ab tak / target):\n{target_lines}\n\nMahine ke {days_left} din bache hain. Shaam ko roz ki report bhejna na bhoolein 🙏",
         'welcome'        => "🙏 Namaste {name} ji!\n\nAapko *BC Daily Report* system mein jod diya gaya hai ✅\nBC ID: {bc_code}\n\n📌 *Kaise kaam karega*\n1️⃣ Roz {form_time} baje isi number se aapko ek form aayega.\n2️⃣ Form copy karein, har line ke aage aaj ka number likhein aur bhej dein:\nAPY: 2\nPMJJBY: 1\nPMSBY: 3\nPMJDY: 5\nAPY OFFLINE: 0\nJJBY OFFLINE: 0\nSBY OFFLINE: 0\n3️⃣ Kuch nahi kiya to 0 likhein.\n4️⃣ Chhota tareeka: sirf 4 number bhejein – 2 1 3 5 (kram: APY, PMJJBY, PMSBY, PMJDY). Offline bhi ho to 7 number: 2 1 3 5 0 1 0\n5️⃣ Galti ho jaye to {cutoff} tak form dobara bhej dein – report update ho jayegi.\n\n🔤 *Commands*\nFORM – aaj ka form mangwayein\nSTATUS – aaj ki report dekhein\nHELP – madad\n\n👉 Kripya is number ko apne phone mein save kar lein. Dhanyavad 🙏",
     ];

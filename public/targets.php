@@ -51,6 +51,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
              ON DUPLICATE KEY UPDATE ' . implode(', ', array_map(static fn ($c) => "{$c} = VALUES({$c})", $tc)) . ', updated_by = VALUES(updated_by)',
             array_merge([$bcId, $monthStart], array_values($v), [$user['id']])
         );
+        $dvals = [];
+        foreach (App\Targets::DAILY as $dk) {
+            $raw = trim((string) ($_POST['d'][$bcId][$dk] ?? ''));
+            $dvals[] = preg_match('/^\d{1,4}$/', $raw) ? (int) $raw : null; // blank = default
+        }
+        DB::exec('UPDATE targets SET d_apy = ?, d_pmjjby = ?, d_pmsby = ?, d_pmjdy = ? WHERE bc_id = ? AND month = ?',
+            array_merge($dvals, [$bcId, $monthStart]));
         $n++;
     }
     Audit::log((int) $user['id'], 'targets_save', 'targets', null, ['month' => $month, 'bcs' => $n]);
@@ -68,7 +75,7 @@ if (q('branch_id') !== '') {
 }
 $rows = DB::all(
     "SELECT b.id, b.bc_code, b.name, br.name branch,
-            " . implode(', ', array_map(static fn ($k) => "COALESCE(a.{$k},0) {$k}, t.{$k}_target", ReportParser::SCHEMES)) . "
+            " . implode(', ', array_map(static fn ($k) => "COALESCE(a.{$k},0) {$k}, t.{$k}_target", ReportParser::SCHEMES)) . ", t.d_apy, t.d_pmjjby, t.d_pmsby, t.d_pmjdy
      FROM bcs b
      LEFT JOIN branches br ON br.id = b.branch_id
      LEFT JOIN (SELECT bc_id, " . implode(', ', array_map(static fn ($k) => "SUM({$k}) {$k}", ReportParser::SCHEMES)) . "
@@ -122,16 +129,19 @@ View::header('Monthly targets / मासिक लक्ष्य', 'targets');
 <?php endif; ?>
 <div class="table-responsive">
 <table class="table table-sm table-bordered align-middle targets">
-  <thead class="table-light"><tr><th rowspan="2">BC</th><?php foreach (ReportParser::LABELS as $l): ?><th colspan="2" class="text-center"><?= $l ?></th><?php endforeach; ?></tr>
-    <tr><?php foreach (ReportParser::LABELS as $l): ?><th class="small"><?= L('Target', 'लक्ष्य') ?></th><th class="small"><?= L('Achieved', 'प्राप्त') ?></th><?php endforeach; ?></tr></thead>
+  <thead class="table-light"><tr><th rowspan="2">BC</th><?php foreach (ReportParser::LABELS as $l): ?><th colspan="2" class="text-center"><?= $l ?></th><?php endforeach; ?><th colspan="4" class="text-center bg-success-subtle"><?= L('Daily target (blank = default)', 'रोज़ का लक्ष्य') ?></th></tr>
+    <tr><?php foreach (ReportParser::LABELS as $l): ?><th class="small"><?= L('Target', 'लक्ष्य') ?></th><th class="small"><?= L('Achieved', 'प्राप्त') ?></th><?php endforeach; ?><th class="small">APY</th><th class="small">JJBY</th><th class="small">SBY</th><th class="small">JDY</th></tr></thead>
   <tbody>
   <?php foreach ($rows as $r): ?>
     <tr><td class="small"><?= e($r['name']) ?><br><span class="text-muted"><?= e($r['bc_code']) ?> · <?= e($r['branch']) ?></span></td>
     <?php foreach (ReportParser::SCHEMES as $s): $t = (int) $r[$s . '_target']; $a = (int) $r[$s]; $p = $pct($a, $t); ?>
       <td><input type="number" min="0" name="t[<?= (int) $r['id'] ?>][<?= $s ?>]" value="<?= $t ?>" class="form-control form-control-sm" data-col="<?= $s ?>" <?= $canEdit ? '' : 'readonly'?> style="min-width:70px"></td>
       <td class="text-nowrap"><?= $a ?><?php if ($p !== null): ?><div class="progress" style="height:5px" title="<?= $p ?>%"><div class="progress-bar bg-<?= $p >= 100 ? 'success' : ($p >= 50 ? 'warning' : 'danger') ?>" style="width:<?= min(100, $p) ?>%"></div></div><small><?= $p ?>%</small><?php endif; ?></td>
+    <?php endforeach; ?>
+    <?php $defs = App\Targets::dailyTarget(null); foreach (App\Targets::DAILY as $dk): ?>
+      <td class="bg-success-subtle"><input type="number" min="0" name="d[<?= (int) $r['id'] ?>][<?= $dk ?>]" value="<?= $r["d_{$dk}"] !== null ? (int) $r["d_{$dk}"] : '' ?>" placeholder="<?= (int) $defs[$dk] ?>" class="form-control form-control-sm" <?= $canEdit ? '' : 'readonly' ?> style="min-width:60px"></td>
     <?php endforeach; ?></tr>
-  <?php endforeach; if (!$rows): ?><tr><td colspan="15" class="text-muted">No BCs</td></tr><?php endif; ?>
+  <?php endforeach; if (!$rows): ?><tr><td colspan="19" class="text-muted">No BCs</td></tr><?php endif; ?>
   </tbody>
 </table>
 </div>
