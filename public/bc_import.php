@@ -32,10 +32,10 @@ function import_field(string $h): ?string
     if ($h === '' || preg_match('/^(s|sr|sl|serial) ?(no|number|n)\b|^sno$|^#$|क्रम/u', $h)) {
         return null;
     }
-    $isCbc = (bool) preg_match('/\bcbc\b|सीबीसी|corporate/u', $h);
+    $isCbc = (bool) preg_match('/cbc|सीबीसी|corporate/u', $h); // CBCNAME, CBC Name, cbc_mobile
     $isPhone = (bool) preg_match('/mob|phone|contact|whats|number|\bno\b|मोबाइल|फोन|नंबर/u', $h) && !preg_match('/\bid\b|code|kiosk|account|a c/u', $h);
     if ($isCbc) {
-        return $isPhone ? 'cbc_phone' : (preg_match('/name|नाम|^cbc$/u', $h) ? 'cbc' : null);
+        return $isPhone ? 'cbc_phone' : (preg_match('/name|नाम|^cbc$|company/u', $h) ? 'cbc' : null);
     }
     if (preg_match('/supervisor|सुपरवाइजर/u', $h)) {
         return null;
@@ -46,8 +46,11 @@ function import_field(string $h): ?string
     if (preg_match('/bc ?code|bc ?id|kiosk|csp|agent ?id|^code$|^id$|कोड|आईडी/u', $h)) {
         return 'bc_code';
     }
-    if (preg_match('/branch|sol|शाखा/u', $h)) {
+    if (preg_match('/branch ?name|शाखा का नाम|शाखा नाम/u', $h)) {
         return 'branch';
+    }
+    if (preg_match('/branch|sol|शाखा/u', $h)) {
+        return 'branch_code'; // used only when there is no branch-name column
     }
     if (preg_match('/block|ब्लॉक/u', $h)) {
         return 'block';
@@ -176,7 +179,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $code = substr($code, 0, 40);
 
         $branchId = null;
-        $bn = $row['branch'] ?? '';
+        $bn = ($row['branch'] ?? '') !== '' ? $row['branch'] : ($row['branch_code'] ?? '');
         if ($bn !== '') {
             if (!isset($branchCache[$bn])) {
                 $b = DB::one('SELECT id FROM branches WHERE name = ?', [$bn]);
