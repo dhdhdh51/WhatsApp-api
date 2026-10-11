@@ -52,6 +52,12 @@ final class Summary
             . "\n*Totals*\n"
             . "APY: {$tot['apy']}\nPMJJBY: {$tot['pmjjby']}\nPMSBY: {$tot['pmsby']}\nPMJDY: {$tot['pmjdy']}\n";
 
+        if ($branchIds === null) {
+            $unknown = (int) DB::val("SELECT COUNT(*) FROM messages WHERE direction = 'in' AND kind = 'unknown_sender' AND created_at >= ? AND created_at < (? + INTERVAL 1 DAY)", [$date, $date]);
+            if ($unknown > 0) {
+                $t .= "\n📩 Team se bahar ke numbers se {$unknown} message aaye – panel mein Inbox dekhein.\n";
+            }
+        }
         if ($submitted) {
             $t .= "\n*✅ Submitted BCs* (APY/PMJJBY/PMSBY/PMJDY)\n";
             foreach (array_slice($submitted, 0, 150) as $i => $r) {

@@ -31,6 +31,10 @@ final class Settings
         'high_value_threshold'       => '50',
         'unknown_reply_cooldown_min' => '10',
         'queue_paused'               => '0',
+        // people who are not in the BC team
+        'unknown_auto_reply'         => '1',
+        'unknown_reply_hours'        => '24',
+        'unknown_reply_text'         => "🙏 Namaste! Ye number *BC Daily Report* team ke liye hai, aur aapka number hamari team mein registered nahi hai.\n\nAapko jo bhi baat kehni hai, yahin likh kar bhej dein – Admin aapka message dekh kar sampark karenge. Dhanyavad 🙏",
         // runtime state (written by the system)
         'wa_status'                  => 'UNKNOWN',
         'wa_status_at'               => '',

@@ -25,6 +25,7 @@ $ints = [
     'max_retries'                => [0, 2, 'Retries on failure (max 2)', 'विफल होने पर पुनः प्रयास'],
     'max_value'                  => [1, 100000, 'Maximum allowed value per scheme', 'प्रति योजना अधिकतम संख्या'],
     'high_value_threshold'       => [0, 100000, 'Ask confirmation above (0 = off)', 'इससे ऊपर पुष्टि माँगें'],
+    'unknown_reply_hours'        => [1, 720, 'Reply to the same number at most once every (hours)', 'एक नंबर को कितने घंटे में एक बार जवाब'],
     'unknown_reply_cooldown_min' => [0, 1440, 'Min minutes between "not understood" replies', '"समझ नहीं आया" जवाब का अंतर (मिनट)'],
 ];
 $times = [
@@ -34,7 +35,8 @@ $times = [
     'escalation_time' => ['Escalation check time', 'एस्केलेशन समय'],
 ];
 $bools = ['send_summary' => ['Send daily summary', 'दैनिक सारांश भेजें'], 'send_escalation' => ['Send escalations', 'एस्केलेशन भेजें'],
-    'warmup_enabled' => ['Warm-up mode (low limit for the first days)', 'वार्म-अप मोड']];
+    'warmup_enabled' => ['Warm-up mode (low limit for the first days)', 'वार्म-अप मोड'],
+    'unknown_auto_reply' => ['Auto-reply to people who are not in the BC team', 'टीम से बाहर वालों को अपने-आप जवाब']];
 
 $errors = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -90,6 +92,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $off = array_values(array_filter(array_map('intval', (array) ($_POST['weekly_off_days'] ?? [])), static fn ($d) => $d >= 0 && $d <= 6));
     $new['weekly_off_days'] = implode(',', array_unique($off));
+
+    $ut = trim(str_replace("\r\n", "\n", (string) ($_POST['unknown_reply_text'] ?? '')));
+    if ($ut === '' || mb_strlen($ut) > 1000) {
+        $errors[] = 'Reply text for non-team numbers: 1–1000 characters';
+    }
+    $new['unknown_reply_text'] = $ut;
 
     $ws = (string) p('warmup_start_date');
     if ($ws !== '' && !valid_date($ws)) {
@@ -180,6 +188,13 @@ View::header('Settings / सेटिंग्स', 'settings');
       <div class="col-4"><label class="form-label small"><?= L($ints['warmup_daily_limit'][2], $ints['warmup_daily_limit'][3]) ?></label><input type="number" name="warmup_daily_limit" value="<?= e($s['warmup_daily_limit']) ?>" class="form-control form-control-sm"></div>
       <div class="col-12 small text-muted">Current effective limit: <strong><?= Settings::effectiveDailyLimit() ?></strong><?= Settings::isWarmup() ? ' (warm-up active)' : '' ?>.
         Warm-up start is set automatically the first time WhatsApp connects. Summaries/escalations to Admin are not counted. Direct replies to a BC's message are sent immediately and are not limited.</div>
+    </div></div>
+    <div class="card mt-3"><div class="card-header"><?= L('Messages from non-team numbers', 'टीम से बाहर के नंबर') ?></div><div class="card-body row g-2">
+      <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" name="unknown_auto_reply" value="1" id="unknown_auto_reply" <?= $s['unknown_auto_reply'] === '1' ? 'checked' : '' ?>><label class="form-check-label small" for="unknown_auto_reply"><?= L(...$bools['unknown_auto_reply']) ?></label></div></div>
+      <div class="col-12"><label class="form-label small"><?= L('Reply text', 'जवाब का संदेश') ?></label>
+        <textarea name="unknown_reply_text" rows="4" class="form-control form-control-sm" maxlength="1000"><?= e($s['unknown_reply_text']) ?></textarea></div>
+      <div class="col-6"><label class="form-label small"><?= L($ints['unknown_reply_hours'][2], $ints['unknown_reply_hours'][3]) ?></label><input type="number" name="unknown_reply_hours" value="<?= e($s['unknown_reply_hours']) ?>" class="form-control form-control-sm"></div>
+      <div class="col-12 small text-muted">Their messages are always saved in <a href="/inbox.php">Inbox</a> (also for inactive BCs). Groups are ignored. / उनके संदेश इनबॉक्स में सेव होते हैं।</div>
     </div></div>
     <div class="card mt-3"><div class="card-body small">
       <a href="/templates.php"><i class="bi bi-card-text"></i> <?= L('Edit message templates', 'संदेश टेम्पलेट बदलें') ?></a>

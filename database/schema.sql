@@ -230,6 +230,23 @@ CREATE TABLE IF NOT EXISTS messages (
   CONSTRAINT fk_msg_bc FOREIGN KEY (bc_id) REFERENCES bcs(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- messages from numbers that are not (or no longer) in the BC team – Admin inbox
+CREATE TABLE IF NOT EXISTS inbox_threads (
+  chat_id          VARCHAR(64) NOT NULL,
+  phone            CHAR(10) NULL,
+  name             VARCHAR(120) NULL COMMENT 'WhatsApp profile name',
+  bc_id            INT UNSIGNED NULL COMMENT 'set when the sender is an inactive BC',
+  message_count    INT UNSIGNED NOT NULL DEFAULT 0,
+  unread           INT UNSIGNED NOT NULL DEFAULT 0,
+  first_at         DATETIME NOT NULL,
+  last_at          DATETIME NOT NULL,
+  auto_replied_at  DATETIME NULL,
+  archived         TINYINT(1) NOT NULL DEFAULT 0,
+  PRIMARY KEY (chat_id),
+  KEY idx_inbox_last (archived, last_at),
+  CONSTRAINT fk_inbox_bc FOREIGN KEY (bc_id) REFERENCES bcs(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ------------------------------------------------------------------ system
 CREATE TABLE IF NOT EXISTS settings (
   `key`       VARCHAR(64) NOT NULL,

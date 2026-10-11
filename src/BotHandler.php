@@ -66,7 +66,8 @@ final class BotHandler
             $quotedId = $quotedId['_serialized'] ?? null;
         }
 
-        $bc = $this->resolveBc($from, $p);
+        [$bc, $phone] = $this->resolveSender($from, $p);
+        $isTeam = $bc !== null && (int) $bc['is_active'] === 1;
 
         // Log first: the unique (direction, wa_message_id) key makes duplicate webhooks a no-op.
         $logId = MessageLog::add([
@@ -74,27 +75,69 @@ final class BotHandler
             'direction' => 'in',
             'chat_id' => $from,
             'body' => $body !== '' ? $body : (!empty($p['hasMedia']) ? '[media]' : ''),
-            'kind' => 'incoming',
-            'status' => $bc ? 'received' : 'ignored',
+            'kind' => $isTeam ? 'incoming' : 'unknown_sender',
+            'status' => 'received',
             'wa_message_id' => $msgId,
             'reply_to_id' => is_string($quotedId) ? $quotedId : null,
         ]);
         if ($logId === 0) {
             return; // duplicate delivery
         }
-        if (!$bc) {
-            return; // unknown or inactive number – no reply
-        }
 
         try {
+            if (!$isTeam) {
+                $this->onNonTeamMessage($from, $phone, $bc, $msgId, self::senderName($p));
+                return;
+            }
             $this->process($bc, $from, $msgId, $body, !empty($p['hasMedia']), is_string($quotedId) ? $quotedId : null, $logId);
         } catch (\Throwable $e) {
-            Logger::error('Bot processing failed: ' . $e->getMessage(), ['bc' => $bc['id'], 'msg' => $msgId]);
+            Logger::error('Bot processing failed: ' . $e->getMessage(), ['bc' => $bc['id'] ?? null, 'msg' => $msgId]);
         }
     }
 
-    /** Finds the active BC for a chat id (phone based, or hidden @lid resolved through WAHA). */
-    private function resolveBc(string $from, array $p): ?array
+    /**
+     * Someone who is not (or no longer) in the BC team wrote to the number:
+     * keep the message in the Admin inbox and tell them – at most once per cooldown – that the Admin will read it.
+     */
+    private function onNonTeamMessage(string $chatId, ?string $phone, ?array $bc, string $msgId, ?string $name): void
+    {
+        DB::exec(
+            'INSERT INTO inbox_threads (chat_id, phone, name, bc_id, message_count, unread, first_at, last_at, archived)
+             VALUES (?, ?, ?, ?, 1, 1, NOW(), NOW(), 0)
+             ON DUPLICATE KEY UPDATE phone = COALESCE(VALUES(phone), phone), name = COALESCE(VALUES(name), name),
+               bc_id = COALESCE(VALUES(bc_id), bc_id), message_count = message_count + 1, unread = unread + 1,
+               last_at = NOW(), archived = 0',
+            [$chatId, $phone, $name !== null ? mb_substr($name, 0, 120) : null, $bc['id'] ?? null]
+        );
+        if (!Settings::bool('unknown_auto_reply')) {
+            return;
+        }
+        $hours = max(1, Settings::int('unknown_reply_hours'));
+        $last = DB::val('SELECT auto_replied_at FROM inbox_threads WHERE chat_id = ?', [$chatId]);
+        if ($last && strtotime((string) $last) > time() - $hours * 3600) {
+            return; // already told them recently
+        }
+        $text = trim(Settings::get('unknown_reply_text')) ?: Settings::DEFAULTS['unknown_reply_text'];
+        if ($this->reply($bc, $chatId, $msgId, $text, 'reply_unknown_sender')) {
+            DB::exec('UPDATE inbox_threads SET auto_replied_at = NOW() WHERE chat_id = ?', [$chatId]);
+        }
+    }
+
+    private static function senderName(array $p): ?string
+    {
+        foreach ([$p['_data']['notifyName'] ?? null, $p['_data']['pushName'] ?? null, $p['_data']['Info']['PushName'] ?? null, $p['notifyName'] ?? null] as $n) {
+            if (is_string($n) && trim($n) !== '') {
+                return trim($n);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Finds the sender: [BC row (active or inactive) | null, 10-digit phone | null].
+     * Phone based, or a hidden @lid resolved through WAHA (and remembered on the BC).
+     */
+    private function resolveSender(string $from, array $p): array
     {
         $phone = Phone::fromChatId($from);
         $lid = str_ends_with($from, '@lid') ? $from : null;
@@ -102,7 +145,7 @@ final class BotHandler
         if (!$phone && $lid) {
             $bc = DB::one('SELECT * FROM bcs WHERE wa_lid = ?', [$lid]);
             if ($bc) {
-                return (int) $bc['is_active'] === 1 ? $bc : null;
+                return [$bc, $bc['phone']];
             }
             // some engines include the phone-number JID next to the LID
             foreach ([$p['_data']['key']['remoteJidAlt'] ?? null, $p['_data']['key']['senderPn'] ?? null,
@@ -116,17 +159,14 @@ final class BotHandler
             }
         }
         if (!$phone) {
-            return null;
+            return [null, null];
         }
         $bc = DB::one('SELECT * FROM bcs WHERE phone = ?', [$phone]);
-        if (!$bc || (int) $bc['is_active'] !== 1) {
-            return null;
-        }
-        if ($lid && $bc['wa_lid'] !== $lid) {
+        if ($bc && $lid && $bc['wa_lid'] !== $lid) {
             DB::exec('UPDATE bcs SET wa_lid = NULL WHERE wa_lid = ?', [$lid]);
             DB::exec('UPDATE bcs SET wa_lid = ? WHERE id = ?', [$lid, $bc['id']]);
         }
-        return $bc;
+        return [$bc, $phone];
     }
 
     private function process(array $bc, string $chatId, string $msgId, string $body, bool $hasMedia, ?string $quotedId, int $logId): void
@@ -339,7 +379,7 @@ final class BotHandler
     }
 
     /** Immediate chat reply (seen → short typing → text) and log it. */
-    private function reply(array $bc, string $chatId, string $inMsgId, string $text, string $kind, ?string $reportDate = null): void
+    private function reply(?array $bc, string $chatId, string $inMsgId, string $text, string $kind, ?string $reportDate = null): bool
     {
         $this->waha->sendSeen($chatId, $inMsgId);
         $this->waha->startTyping($chatId);
@@ -347,7 +387,7 @@ final class BotHandler
         $this->waha->stopTyping($chatId);
         $r = $this->waha->sendText($chatId, $text);
         MessageLog::add([
-            'bc_id' => (int) $bc['id'],
+            'bc_id' => $bc ? (int) $bc['id'] : null,
             'direction' => 'out',
             'chat_id' => $chatId,
             'body' => $text,
@@ -358,7 +398,8 @@ final class BotHandler
             'report_date' => $reportDate,
         ]);
         if (!$r['ok']) {
-            Logger::warn('Reply failed', ['bc' => $bc['id'], 'error' => $r['error']]);
+            Logger::warn('Reply failed', ['bc' => $bc['id'] ?? null, 'chat' => $chatId, 'error' => $r['error']]);
         }
+        return $r['ok'];
     }
 }

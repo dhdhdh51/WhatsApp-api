@@ -19,7 +19,8 @@ if ($id && !$bc) {
     redirect('/bcs.php');
 }
 
-$data = $bc ?? ['bc_code' => '', 'name' => '', 'phone' => '', 'branch_id' => '', 'block' => '', 'is_active' => 1, 'notes' => ''];
+$data = $bc ?? ['bc_code' => '', 'name' => mb_substr((string) q('name'), 0, 120), 'phone' => (string) (Phone::normalize((string) q('phone')) ?? ''),
+    'branch_id' => '', 'block' => '', 'is_active' => 1, 'notes' => ''];
 $errors = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
