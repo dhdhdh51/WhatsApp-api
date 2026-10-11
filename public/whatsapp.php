@@ -48,6 +48,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'logout':
             $res = $waha->sessionAction($action);
             break;
+        case 'pair_code':
+            $phone = App\Phone::normalize((string) p('pair_phone'));
+            if (!$phone) {
+                $res = ['ok' => false, 'error' => 'Invalid Indian mobile number / गलत मोबाइल नंबर'];
+                break;
+            }
+            $pc = $waha->requestPairingCode($phone);
+            if ($pc['ok']) {
+                $_SESSION['pair_code'] = ['code' => $pc['code'], 'phone' => $phone, 'at' => time()];
+            }
+            $res = ['ok' => $pc['ok'], 'error' => $pc['error']];
+            break;
         case 'pause':
             Settings::set('queue_paused', '1');
             break;
@@ -84,6 +96,26 @@ View::header('WhatsApp connection / व्हाट्सऐप कनेक्�
         <img id="qrImg" alt="QR" class="img-fluid border rounded" style="max-width:280px" src="<?= $info['status'] === 'SCAN_QR_CODE' ? '/whatsapp.php?ajax=qr&t=' . time() : '' ?>">
         <div class="small text-muted mt-1">WhatsApp → Settings → Linked devices → Link a device. QR refreshes automatically.<br>व्हाट्सऐप → लिंक्ड डिवाइस → डिवाइस लिंक करें</div>
       </div>
+      <?php $pair = $_SESSION['pair_code'] ?? null; if ($pair && time() - $pair['at'] > 180) { unset($_SESSION['pair_code']); $pair = null; } ?>
+      <?php if ($info['status'] === 'SCAN_QR_CODE' || $pair): ?>
+      <div class="border rounded p-2 mb-3 bg-light">
+        <div class="fw-semibold small mb-1"><i class="bi bi-phone"></i> <?= L('No scanner? Link with phone number', 'QR स्कैन नहीं हो रहा? फ़ोन नंबर से लिंक करें') ?></div>
+        <?php if ($pair): ?>
+          <div class="text-center my-2"><div class="small text-muted">Code for +91 <?= e($pair['phone']) ?></div>
+            <div class="display-6 fw-bold font-monospace text-success"><?= e($pair['code']) ?></div></div>
+          <ol class="small mb-2">
+            <li>WhatsApp → ⋮ / Settings → <b>Linked devices</b> → <b>Link a device</b></li>
+            <li>Tap <b>"Link with phone number instead"</b> / "फ़ोन नंबर से लिंक करें"</li>
+            <li>Enter the code above (valid ~2-3 minutes) / ऊपर वाला कोड डालें</li>
+          </ol>
+        <?php endif; ?>
+        <form method="post" class="d-flex gap-2"><?= Csrf::field() ?>
+          <div class="input-group input-group-sm"><span class="input-group-text">+91</span>
+            <input name="pair_phone" class="form-control" placeholder="WhatsApp number of this phone" inputmode="tel" maxlength="16" required></div>
+          <button name="action" value="pair_code" class="btn btn-sm btn-primary text-nowrap"><?= L('Get code', 'कोड पाएँ') ?></button>
+        </form>
+      </div>
+      <?php endif; ?>
       <form method="post" class="d-flex flex-wrap gap-2"><?= Csrf::field() ?>
         <button name="action" value="ensure" class="btn btn-success btn-sm"><i class="bi bi-play-circle"></i> <?= L('Create / start session', 'सत्र शुरू करें') ?></button>
         <button name="action" value="restart" class="btn btn-warning btn-sm" onclick="return confirm('Restart the WhatsApp session?')"><i class="bi bi-arrow-clockwise"></i> <?= L('Restart session', 'सत्र रीस्टार्ट') ?></button>

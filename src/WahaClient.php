@@ -164,6 +164,20 @@ final class WahaClient
         return null;
     }
 
+    /**
+     * Link without scanning: WhatsApp → Linked devices → Link with phone number → enter this code.
+     * @return array{ok:bool, code:?string, error:string}
+     */
+    public function requestPairingCode(string $tenDigits): array
+    {
+        $r = $this->request('POST', '/api/' . rawurlencode($this->session) . '/auth/request-code', ['phoneNumber' => '91' . $tenDigits], 30);
+        if (!self::ok($r)) {
+            return ['ok' => false, 'code' => null, 'error' => self::errorText($r)];
+        }
+        $code = is_array($r['json']) ? (string) ($r['json']['code'] ?? '') : '';
+        return $code !== '' ? ['ok' => true, 'code' => $code, 'error' => ''] : ['ok' => false, 'code' => null, 'error' => 'No code returned'];
+    }
+
     // ---------------------------------------------------------------- messaging
 
     /** @return array{ok:bool, id:?string, error:string, http:int} */
