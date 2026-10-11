@@ -8,6 +8,7 @@ use App\Auth;
 use App\Csrf;
 use App\DB;
 use App\Phone;
+use App\Queue;
 use App\View;
 
 $user = Auth::requireAdmin();
@@ -42,7 +43,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    $result = ['created' => 0, 'updated' => 0, 'errors' => []];
+    $result = ['created' => 0, 'updated' => 0, 'welcome' => 0, 'errors' => []];
+    $sendWelcome = p('send_welcome') === '1';
     $line = 1;
     $branchCache = [];
     while (($cols = fgetcsv($fh, 0, $delim, '"', '\\')) !== false) {
@@ -92,9 +94,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 [mb_substr($row['name'], 0, 120), $phone, $branchId, ($row['block'] ?? '') ?: null, $active, $existing['id']]);
             $result['updated']++;
         } else {
-            DB::insert('INSERT INTO bcs (bc_code, name, phone, branch_id, block, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+            $newId = DB::insert('INSERT INTO bcs (bc_code, name, phone, branch_id, block, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
                 [$code, mb_substr($row['name'], 0, 120), $phone, $branchId, ($row['block'] ?? '') ?: null, $active]);
             $result['created']++;
+            if ($sendWelcome && ($fresh = DB::one('SELECT * FROM bcs WHERE id = ?', [$newId])) && Queue::welcome($fresh, (int) $user['id'])) {
+                $result['welcome']++;
+            }
         }
     }
     fclose($fh);
@@ -105,16 +110,20 @@ View::header('CSV import / CSV इम्पोर्ट', 'bcs');
 ?>
 <?php if ($result): ?>
   <div class="alert alert-<?= $result['errors'] ? 'warning' : 'success' ?>">
-    Created / जोड़े: <strong><?= $result['created'] ?></strong>, Updated / अपडेट: <strong><?= $result['updated'] ?></strong>, Errors / त्रुटियाँ: <strong><?= count($result['errors']) ?></strong>
+    Created / जोड़े: <strong><?= $result['created'] ?></strong>, Updated / अपडेट: <strong><?= $result['updated'] ?></strong>, Errors / त्रुटियाँ: <strong><?= count($result['errors']) ?></strong>,
+    Welcome queued / स्वागत संदेश: <strong><?= (int) $result['welcome'] ?></strong>
     <?php if ($result['errors']): ?><ul class="mb-0 mt-2 small"><?php foreach (array_slice($result['errors'], 0, 200) as $er): ?><li><?= e($er) ?></li><?php endforeach; ?></ul><?php endif; ?>
   </div>
 <?php endif; ?>
 <div class="card"><div class="card-body">
   <p class="small">Columns / कॉलम: <code>bc_code, name, phone, branch, area, block, is_active</code>. Existing BCs (same <code>bc_code</code>) are updated; unknown branches are created.
-    Phone: 10-digit Indian mobile, +91 / 0 prefix allowed.</p>
+    Phone: 10-digit Indian mobile, +91 / 0 prefix allowed.
+    Welcome messages go out one by one through the safe queue (daily limit applies – large imports may take more than a day during warm-up).</p>
   <a href="/bc_import.php?template=1" class="btn btn-sm btn-outline-secondary mb-3"><i class="bi bi-file-earmark-spreadsheet"></i> <?= L('Download template', 'टेम्पलेट डाउनलोड') ?></a>
   <form method="post" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap"><?= Csrf::field() ?>
     <input type="file" name="csv" accept=".csv,text/csv" class="form-control" style="max-width:360px" required>
+    <div class="form-check align-self-center"><input class="form-check-input" type="checkbox" name="send_welcome" value="1" id="sw" checked>
+      <label class="form-check-label small" for="sw"><?= L('Send welcome message to new BCs', 'नए बीसी को स्वागत संदेश भेजें') ?></label></div>
     <button class="btn btn-success"><i class="bi bi-upload"></i> <?= L('Import', 'इम्पोर्ट') ?></button>
   </form>
 </div></div>

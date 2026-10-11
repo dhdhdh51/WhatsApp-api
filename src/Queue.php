@@ -74,6 +74,30 @@ final class Queue
         );
     }
 
+    /**
+     * Welcome / onboarding message for a newly added BC (goes through the queue like every scheduled message).
+     * If today's form time has already passed, today's form follows right after the welcome.
+     * @return bool true when queued
+     */
+    public static function welcome(array $bc, ?int $userId = null): bool
+    {
+        if ((int) ($bc['is_active'] ?? 0) !== 1 || (int) ($bc['opted_out'] ?? 0) === 1) {
+            return false;
+        }
+        $id = (int) $bc['id'];
+        $today = Calendar::today();
+        $queued = self::enqueue($id, self::chatIdFor($bc), Templates::build('welcome', $bc, $today), 'welcome', null, 3,
+            "welcome:{$id}:" . date('YmdHis'), $userId) > 0;
+
+        $formTime = Settings::padTime(Settings::get('form_time') ?: '18:00');
+        if ($queued && date('H:i') >= $formTime && Calendar::isOpen($today)
+            && !self::hasPendingFor($id, $today) && Calendar::bcStillPending($id, $today)) {
+            self::enqueue($id, self::chatIdFor($bc), Templates::build('form', $bc, $today), 'form', $today, 3,
+                "form_late:{$id}:{$today}", $userId, date('Y-m-d H:i:s', time() + 60));
+        }
+        return $queued;
+    }
+
     /** Enqueue a reminder for pending BCs right now (button in the panel). Returns number queued. */
     public static function reminderNow(array $user, array $bcIds = []): int
     {

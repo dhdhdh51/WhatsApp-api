@@ -108,6 +108,10 @@ final class QueueWorker
 
     private function skipReason(array $job): ?string
     {
+        if ($job['kind'] === 'welcome') {
+            $bc = $job['bc_id'] ? DB::one('SELECT is_active, opted_out FROM bcs WHERE id = ?', [$job['bc_id']]) : null;
+            return (!$bc || (int) $bc['is_active'] !== 1 || (int) $bc['opted_out'] === 1) ? 'BC inactive / STOP' : null;
+        }
         if (!in_array($job['kind'], Queue::BC_KINDS, true)) {
             return null;
         }
@@ -166,6 +170,9 @@ final class QueueWorker
                 'queue_id' => (int) $job['id'],
                 'report_date' => $job['report_date'],
             ]);
+            if ($job['kind'] === 'welcome' && $job['bc_id']) {
+                DB::exec('UPDATE bcs SET welcome_sent_at = NOW() WHERE id = ?', [$job['bc_id']]);
+            }
             Logger::info("Sent #{$job['id']} {$job['kind']} to {$chat}");
             return;
         }

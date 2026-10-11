@@ -9,6 +9,7 @@ use App\Csrf;
 use App\DB;
 use App\Export\Exporter;
 use App\Phone;
+use App\Queue;
 use App\Scope;
 use App\View;
 
@@ -32,6 +33,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 Audit::log((int) $user['id'], $new ? 'bc_activate' : 'bc_deactivate', 'bc', $id);
                 flash('success', $new ? 'BC activated / सक्रिय' : 'BC deactivated / निष्क्रिय');
+                break;
+            case 'welcome':
+                $ok = Queue::welcome($bc, (int) $user['id']);
+                if ($ok) {
+                    Audit::log((int) $user['id'], 'bc_welcome', 'bc', $id);
+                }
+                flash($ok ? 'success' : 'warning', $ok
+                    ? 'Welcome message queued / स्वागत संदेश कतार में'
+                    : 'Not sent – BC is inactive or sent STOP / नहीं भेजा (निष्क्रिय या STOP)');
                 break;
             case 'clear_stop':
                 DB::exec('UPDATE bcs SET opted_out = 0, opted_out_at = NULL WHERE id = ?', [$id]);
@@ -79,7 +89,9 @@ if (q('export') === 'csv') {
 $page = max(1, (int) q('page', 1));
 $per = 50;
 $total = (int) DB::val("SELECT COUNT(*) FROM bcs b WHERE {$w}", $params);
-$rows = DB::all("SELECT b.*, br.name branch FROM bcs b LEFT JOIN branches br ON br.id = b.branch_id WHERE {$w}
+$rows = DB::all("SELECT b.*, br.name branch,
+                   (SELECT q.status FROM message_queue q WHERE q.bc_id = b.id AND q.kind = 'welcome' ORDER BY q.id DESC LIMIT 1) AS welcome_status
+                 FROM bcs b LEFT JOIN branches br ON br.id = b.branch_id WHERE {$w}
                  ORDER BY b.is_active DESC, br.name, b.name LIMIT {$per} OFFSET " . (($page - 1) * $per), $params);
 
 View::header('BC management / बीसी प्रबंधन', 'bcs');
@@ -115,13 +127,18 @@ View::header('BC management / बीसी प्रबंधन', 'bcs');
     <td class="small"><?= e($r['branch']) ?></td>
     <td class="small"><?= e($r['block']) ?></td>
     <td><?= $r['is_active'] ? '<span class="badge text-bg-success">Active</span>' : '<span class="badge text-bg-secondary">Inactive</span>' ?>
-        <?= $r['opted_out'] ? '<span class="badge text-bg-warning" title="' . e(fmt_dt($r['opted_out_at'])) . '">STOP – no reminders</span>' : '' ?></td>
+        <?= $r['opted_out'] ? '<span class="badge text-bg-warning" title="' . e(fmt_dt($r['opted_out_at'])) . '">STOP – no reminders</span>' : '' ?>
+        <?php if ($r['welcome_sent_at']): ?><span class="badge text-bg-light border" title="<?= e(fmt_dt($r['welcome_sent_at'])) ?>">👋 welcomed</span>
+        <?php elseif (in_array($r['welcome_status'], ['pending', 'sending'], true)): ?><span class="badge text-bg-info">👋 welcome queued</span>
+        <?php elseif ($r['welcome_status'] === 'failed'): ?><span class="badge text-bg-danger">👋 welcome failed</span>
+        <?php endif; ?></td>
     <td class="text-nowrap">
       <?php if ($isAdmin): ?>
       <a class="btn btn-sm btn-outline-secondary" href="/bc_edit.php?id=<?= (int) $r['id'] ?>" title="Edit"><i class="bi bi-pencil"></i></a>
       <form method="post" class="d-inline"><?= Csrf::field() ?><input type="hidden" name="id" value="<?= (int) $r['id'] ?>">
         <button name="action" value="toggle_active" class="btn btn-sm btn-outline-<?= $r['is_active'] ? 'danger' : 'success' ?>" title="<?= $r['is_active'] ? 'Deactivate' : 'Activate' ?>"
           onclick="return confirm('Change active status?')"><i class="bi bi-<?= $r['is_active'] ? 'pause' : 'play' ?>-circle"></i></button>
+        <?php if ($r['is_active'] && !$r['opted_out']): ?><button name="action" value="welcome" class="btn btn-sm btn-outline-success" title="Send welcome / how-to message" onclick="return confirm('Send the welcome message to this BC?')"><i class="bi bi-envelope-heart"></i></button><?php endif; ?>
         <?php if ($r['opted_out']): ?><button name="action" value="clear_stop" class="btn btn-sm btn-outline-warning" title="Clear STOP"><i class="bi bi-bell"></i></button><?php endif; ?>
       </form>
       <?php endif; ?>

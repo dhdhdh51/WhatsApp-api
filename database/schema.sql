@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS bcs (
   is_active     TINYINT(1) NOT NULL DEFAULT 1,
   opted_out     TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'sent STOP – no reminders',
   opted_out_at  DATETIME NULL,
+  welcome_sent_at DATETIME NULL COMMENT 'welcome / onboarding message delivered',
   notes         VARCHAR(255) NULL,
   created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at    DATETIME NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -170,7 +171,7 @@ CREATE TABLE IF NOT EXISTS targets (
 -- ------------------------------------------------------------------ messaging
 CREATE TABLE IF NOT EXISTS templates (
   id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  type        ENUM('form','reminder','final_reminder') NOT NULL,
+  type        ENUM('form','reminder','final_reminder','welcome') NOT NULL,
   variant_no  TINYINT UNSIGNED NOT NULL,
   body        TEXT NOT NULL,
   is_active   TINYINT(1) NOT NULL DEFAULT 1,
@@ -184,7 +185,7 @@ CREATE TABLE IF NOT EXISTS message_queue (
   bc_id          INT UNSIGNED NULL,
   chat_id        VARCHAR(64) NOT NULL,
   body           TEXT NOT NULL,
-  kind           ENUM('form','reminder','final_reminder','manual_reminder','summary','escalation') NOT NULL,
+  kind           ENUM('form','reminder','final_reminder','manual_reminder','welcome','summary','escalation') NOT NULL,
   priority       TINYINT UNSIGNED NOT NULL DEFAULT 5 COMMENT 'lower = sent first',
   report_date    DATE NULL,
   status         ENUM('pending','sending','sent','failed','cancelled') NOT NULL DEFAULT 'pending',
@@ -312,3 +313,7 @@ INSERT IGNORE INTO templates (type, variant_no, body, is_active) VALUES
 ('final_reminder', 1, '⚠️ {name} ji, aakhri reminder! Report {cutoff} tak bhej dein.\n\n{form}\n\n👆 Is message ko copy karke numbers bharein aur bhej dein. Kuch nahi kiya to 0 likhein.', 1),
 ('final_reminder', 2, '⏳ Aaj ki report abhi tak nahi aayi. Kripya {cutoff} se pehle bhejein.\n\n{form}\n\n👆 Copy karke numbers bharein aur bhej dein. Kuch nahi kiya to 0 likhein.', 1),
 ('final_reminder', 3, '🚨 Final reminder – {date}\n\n{form}\n\n👆 Is message ko copy karke numbers bharein aur bhej dein. Kuch nahi kiya to 0 likhein.', 1);
+
+-- Welcome message sent to a BC when they are added (scheme names allowed here, it is not a form).
+INSERT IGNORE INTO templates (type, variant_no, body, is_active) VALUES
+('welcome', 1, '🙏 Namaste {name} ji!\n\nAapko *BC Daily Report* system mein jod diya gaya hai ✅\nBC ID: {bc_code}\n\n📌 *Kaise kaam karega*\n1️⃣ Roz {form_time} baje isi number se aapko ek form aayega.\n2️⃣ Form copy karein, har line ke aage aaj ka number likhein aur bhej dein:\nAPY: 2\nPMJJBY: 1\nPMSBY: 3\nPMJDY: 5\n3️⃣ Kuch nahi kiya to 0 likhein.\n4️⃣ Chhota tareeka: sirf 4 number bhejein – 2 1 3 5 (kram: APY, PMJJBY, PMSBY, PMJDY)\n5️⃣ Galti ho jaye to {cutoff} tak form dobara bhej dein – report update ho jayegi.\n\n🔤 *Commands*\nFORM – aaj ka form mangwayein\nSTATUS – aaj ki report dekhein\nHELP – madad\n\n👉 Kripya is number ko apne phone mein save kar lein. Dhanyavad 🙏', 1);
