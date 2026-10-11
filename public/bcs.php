@@ -21,6 +21,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         http_response_code(403);
         exit('Admin only');
     }
+    if (p('action') === 'assign_cbc') {
+        $ids = array_map('intval', (array) ($_POST['bc_ids'] ?? []));
+        $cbcId = p('cbc_id') !== '' ? (int) p('cbc_id') : null;
+        if ($cbcId && !DB::val("SELECT COUNT(*) FROM users WHERE id = ? AND role = 'cbc'", [$cbcId])) {
+            $cbcId = null;
+        }
+        if ($ids) {
+            $params = [$cbcId];
+            $n = DB::exec('UPDATE bcs SET cbc_id = ? WHERE id IN (' . DB::in($ids, $params) . ')', $params);
+            Audit::log((int) $user['id'], 'bc_assign_cbc', 'bc', null, ['cbc_id' => $cbcId, 'bc_ids' => $ids]);
+            flash('success', "{$n} BCs assigned / सीबीसी बदला गया");
+        } else {
+            flash('warning', 'Select BCs first / पहले बीसी चुनें');
+        }
+        redirect('/bcs.php' . qs());
+    }
     $id = (int) p('id');
     $bc = DB::one('SELECT * FROM bcs WHERE id = ?', [$id]);
     if ($bc) {
@@ -68,6 +84,12 @@ if (q('active') !== '') {
     $where[] = 'b.is_active = ?';
     $params[] = q('active') === '1' ? 1 : 0;
 }
+if (q('cbc_id') === 'none') {
+    $where[] = 'b.cbc_id IS NULL';
+} elseif (q('cbc_id') !== '') {
+    $where[] = 'b.cbc_id = ?';
+    $params[] = (int) q('cbc_id');
+}
 if (q('stop') === '1') {
     $where[] = 'b.opted_out = 1';
 }
@@ -79,19 +101,19 @@ if (q('search') !== '') {
 $w = implode(' AND ', $where);
 
 if (q('export') === 'csv') {
-    $rows = DB::all("SELECT b.*, br.name branch, br.area FROM bcs b LEFT JOIN branches br ON br.id = b.branch_id WHERE {$w} ORDER BY b.bc_code", $params);
-    $out = array_map(static fn ($r) => [$r['bc_code'], $r['name'], $r['phone'], $r['branch'], $r['area'], $r['block'],
+    $rows = DB::all("SELECT b.*, br.name branch, cu.name AS cbc_name, br.area, cu.name cbc FROM bcs b LEFT JOIN branches br ON br.id = b.branch_id LEFT JOIN users cu ON cu.id = b.cbc_id WHERE {$w} ORDER BY b.bc_code", $params);
+    $out = array_map(static fn ($r) => [$r['bc_code'], $r['name'], $r['phone'], $r['branch'], $r['area'], $r['block'], (string) $r['cbc'],
         $r['is_active'], $r['opted_out'], $r['notes']], $rows);
     Exporter::download('csv', 'bcs_' . date('Ymd'), 'BCs',
-        ['bc_code', 'name', 'phone', 'branch', 'area', 'block', 'is_active', 'opted_out', 'notes'], $out);
+        ['bc_code', 'name', 'phone', 'branch', 'area', 'block', 'cbc', 'is_active', 'opted_out', 'notes'], $out);
 }
 
 $page = max(1, (int) q('page', 1));
 $per = 50;
 $total = (int) DB::val("SELECT COUNT(*) FROM bcs b WHERE {$w}", $params);
-$rows = DB::all("SELECT b.*, br.name branch,
+$rows = DB::all("SELECT b.*, br.name branch, cu.name AS cbc_name,
                    (SELECT q.status FROM message_queue q WHERE q.bc_id = b.id AND q.kind = 'welcome' ORDER BY q.id DESC LIMIT 1) AS welcome_status
-                 FROM bcs b LEFT JOIN branches br ON br.id = b.branch_id WHERE {$w}
+                 FROM bcs b LEFT JOIN branches br ON br.id = b.branch_id LEFT JOIN users cu ON cu.id = b.cbc_id WHERE {$w}
                  ORDER BY b.is_active DESC, br.name, b.name LIMIT {$per} OFFSET " . (($page - 1) * $per), $params);
 
 View::header('BC management / बीसी प्रबंधन', 'bcs');
@@ -111,21 +133,32 @@ View::header('BC management / बीसी प्रबंधन', 'bcs');
     <option value="1" <?= q('active') === '1' ? 'selected' : '' ?>>Active / सक्रिय</option>
     <option value="0" <?= q('active') === '0' ? 'selected' : '' ?>>Inactive / निष्क्रिय</option></select></div>
   <div class="col-6 col-md-2"><div class="form-check"><input class="form-check-input" type="checkbox" name="stop" value="1" id="stop" <?= q('stop') === '1' ? 'checked' : '' ?>><label for="stop" class="form-check-label small">Sent STOP only</label></div></div>
-  <div class="col-8 col-md-3"><input name="search" value="<?= e(q('search')) ?>" class="form-control form-control-sm" placeholder="Name / BC ID / phone"></div>
+  <?php if ($user['role'] !== 'cbc'): ?><div class="col-6 col-md-2"><select name="cbc_id" class="form-select form-select-sm"><?= str_replace('<option value="">All CBCs / सभी सीबीसी</option>', '<option value="">All CBCs / सभी सीबीसी</option><option value="none"' . (q('cbc_id') === 'none' ? ' selected' : '') . '>— No CBC / सीबीसी नहीं</option>', View::cbcOptions($user, q('cbc_id'), 'All CBCs / सभी सीबीसी', $isAdmin)) ?></select></div><?php endif; ?>
+  <div class="col-8 col-md-2"><input name="search" value="<?= e(q('search')) ?>" class="form-control form-control-sm" placeholder="Name / BC ID / phone"></div>
   <div class="col-4 col-md-1"><button class="btn btn-sm btn-success w-100"><i class="bi bi-funnel"></i></button></div>
 </form>
 
+<?php if ($isAdmin): ?>
+<form method="post" id="bulk" class="d-flex flex-wrap gap-2 align-items-center mb-2 small"><?= Csrf::field() ?><input type="hidden" name="action" value="assign_cbc">
+  <span><?= L('Selected BCs → assign CBC', 'चुने हुए बीसी → सीबीसी') ?>:</span>
+  <select name="cbc_id" class="form-select form-select-sm" style="max-width:240px"><?= View::cbcOptions($user, '', '— remove CBC / हटाएँ —', true) ?></select>
+  <button class="btn btn-sm btn-outline-primary" onclick="return confirm('Assign CBC to selected BCs?')"><i class="bi bi-person-check"></i> <?= L('Assign', 'असाइन') ?></button>
+  <a href="/users.php" class="small">+ CBC login</a>
+</form>
+<?php endif; ?>
 <div class="table-responsive">
 <table class="table table-sm table-hover align-middle">
-  <thead class="table-light"><tr><th>BC ID</th><th><?= L('Name', 'नाम') ?></th><th>WhatsApp</th><th><?= L('Branch', 'शाखा') ?></th><th><?= L('Block', 'ब्लॉक') ?></th><th><?= L('Status', 'स्थिति') ?></th><th></th></tr></thead>
+  <thead class="table-light"><tr><?php if ($isAdmin): ?><th><input type="checkbox" class="form-check-input" data-check-all="bc_ids[]"></th><?php endif; ?><th>BC ID</th><th><?= L('Name', 'नाम') ?></th><th>WhatsApp</th><th><?= L('Branch', 'शाखा') ?></th><th><?= L('Block', 'ब्लॉक') ?></th><th>CBC</th><th><?= L('Status', 'स्थिति') ?></th><th></th></tr></thead>
   <tbody>
   <?php foreach ($rows as $r): ?>
   <tr class="<?= $r['is_active'] ? '' : 'table-secondary' ?>">
+    <?php if ($isAdmin): ?><td><input type="checkbox" class="form-check-input" name="bc_ids[]" value="<?= (int) $r['id'] ?>" form="bulk"></td><?php endif; ?>
     <td><?= e($r['bc_code']) ?></td>
     <td><a href="/conversation.php?bc_id=<?= (int) $r['id'] ?>"><?= e($r['name']) ?></a></td>
     <td class="small"><?= e(Phone::display($r['phone'])) ?></td>
     <td class="small"><?= e($r['branch']) ?></td>
     <td class="small"><?= e($r['block']) ?></td>
+    <td class="small"><?= e($r['cbc_name']) ?></td>
     <td><?= $r['is_active'] ? '<span class="badge text-bg-success">Active</span>' : '<span class="badge text-bg-secondary">Inactive</span>' ?>
         <?= $r['opted_out'] ? '<span class="badge text-bg-warning" title="' . e(fmt_dt($r['opted_out_at'])) . '">STOP – no reminders</span>' : '' ?>
         <?php if ($r['welcome_sent_at']): ?><span class="badge text-bg-light border" title="<?= e(fmt_dt($r['welcome_sent_at'])) ?>">👋 welcomed</span>
@@ -145,7 +178,7 @@ View::header('BC management / बीसी प्रबंधन', 'bcs');
       <a class="btn btn-sm btn-outline-info" href="/leaves.php?bc_id=<?= (int) $r['id'] ?>" title="Leave"><i class="bi bi-calendar-x"></i></a>
     </td>
   </tr>
-  <?php endforeach; if (!$rows): ?><tr><td colspan="7" class="text-muted">No BCs / कोई बीसी नहीं</td></tr><?php endif; ?>
+  <?php endforeach; if (!$rows): ?><tr><td colspan="9" class="text-muted">No BCs / कोई बीसी नहीं</td></tr><?php endif; ?>
   </tbody>
 </table>
 </div>

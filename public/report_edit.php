@@ -54,6 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $bad = false;
         foreach (ReportParser::SCHEMES as $s) {
             $v = (string) p($s);
+            $v = $v === '' ? '0' : $v;
             if (!preg_match('/^\d{1,6}$/', $v) || (int) $v > $max * 10) {
                 $bad = true;
             }
@@ -98,7 +99,7 @@ View::header($isAdmin ? 'Edit report / रिपोर्ट बदलें' : 
         <input type="hidden" name="bc_id" value="<?= (int) $bcId ?>"><input type="hidden" name="date" value="<?= e($date) ?>">
         <div class="row g-2">
         <?php foreach (ReportParser::LABELS as $k => $lbl): ?>
-          <div class="col-6"><label class="form-label small"><?= $lbl ?></label>
+          <div class="col-6 col-md-3"><label class="form-label small <?= str_ends_with($k, '_off') ? 'text-warning-emphasis fw-semibold' : '' ?>"><?= $lbl ?></label>
             <input type="number" min="0" step="1" name="<?= $k ?>" class="form-control" required value="<?= e($report[$k] ?? 0) ?>"></div>
         <?php endforeach; ?>
         </div>
@@ -116,14 +117,14 @@ View::header($isAdmin ? 'Edit report / रिपोर्ट बदलें' : 
   <div class="col-lg-7">
     <div class="card"><div class="card-header"><?= L('Version history (audit)', 'संस्करण इतिहास') ?></div>
       <div class="table-responsive"><table class="table table-sm mb-0">
-        <thead><tr><th>v</th><th>When</th><th>Source / by</th><th class="text-end">APY</th><th class="text-end">PMJJBY</th><th class="text-end">PMSBY</th><th class="text-end">PMJDY</th><th>Reason / message</th></tr></thead>
+        <thead><tr><th>v</th><th>When</th><th>Source / by</th><?= App\Schemes::th() ?><th>Reason / message</th></tr></thead>
         <tbody>
         <?php foreach ($versions as $v): ?>
           <tr><td><?= (int) $v['version'] ?></td><td class="small text-nowrap"><?= e(fmt_dt($v['created_at'])) ?></td>
             <td class="small"><?= e($v['source']) ?><?= $v['user_name'] ? ' – ' . e($v['user_name']) : '' ?></td>
-            <td class="text-end"><?= (int) $v['apy'] ?></td><td class="text-end"><?= (int) $v['pmjjby'] ?></td><td class="text-end"><?= (int) $v['pmsby'] ?></td><td class="text-end"><?= (int) $v['pmjdy'] ?></td>
+            <?= App\Schemes::td($v) ?>
             <td class="small"><?= e($v['reason']) ?><?php if ($v['raw_text']): ?><details><summary class="text-muted">message</summary><pre class="small mb-0 wa-pre"><?= e($v['raw_text']) ?></pre></details><?php endif; ?></td></tr>
-        <?php endforeach; if (!$versions): ?><tr><td colspan="8" class="text-muted">No history</td></tr><?php endif; ?>
+        <?php endforeach; if (!$versions): ?><tr><td colspan="11" class="text-muted">No history</td></tr><?php endif; ?>
         </tbody></table></div></div>
   </div>
 </div>

@@ -21,11 +21,20 @@ namespace App;
  */
 final class ReportParser
 {
-    public const SCHEMES = ['apy', 'pmjjby', 'pmsby', 'pmjdy'];
-    public const LABELS = ['apy' => 'APY', 'pmjjby' => 'PMJJBY', 'pmsby' => 'PMSBY', 'pmjdy' => 'PMJDY'];
+    public const SCHEMES = ['apy', 'pmjjby', 'pmsby', 'pmjdy', 'apy_off', 'pmjjby_off', 'pmsby_off'];
+    public const ONLINE = ['apy', 'pmjjby', 'pmsby', 'pmjdy'];
+    public const OFFLINE = ['apy_off', 'pmjjby_off', 'pmsby_off'];
+    public const LABELS = ['apy' => 'APY', 'pmjjby' => 'PMJJBY', 'pmsby' => 'PMSBY', 'pmjdy' => 'PMJDY',
+        'apy_off' => 'APY OFFLINE', 'pmjjby_off' => 'JJBY OFFLINE', 'pmsby_off' => 'SBY OFFLINE'];
 
     /** Regex alternatives per scheme (input is already lower-cased). Longest forms first. */
+    private const OFF = '\\s*[-_]?\\s*(?:off\\s*-?\\s*line|ofline|ऑफ\\s*लाइन|ऑफलाइन|ओफलाइन)';
+
     private const ALIASES = [
+        // offline variants first – "APY OFFLINE" must not be read as "APY" + garbage
+        'pmjjby_off' => ['(?:pm\\s*-?\\s*)?jjby' . self::OFF, 'jeevan\\s*jyoti' . self::OFF],
+        'pmsby_off'  => ['(?:pm\\s*-?\\s*)?sby' . self::OFF, 'suraksha' . self::OFF],
+        'apy_off'    => ['apy' . self::OFF, 'atal\\s*pension' . self::OFF],
         'pmjjby' => ['pm\s*-?\s*jjby', 'jjby', 'jeevan\s*jyoti', 'jivan\s*jyoti', 'जीवन\s*ज्योति'],
         'pmsby'  => ['pm\s*-?\s*sby', 'sby', 'suraksha\s*bima', 'suraksha', 'सुरक्षा\s*बीमा', 'सुरक्षा'],
         'pmjdy'  => ['pm\s*-?\s*jdy', 'jdy', 'jan\s*-?\s*dhan', 'जन\s*-?\s*धन', 'जनधन'],
@@ -117,7 +126,7 @@ final class ReportParser
                 $values[$s] = 0;
             }
         }
-        if (count($blank) === 4) {
+        if (count($blank) === count(self::SCHEMES)) {
             return ['type' => 'empty_form', 'date' => $date];
         }
 
@@ -240,24 +249,27 @@ final class ReportParser
     private function parseShort(string $text, ?string $date): array
     {
         $t = trim($text);
-        if (preg_match('/^(\d+)[\s,;\/|\-]+(\d+)[\s,;\/|\-]+(\d+)[\s,;\/|\-]+(\d+)$/u', $t, $m)) {
-            $values = [];
-            $errors = [];
-            foreach (self::SCHEMES as $i => $s) {
-                $raw = $m[$i + 1];
-                if (strlen($raw) > 6 || (int) $raw > $this->maxValue) {
-                    $errors[] = self::errorText(self::LABELS[$s], 'too_large', $this->maxValue);
+        if (preg_match('/^\d+(?:[\s,;\/|\-]+\d+)*$/u', $t)) {
+            $nums = preg_split('/[\s,;\/|\-]+/u', $t) ?: [];
+            if (count($nums) === 4 || count($nums) === 7) {
+                $values = array_fill_keys(self::SCHEMES, 0);
+                $errors = [];
+                foreach ($nums as $i => $raw) {
+                    $s = self::SCHEMES[$i];
+                    if (strlen($raw) > 6 || (int) $raw > $this->maxValue) {
+                        $errors[] = self::errorText(self::LABELS[$s], 'too_large', $this->maxValue);
+                    }
+                    $values[$s] = (int) $raw;
                 }
-                $values[$s] = (int) $raw;
+                if ($errors) {
+                    return ['type' => 'error', 'errors' => $errors, 'date' => $date];
+                }
+                return ['type' => 'report', 'values' => $values, 'blank' => [], 'date' => $date, 'short' => true];
             }
-            if ($errors) {
-                return ['type' => 'error', 'errors' => $errors, 'date' => $date];
-            }
-            return ['type' => 'report', 'values' => $values, 'blank' => [], 'date' => $date, 'short' => true];
         }
         if (preg_match('/^-?\d+([\s,;\/|\-]+-?\d+)*$/u', $t)) {
             return ['type' => 'error', 'date' => $date,
-                'errors' => ['4 number chahiye is kram mein: APY PMJJBY PMSBY PMJDY (jaise: 2 1 3 5)']];
+                'errors' => ['4 number bhejein (APY PMJJBY PMSBY PMJDY, jaise: 2 1 3 5) ya offline ke saath 7 number (jaise: 2 1 3 5 0 1 0)']];
         }
         if (preg_match('/^\d+[.,]\d+/u', $t)) {
             return ['type' => 'error', 'date' => $date, 'errors' => ['Sirf poore number likhein (jaise 2), point wala nahi']];

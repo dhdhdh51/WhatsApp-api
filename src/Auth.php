@@ -137,4 +137,22 @@ final class Auth
         $u ??= self::user();
         return $u !== null && $u['role'] === 'admin';
     }
+
+    /** Admin, Supervisor and Manager may change targets / leave; a CBC only views and follows up. */
+    public static function canManage(?array $u = null): bool
+    {
+        $u ??= self::user();
+        return $u !== null && $u['role'] !== 'cbc';
+    }
+
+    public static function roleLabel(string $role): string
+    {
+        return match ($role) {
+            'admin' => 'Admin',
+            'supervisor' => 'BC Supervisor',
+            'manager' => 'Manager',
+            'cbc' => 'CBC',
+            default => $role,
+        };
+    }
 }

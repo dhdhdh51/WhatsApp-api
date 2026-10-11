@@ -20,3 +20,4 @@ body { background: #f4f6f5; }
   main.container-fluid { padding-left: .5rem; padding-right: .5rem; }
   .table { font-size: .82rem; }
 }
+td.off, th.off { background: #fff8e6 !important; }

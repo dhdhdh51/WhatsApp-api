@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
   name             VARCHAR(120) NOT NULL,
   username         VARCHAR(60)  NOT NULL,
   password_hash    VARCHAR(255) NOT NULL,
-  role             ENUM('admin','manager') NOT NULL DEFAULT 'manager',
+  role             ENUM('admin','supervisor','manager','cbc') NOT NULL DEFAULT 'manager',
   phone            CHAR(10) NULL COMMENT '10-digit mobile for WhatsApp summaries',
   receive_summary  TINYINT(1) NOT NULL DEFAULT 0,
   is_active        TINYINT(1) NOT NULL DEFAULT 1,
@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS bcs (
   phone         CHAR(10)     NOT NULL COMMENT '10-digit Indian mobile, sent as 91XXXXXXXXXX@c.us',
   wa_lid        VARCHAR(64)  NULL COMMENT 'hidden WhatsApp id (xxx@lid), learnt automatically',
   branch_id     INT UNSIGNED NULL,
+  cbc_id        INT UNSIGNED NULL COMMENT 'CBC user who follows up this BC',
   block         VARCHAR(120) NULL,
   is_active     TINYINT(1) NOT NULL DEFAULT 1,
   opted_out     TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'sent STOP – no reminders',
@@ -60,7 +61,9 @@ CREATE TABLE IF NOT EXISTS bcs (
   UNIQUE KEY uq_bc_lid (wa_lid),
   KEY idx_bc_branch (branch_id),
   KEY idx_bc_active (is_active),
-  CONSTRAINT fk_bc_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE SET NULL
+  KEY idx_bc_cbc (cbc_id),
+  CONSTRAINT fk_bc_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE SET NULL,
+  CONSTRAINT fk_bc_cbc FOREIGN KEY (cbc_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ------------------------------------------------------------------ calendar
@@ -98,6 +101,9 @@ CREATE TABLE IF NOT EXISTS reports (
   pmjjby         INT UNSIGNED NOT NULL DEFAULT 0,
   pmsby          INT UNSIGNED NOT NULL DEFAULT 0,
   pmjdy          INT UNSIGNED NOT NULL DEFAULT 0,
+  apy_off        INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'APY offline',
+  pmjjby_off     INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'JJBY offline',
+  pmsby_off      INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'SBY offline',
   blank_fields   VARCHAR(60) NULL COMMENT 'fields left blank (counted as 0)',
   source         ENUM('whatsapp','admin') NOT NULL DEFAULT 'whatsapp',
   version        INT UNSIGNED NOT NULL DEFAULT 1,
@@ -122,6 +128,9 @@ CREATE TABLE IF NOT EXISTS report_versions (
   pmjjby         INT UNSIGNED NOT NULL DEFAULT 0,
   pmsby          INT UNSIGNED NOT NULL DEFAULT 0,
   pmjdy          INT UNSIGNED NOT NULL DEFAULT 0,
+  apy_off        INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'APY offline',
+  pmjjby_off     INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'JJBY offline',
+  pmsby_off      INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'SBY offline',
   source         ENUM('whatsapp','admin') NOT NULL,
   changed_by     INT UNSIGNED NULL,
   reason         VARCHAR(255) NULL,
@@ -143,6 +152,9 @@ CREATE TABLE IF NOT EXISTS pending_confirmations (
   pmjjby         INT UNSIGNED NOT NULL DEFAULT 0,
   pmsby          INT UNSIGNED NOT NULL DEFAULT 0,
   pmjdy          INT UNSIGNED NOT NULL DEFAULT 0,
+  apy_off        INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'APY offline',
+  pmjjby_off     INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'JJBY offline',
+  pmsby_off      INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'SBY offline',
   blank_fields   VARCHAR(60) NULL,
   raw_text       TEXT NULL,
   wa_message_id  VARCHAR(128) NULL,
@@ -161,6 +173,9 @@ CREATE TABLE IF NOT EXISTS targets (
   pmjjby_target  INT UNSIGNED NOT NULL DEFAULT 0,
   pmsby_target   INT UNSIGNED NOT NULL DEFAULT 0,
   pmjdy_target   INT UNSIGNED NOT NULL DEFAULT 0,
+  apy_off_target    INT UNSIGNED NOT NULL DEFAULT 0,
+  pmjjby_off_target INT UNSIGNED NOT NULL DEFAULT 0,
+  pmsby_off_target  INT UNSIGNED NOT NULL DEFAULT 0,
   updated_by     INT UNSIGNED NULL,
   updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -333,4 +348,4 @@ INSERT IGNORE INTO templates (type, variant_no, body, is_active) VALUES
 
 -- Welcome message sent to a BC when they are added (scheme names allowed here, it is not a form).
 INSERT IGNORE INTO templates (type, variant_no, body, is_active) VALUES
-('welcome', 1, '🙏 Namaste {name} ji!\n\nAapko *BC Daily Report* system mein jod diya gaya hai ✅\nBC ID: {bc_code}\n\n📌 *Kaise kaam karega*\n1️⃣ Roz {form_time} baje isi number se aapko ek form aayega.\n2️⃣ Form copy karein, har line ke aage aaj ka number likhein aur bhej dein:\nAPY: 2\nPMJJBY: 1\nPMSBY: 3\nPMJDY: 5\n3️⃣ Kuch nahi kiya to 0 likhein.\n4️⃣ Chhota tareeka: sirf 4 number bhejein – 2 1 3 5 (kram: APY, PMJJBY, PMSBY, PMJDY)\n5️⃣ Galti ho jaye to {cutoff} tak form dobara bhej dein – report update ho jayegi.\n\n🔤 *Commands*\nFORM – aaj ka form mangwayein\nSTATUS – aaj ki report dekhein\nHELP – madad\n\n👉 Kripya is number ko apne phone mein save kar lein. Dhanyavad 🙏', 1);
+('welcome', 1, '🙏 Namaste {name} ji!\n\nAapko *BC Daily Report* system mein jod diya gaya hai ✅\nBC ID: {bc_code}\n\n📌 *Kaise kaam karega*\n1️⃣ Roz {form_time} baje isi number se aapko ek form aayega.\n2️⃣ Form copy karein, har line ke aage aaj ka number likhein aur bhej dein:\nAPY: 2\nPMJJBY: 1\nPMSBY: 3\nPMJDY: 5\nAPY OFFLINE: 0\nJJBY OFFLINE: 0\nSBY OFFLINE: 0\n3️⃣ Kuch nahi kiya to 0 likhein.\n4️⃣ Chhota tareeka: sirf 4 number bhejein – 2 1 3 5 (kram: APY, PMJJBY, PMSBY, PMJDY). Offline bhi ho to 7 number: 2 1 3 5 0 1 0\n5️⃣ Galti ho jaye to {cutoff} tak form dobara bhej dein – report update ho jayegi.\n\n🔤 *Commands*\nFORM – aaj ka form mangwayein\nSTATUS – aaj ki report dekhein\nHELP – madad\n\n👉 Kripya is number ko apne phone mein save kar lein. Dhanyavad 🙏', 1);

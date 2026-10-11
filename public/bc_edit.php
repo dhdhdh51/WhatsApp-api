@@ -20,7 +20,7 @@ if ($id && !$bc) {
 }
 
 $data = $bc ?? ['bc_code' => '', 'name' => mb_substr((string) q('name'), 0, 120), 'phone' => (string) (Phone::normalize((string) q('phone')) ?? ''),
-    'branch_id' => '', 'block' => '', 'is_active' => 1, 'notes' => ''];
+    'branch_id' => '', 'cbc_id' => '', 'block' => '', 'is_active' => 1, 'notes' => ''];
 $errors = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -29,6 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'name' => (string) p('name'),
         'phone' => (string) p('phone'),
         'branch_id' => p('branch_id') !== '' ? (int) p('branch_id') : null,
+        'cbc_id' => p('cbc_id') !== '' ? (int) p('cbc_id') : null,
         'block' => (string) p('block'),
         'is_active' => p('is_active') === '1' ? 1 : 0,
         'notes' => (string) p('notes'),
@@ -43,6 +44,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$phone) {
         $errors[] = 'Invalid Indian mobile number (10 digits starting 6-9, +91 optional) / गलत मोबाइल नंबर';
     }
+    if ($data['cbc_id'] && !DB::val("SELECT COUNT(*) FROM users WHERE id = ? AND role = 'cbc'", [$data['cbc_id']])) {
+        $errors[] = 'Invalid CBC';
+    }
     if ($data['branch_id'] && !DB::val('SELECT COUNT(*) FROM branches WHERE id = ?', [$data['branch_id']])) {
         $errors[] = 'Invalid branch';
     }
@@ -55,10 +59,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     if (!$errors) {
-        $vals = [$data['bc_code'], $data['name'], $phone, $data['branch_id'], $data['block'] ?: null, $data['is_active'], $data['notes'] ?: null];
+        $vals = [$data['bc_code'], $data['name'], $phone, $data['branch_id'], $data['cbc_id'], $data['block'] ?: null, $data['is_active'], $data['notes'] ?: null];
         if ($bc) {
             $phoneChanged = $bc['phone'] !== $phone;
-            DB::exec('UPDATE bcs SET bc_code = ?, name = ?, phone = ?, branch_id = ?, block = ?, is_active = ?, notes = ?' . ($phoneChanged ? ', wa_lid = NULL' : '') . ' WHERE id = ?',
+            DB::exec('UPDATE bcs SET bc_code = ?, name = ?, phone = ?, branch_id = ?, cbc_id = ?, block = ?, is_active = ?, notes = ?' . ($phoneChanged ? ', wa_lid = NULL' : '') . ' WHERE id = ?',
                 array_merge($vals, [$id]));
             if (!$data['is_active']) {
                 DB::exec("UPDATE message_queue SET status = 'cancelled', last_error = 'BC deactivated' WHERE bc_id = ? AND status = 'pending'", [$id]);
@@ -66,7 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             Audit::log((int) $user['id'], 'bc_update', 'bc', $id, ['old' => array_intersect_key($bc, $data + ['phone' => 1]), 'new' => $data + ['phone' => $phone]]);
             $msg = 'BC updated / बीसी अपडेट हुआ';
         } else {
-            $id = DB::insert('INSERT INTO bcs (bc_code, name, phone, branch_id, block, is_active, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())', $vals);
+            $id = DB::insert('INSERT INTO bcs (bc_code, name, phone, branch_id, cbc_id, block, is_active, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())', $vals);
             Audit::log((int) $user['id'], 'bc_create', 'bc', $id, $data + ['phone' => $phone]);
             $msg = 'BC added / बीसी जोड़ा गया';
         }
@@ -93,6 +97,9 @@ View::header($bc ? 'Edit BC / बीसी बदलें' : 'Add BC / बी�
     <div class="input-group"><span class="input-group-text">+91</span><input name="phone" class="form-control" required inputmode="tel" maxlength="16" value="<?= e($data['phone']) ?>" placeholder="98765 43210"></div></div>
   <div class="col-md-4"><label class="form-label"><?= L('Branch / area', 'शाखा / क्षेत्र') ?></label>
     <select name="branch_id" class="form-select"><option value="">—</option><?= View::branchOptions($user, $data['branch_id'], false) ?></select></div>
+  <div class="col-md-4"><label class="form-label"><?= L('CBC (follows up this BC)', 'सीबीसी') ?></label>
+    <select name="cbc_id" class="form-select"><?= View::cbcOptions($user, $data['cbc_id'] ?? '', '— none —', true) ?></select>
+    <div class="form-text"><a href="/users.php">Create CBC login</a> (role CBC)</div></div>
   <div class="col-md-4"><label class="form-label"><?= L('Block', 'ब्लॉक') ?></label><input name="block" class="form-control" maxlength="120" value="<?= e($data['block']) ?>" list="blocks">
     <datalist id="blocks"><?php foreach (App\Scope::blocks($user) as $b): ?><option value="<?= e($b) ?>"><?php endforeach; ?></datalist></div>
   <div class="col-md-4"><label class="form-label"><?= L('Status', 'स्थिति') ?></label>

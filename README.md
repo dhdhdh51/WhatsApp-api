@@ -48,6 +48,9 @@ APY:
 PMJJBY:
 PMSBY:
 PMJDY:
+APY OFFLINE:
+JJBY OFFLINE:
+SBY OFFLINE:
 
 👆 Is message ko copy karke numbers bharein aur bhej dein. Kuch nahi kiya to 0 likhein.
 ```
@@ -76,6 +79,25 @@ Rules:
 - Commands: `FORM` (resend form), `STATUS` (today's report or pending), `HELP`, `STOP` (no more reminders, flagged in
   the panel), `START`.
 - Unknown numbers and inactive BCs get no reply. Messages like "ok" / "thanks" / 🙏 aren't answered either.
+
+## Roles
+
+| Role | Sees | Can do |
+|---|---|---|
+| Admin | everything | all settings, BC/user management, report edits |
+| BC Supervisor | all BCs, CBC-wise table on the dashboard | reports, exports, reminders, targets, leave |
+| Manager | BCs of assigned branches | same as Supervisor, for those branches |
+| CBC | only BCs assigned to them (`bcs.cbc_id`) | today's pending list with **Call / WhatsApp** buttons, "Copy pending list", reminders, reports/exports of own BCs, leave |
+
+Assign BCs to a CBC on **BCs** (bulk "Assign CBC"), in **Edit BC**, or with a `CBC Name` column in the Excel import
+(missing CBC logins are created automatically and their passwords are shown once). CBCs and Supervisors with a phone
+and "WhatsApp summary" ticked get the 9 PM summary – a CBC gets only their own BCs, with the mobile numbers of pending BCs.
+
+## Offline fields
+
+Besides APY, PMJJBY, PMSBY and PMJDY the form has **APY OFFLINE, JJBY OFFLINE, SBY OFFLINE**
+(`APY OFF LINE`, `jjby offline`, `SBY ऑफलाइन` … are accepted). Short form: 4 numbers (offline = 0) or 7 numbers
+`APY PMJJBY PMSBY PMJDY APY-OFF JJBY-OFF SBY-OFF`, e.g. `2 1 3 5 0 1 0`. Empty offline lines count as 0 without a warning.
 
 ## Deployment on Ubuntu 24.04 (AWS EC2)
 
@@ -291,3 +313,10 @@ curl -s https://reports.example.com/webhook.php -H 'Content-Type: application/js
   - Nothing is being sent: check **WhatsApp → Send queue** for "paused" or "daily_limit", and `cron.log`.
   - Events arrive twice: you configured the webhook both in `docker-compose.yml` and in the session
     (`WAHA_SESSION_WEBHOOK=1`). Use only one.
+
+## Upgrading an existing install
+
+```bash
+git pull
+for f in database/migrations/*.sql; do mysql -u bc_report -p bc_report < "$f"; done   # safe to re-run
+```

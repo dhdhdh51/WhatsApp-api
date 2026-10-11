@@ -18,7 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $id = (int) p('id');
     $name = (string) p('name');
     $username = strtolower((string) p('username'));
-    $role = p('role') === 'admin' ? 'admin' : 'manager';
+    $role = in_array(p('role'), ['admin', 'supervisor', 'manager', 'cbc'], true) ? (string) p('role') : 'manager';
     $phoneRaw = (string) p('phone');
     $phone = $phoneRaw !== '' ? Phone::normalize($phoneRaw) : null;
     $active = p('is_active') === '1' ? 1 : 0;
@@ -79,8 +79,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $users = DB::all("SELECT u.*, (SELECT GROUP_CONCAT(b.name ORDER BY b.name SEPARATOR ', ')
-                               FROM user_branches ub JOIN branches b ON b.id = ub.branch_id WHERE ub.user_id = u.id) AS branches
-                  FROM users u ORDER BY u.role, u.name");
+                               FROM user_branches ub JOIN branches b ON b.id = ub.branch_id WHERE ub.user_id = u.id) AS branches,
+                         (SELECT COUNT(*) FROM bcs WHERE bcs.cbc_id = u.id AND bcs.is_active = 1) AS cbc_bcs
+                  FROM users u ORDER BY FIELD(u.role,'admin','supervisor','manager','cbc'), u.name");
 $edit = $editId ? DB::one('SELECT * FROM users WHERE id = ?', [$editId]) : null;
 $editBranches = $edit ? array_map('intval', array_column(DB::all('SELECT branch_id FROM user_branches WHERE user_id = ?', [$editId]), 'branch_id')) : [];
 if ($errors) {
@@ -99,8 +100,8 @@ View::header('Users / यूज़र (Admin & Managers)', 'users');
     <thead><tr><th><?= L('Name', 'नाम') ?></th><th>Username</th><th>Role</th><th><?= L('Branches', 'शाखाएँ') ?></th><th>Phone</th><th>Last login</th><th></th></tr></thead>
     <tbody><?php foreach ($users as $u): ?>
       <tr class="<?= $u['is_active'] ? '' : 'table-secondary' ?>"><td><?= e($u['name']) ?></td><td><?= e($u['username']) ?></td>
-        <td><span class="badge text-bg-<?= $u['role'] === 'admin' ? 'danger' : 'primary' ?>"><?= e($u['role']) ?></span><?= $u['is_active'] ? '' : ' <span class="badge text-bg-secondary">inactive</span>' ?></td>
-        <td class="small"><?= $u['role'] === 'admin' ? 'All' : e($u['branches']) ?></td>
+        <td><span class="badge text-bg-<?= ['admin' => 'danger', 'supervisor' => 'warning', 'manager' => 'primary', 'cbc' => 'info'][$u['role']] ?? 'secondary' ?>"><?= e(Auth::roleLabel($u['role'])) ?></span><?= $u['is_active'] ? '' : ' <span class="badge text-bg-secondary">inactive</span>' ?></td>
+        <td class="small"><?php if (in_array($u['role'], ['admin', 'supervisor'], true)): ?>All BCs<?php elseif ($u['role'] === 'cbc'): ?><a href="/bcs.php?cbc_id=<?= (int) $u['id'] ?>"><?= (int) $u['cbc_bcs'] ?> BCs</a><?php else: ?><?= e($u['branches']) ?><?php endif; ?></td>
         <td class="small"><?= e(Phone::display($u['phone'])) ?><?= $u['receive_summary'] ? ' 📊' : '' ?></td>
         <td class="small"><?= e(fmt_dt($u['last_login_at'])) ?></td>
         <td><a href="/users.php?edit=<?= (int) $u['id'] ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil"></i></a></td></tr>
@@ -112,16 +113,18 @@ View::header('Users / यूज़र (Admin & Managers)', 'users');
     <div class="col-6"><label class="form-label small"><?= L('Name', 'नाम') ?></label><input name="name" class="form-control form-control-sm" required value="<?= e($edit['name'] ?? '') ?>"></div>
     <div class="col-6"><label class="form-label small">Username</label><input name="username" class="form-control form-control-sm" required value="<?= e($edit['username'] ?? '') ?>"></div>
     <div class="col-6"><label class="form-label small">Role</label><select name="role" class="form-select form-select-sm">
-      <option value="manager" <?= ($edit['role'] ?? '') !== 'admin' ? 'selected' : '' ?>>Manager</option><option value="admin" <?= ($edit['role'] ?? '') === 'admin' ? 'selected' : '' ?>>Admin</option></select></div>
+      <?php foreach (['cbc' => 'CBC (only own BCs)', 'supervisor' => 'BC Supervisor (all BCs)', 'manager' => 'Manager (branches)', 'admin' => 'Admin (everything)'] as $rk => $rl): ?>
+        <option value="<?= $rk ?>" <?= ($edit['role'] ?? 'cbc') === $rk ? 'selected' : '' ?>><?= e($rl) ?></option>
+      <?php endforeach; ?></select></div>
     <div class="col-6"><label class="form-label small"><?= L('Password', 'पासवर्ड') ?></label><input type="password" name="password" class="form-control form-control-sm" minlength="10" placeholder="<?= !empty($edit['id']) ? 'leave empty = unchanged' : 'min 10 chars' ?>"></div>
     <div class="col-6"><label class="form-label small"><?= L('WhatsApp (summaries)', 'व्हाट्सऐप') ?></label><input name="phone" class="form-control form-control-sm" value="<?= e($edit['phone'] ?? '') ?>"></div>
     <div class="col-6 pt-3">
-      <div class="form-check"><input class="form-check-input" type="checkbox" name="receive_summary" value="1" id="rs" <?= !empty($edit['receive_summary']) ? 'checked' : '' ?>><label class="form-check-label small" for="rs">Receive summary (managers)</label></div>
+      <div class="form-check"><input class="form-check-input" type="checkbox" name="receive_summary" value="1" id="rs" <?= !empty($edit['receive_summary']) ? 'checked' : '' ?>><label class="form-check-label small" for="rs">WhatsApp summary 9 PM (pending list of own BCs)</label></div>
       <div class="form-check"><input class="form-check-input" type="checkbox" name="is_active" value="1" id="ia" <?= !isset($edit['is_active']) || $edit['is_active'] ? 'checked' : '' ?>><label class="form-check-label small" for="ia">Active</label></div></div>
-    <div class="col-12"><label class="form-label small"><?= L('Branches (managers)', 'शाखाएँ') ?></label>
+    <div class="col-12"><label class="form-label small"><?= L('Branches (only for Manager)', 'शाखाएँ') ?></label>
       <select name="branches[]" multiple class="form-select form-select-sm" size="6">
       <?php foreach ($allBranches as $b): ?><option value="<?= (int) $b['id'] ?>" <?= in_array((int) $b['id'], $editBranches, true) ? 'selected' : '' ?>><?= e($b['name']) ?><?= $b['area'] ? ' (' . e($b['area']) . ')' : '' ?></option><?php endforeach; ?>
-      </select><div class="form-text">Ctrl/Cmd-click to select several.</div></div>
+      </select><div class="form-text">Ctrl/Cmd-click to select several. CBC: assign BCs on the BCs page (Bulk "Assign CBC") or in Edit BC.</div></div>
     <div class="col-12"><button class="btn btn-success btn-sm"><?= L('Save', 'सेव') ?></button> <a href="/users.php" class="btn btn-outline-secondary btn-sm">New</a></div>
   </form></div></div>
 </div>

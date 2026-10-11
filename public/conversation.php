@@ -47,7 +47,7 @@ View::header('Conversation / बातचीत – ' . $bc['name'], 'messages')
     <div class="card mb-3"><div class="card-body small">
       <div class="fw-semibold fs-6"><?= e($bc['name']) ?></div>
       <div>BC ID: <?= e($bc['bc_code']) ?></div>
-      <div>WhatsApp: <?= e(Phone::display($bc['phone'])) ?></div>
+      <div>WhatsApp: <?= e(Phone::display($bc['phone'])) ?> <?= View::contactButtons($bc['phone']) ?></div>
       <div><?= L('Branch', 'शाखा') ?>: <?= e($bc['branch']) ?> · <?= L('Block', 'ब्लॉक') ?>: <?= e($bc['block']) ?></div>
       <div class="mt-1"><?= $bc['is_active'] ? '<span class="badge text-bg-success">Active</span>' : '<span class="badge text-bg-secondary">Inactive</span>' ?>
         <?= $bc['opted_out'] ? '<span class="badge text-bg-warning">STOP – no reminders</span>' : '' ?></div>
@@ -55,9 +55,9 @@ View::header('Conversation / बातचीत – ' . $bc['name'], 'messages')
         <button name="action" value="send_form" class="btn btn-sm btn-success"><i class="bi bi-send"></i> <?= L("Send today's form", 'आज का फॉर्म भेजें') ?></button></form>
     </div></div>
     <div class="card"><div class="card-header small"><?= L('Recent reports', 'हाल की रिपोर्ट') ?></div>
-      <table class="table table-sm mb-0 small"><thead><tr><th>Date</th><th>APY</th><th>JJBY</th><th>SBY</th><th>JDY</th></tr></thead><tbody>
-      <?php foreach ($recent as $r): ?><tr><td><a href="/report_edit.php?id=<?= (int) $r['id'] ?>"><?= e(fmt_date($r['report_date'])) ?></a></td><td><?= (int) $r['apy'] ?></td><td><?= (int) $r['pmjjby'] ?></td><td><?= (int) $r['pmsby'] ?></td><td><?= (int) $r['pmjdy'] ?></td></tr><?php endforeach; ?>
-      <?php if (!$recent): ?><tr><td colspan="5" class="text-muted">None</td></tr><?php endif; ?>
+      <table class="table table-sm mb-0 small"><thead><tr><th>Date</th><?= App\Schemes::th('') ?></tr></thead><tbody>
+      <?php foreach ($recent as $r): ?><tr><td><a href="/report_edit.php?id=<?= (int) $r['id'] ?>"><?= e(fmt_date($r['report_date'])) ?></a></td><?= App\Schemes::td($r) ?></tr><?php endforeach; ?>
+      <?php if (!$recent): ?><tr><td colspan="8" class="text-muted">None</td></tr><?php endif; ?>
       </tbody></table></div>
   </div>
   <div class="col-lg-8">

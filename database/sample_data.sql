@@ -3,6 +3,8 @@
 --
 --   admin    / Admin@12345     (Admin – sees everything)
 --   manager1 / Manager@12345   (Manager – only "Sitapur Main" and "Sitapur Rural")
+--   super1   / Super@12345     (BC Supervisor – all BCs, read + follow-up)
+--   cbc1     / Cbc@12345       (CBC – only own BCs: BC001, BC002, BC003)
 --
 -- Phone numbers below are fake placeholders (98765000xx) – replace with real BC numbers.
 
@@ -17,6 +19,10 @@ INSERT INTO users (id, name, username, password_hash, role, phone, receive_summa
   (1, 'System Admin', 'admin',    '$2y$12$yqs3YhllpVCD10A/FLfNReNof0LmVU4y2XBRjvwYVJGu.CEbwymZa', 'admin',   NULL, 0, 1),
   (2, 'Area Manager', 'manager1', '$2y$12$n.WlB6KzkmXdf6EfWZ.0m.bQbLRyAvNdzxBvluNuTlVX6h34XDygq', 'manager', NULL, 0, 1);
 
+INSERT INTO users (id, name, username, password_hash, role, phone, receive_summary, is_active) VALUES
+  (3, 'Suresh (CBC)', 'cbc1',   '$2y$12$XGcJu5.HCtlEQIYmhBUB3ON4jgxo2gCgwyV6xqXRRKyKp5kGOAC/K', 'cbc',        NULL, 0, 1),
+  (4, 'BC Supervisor', 'super1', '$2y$12$82PyPegwHg9VmLD8ccvPZuque6SulMWhv2gEbOBhl.nEzIkWdWXPG', 'supervisor', NULL, 0, 1);
+
 INSERT INTO user_branches (user_id, branch_id) VALUES (2, 1), (2, 2);
 
 INSERT INTO bcs (id, bc_code, name, phone, branch_id, block, is_active, opted_out, created_at) VALUES
@@ -30,6 +36,7 @@ INSERT INTO bcs (id, bc_code, name, phone, branch_id, block, is_active, opted_ou
   (8, 'BC008', 'Old BC',        '9876500008', 3, 'Mohammdi',  0, 0, CURDATE() - INTERVAL 30 DAY);
 
 UPDATE bcs SET opted_out_at = NOW() WHERE id = 5;
+UPDATE bcs SET cbc_id = 3 WHERE id IN (1, 2, 3);
 
 -- reports for the last few days (BC006 and BC007 have missed the last days -> escalation)
 INSERT INTO reports (bc_id, report_date, apy, pmjjby, pmsby, pmjdy, source, version, submitted_at, updated_at) VALUES
@@ -63,3 +70,5 @@ INSERT INTO bc_leaves (bc_id, from_date, to_date, reason, created_by) VALUES
 
 INSERT INTO targets (bc_id, month, apy_target, pmjjby_target, pmsby_target, pmjdy_target, updated_by)
 SELECT id, DATE_FORMAT(CURDATE(), '%Y-%m-01'), 20, 15, 30, 40, 1 FROM bcs WHERE is_active = 1;
+
+UPDATE reports SET apy_off = 1, pmsby_off = 2 WHERE bc_id = 1 AND report_date = CURDATE() - INTERVAL 1 DAY;

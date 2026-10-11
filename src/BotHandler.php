@@ -264,12 +264,14 @@ final class BotHandler
         }
         if ($high) {
             DB::exec('DELETE FROM pending_confirmations WHERE bc_id = ?', [$bc['id']]);
+            $cols = implode(', ', ReportParser::SCHEMES);
+            $marks = implode(', ', array_fill(0, count(ReportParser::SCHEMES), '?'));
             DB::insert(
-                'INSERT INTO pending_confirmations (bc_id, report_date, apy, pmjjby, pmsby, pmjdy, blank_fields, raw_text, wa_message_id, note, created_at, expires_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)',
-                [$bc['id'], $today, $res['values']['apy'], $res['values']['pmjjby'], $res['values']['pmsby'], $res['values']['pmjdy'],
+                "INSERT INTO pending_confirmations (bc_id, report_date, {$cols}, blank_fields, raw_text, wa_message_id, note, created_at, expires_at)
+                 VALUES (?, ?, {$marks}, ?, ?, ?, ?, NOW(), ?)",
+                array_merge([$bc['id'], $today], array_values($res['values']), [
                     $res['blank'] ? implode(',', $res['blank']) : null, $body, $msgId, $note,
-                    date('Y-m-d H:i:s', min(time() + 3 * 3600, Calendar::cutoffTs($today)))]
+                    date('Y-m-d H:i:s', min(time() + 3 * 3600, Calendar::cutoffTs($today)))])
             );
             $this->reply($bc, $chatId, $msgId,
                 '⚠️ ' . implode(', ', $high) . " – ye number zyada lag raha hai.\n"
@@ -285,7 +287,10 @@ final class BotHandler
 
     private function confirmPending(array $bc, string $chatId, string $msgId, array $pending): void
     {
-        $values = ['apy' => (int) $pending['apy'], 'pmjjby' => (int) $pending['pmjjby'], 'pmsby' => (int) $pending['pmsby'], 'pmjdy' => (int) $pending['pmjdy']];
+        $values = [];
+        foreach (ReportParser::SCHEMES as $k) {
+            $values[$k] = (int) ($pending[$k] ?? 0);
+        }
         $blank = $pending['blank_fields'] ? explode(',', (string) $pending['blank_fields']) : [];
         if (time() > Calendar::cutoffTs((string) $pending['report_date'])) {
             DB::exec('DELETE FROM pending_confirmations WHERE bc_id = ?', [$bc['id']]);
@@ -302,6 +307,7 @@ final class BotHandler
     {
         $txt = ($updated ? 'Report update ho gayi ✅ ' : 'Report mil gayi ✅ ')
             . Reports::summaryLine($values) . '. Galat ho to form dobara bhej dein.';
+        $blank = array_values(array_intersect($blank, ReportParser::ONLINE)); // offline is often empty – don't nag
         if ($blank) {
             $labels = array_map(static fn ($s) => ReportParser::LABELS[$s], $blank);
             $txt .= "\nℹ️ " . implode(', ', $labels) . (count($labels) > 1 ? ' khali the' : ' khali tha') . ', 0 maana gaya.';
@@ -353,7 +359,9 @@ final class BotHandler
         return "ℹ️ *Madad / Help*\n\n"
             . "Roz ki report bhejne ke liye form copy karke numbers bharein aur bhej dein.\n"
             . "Chhota tareeka: 4 number is kram mein – APY PMJJBY PMSBY PMJDY\n"
-            . "Jaise: 2 1 3 5\n\n"
+            . "Jaise: 2 1 3 5\n"
+            . "Offline bhi ho to 7 number – APY PMJJBY PMSBY PMJDY, APY-OFF JJBY-OFF SBY-OFF\n"
+            . "Jaise: 2 1 3 5 0 1 0\n\n"
             . "*FORM* – aaj ka form dobara mangwayein\n"
             . "*STATUS* – aaj ki report dekhein\n"
             . "*STOP* – reminder band karein\n"

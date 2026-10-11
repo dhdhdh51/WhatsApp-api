@@ -44,6 +44,10 @@ final class Calendar
     {
         $params = [$date, $date, $date];
         $where = ['b.is_active = 1'];
+        if (!empty($filters['cbc_id'])) {
+            $where[] = 'b.cbc_id = ?';
+            $params[] = (int) $filters['cbc_id'];
+        }
         if ($user) {
             [$w, $p] = Scope::bc($user);
             $where[] = $w;
@@ -66,14 +70,15 @@ final class Calendar
             $where[] = 'b.id IN (' . DB::in(array_map('intval', $filters['bc_ids']), $params) . ')';
         }
 
-        $sql = "SELECT b.id, b.bc_code, b.name, b.phone, b.wa_lid, b.block, b.branch_id, b.opted_out,
-                       br.name AS branch_name, br.area,
-                       r.id AS report_id, r.apy, r.pmjjby, r.pmsby, r.pmjdy, r.version, r.source,
+        $sql = "SELECT b.id, b.bc_code, b.name, b.phone, b.wa_lid, b.block, b.branch_id, b.cbc_id, b.opted_out,
+                       br.name AS branch_name, br.area, cu.name AS cbc_name, cu.phone AS cbc_phone,
+                       r.id AS report_id, r.apy, r.pmjjby, r.pmsby, r.pmjdy, r.apy_off, r.pmjjby_off, r.pmsby_off, r.version, r.source,
                        r.submitted_at, r.updated_at AS report_updated_at, r.blank_fields,
                        (SELECT COUNT(*) FROM bc_leaves l WHERE l.bc_id = b.id AND ? BETWEEN l.from_date AND l.to_date) AS on_leave,
                        (SELECT COUNT(*) FROM holidays h WHERE h.holiday_date = ? AND (h.branch_id IS NULL OR h.branch_id = b.branch_id)) AS is_holiday
                 FROM bcs b
                 LEFT JOIN branches br ON br.id = b.branch_id
+                LEFT JOIN users cu ON cu.id = b.cbc_id
                 LEFT JOIN reports r ON r.bc_id = b.id AND r.report_date = ?
                 WHERE " . implode(' AND ', $where) . '
                 ORDER BY br.name, b.name';

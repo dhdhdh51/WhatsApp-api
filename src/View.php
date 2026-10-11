@@ -59,7 +59,7 @@ final class View
       </ul>
       <div class="d-flex align-items-center gap-2 text-white small">
         <span class="badge <?= $wa === 'WORKING' ? 'bg-light text-success' : 'bg-danger' ?> d-none d-lg-inline">WA: <?= e($wa) ?></span>
-        <a class="text-white text-decoration-none" href="/account.php"><i class="bi bi-person-circle"></i> <?= e($user['name']) ?> (<?= e($user['role']) ?>)</a>
+        <a class="text-white text-decoration-none" href="/account.php"><i class="bi bi-person-circle"></i> <?= e($user['name']) ?> (<?= e(Auth::roleLabel($user['role'])) ?>)</a>
         <form method="post" action="/logout.php" class="d-inline"><?= Csrf::field() ?><button class="btn btn-sm btn-outline-light">Logout</button></form>
       </div>
     </div>
@@ -113,6 +113,27 @@ final class View
                 . e($b['name']) . ($b['area'] ? ' (' . e($b['area']) . ')' : '') . '</option>';
         }
         return $h;
+    }
+
+    /** CBC <select> options (all CBC users for admins when $all, otherwise CBCs of visible BCs). */
+    public static function cbcOptions(array $user, $selected, string $firstLabel = 'All CBCs / सभी सीबीसी', bool $all = false): string
+    {
+        $h = '<option value="">' . e($firstLabel) . '</option>';
+        $list = $all ? DB::all("SELECT id, name, phone FROM users WHERE role = 'cbc' AND is_active = 1 ORDER BY name") : Scope::cbcs($user);
+        foreach ($list as $c) {
+            $h .= '<option value="' . (int) $c['id'] . '"' . ((string) $selected === (string) $c['id'] ? ' selected' : '') . '>' . e($c['name']) . '</option>';
+        }
+        return $h;
+    }
+
+    /** Call / WhatsApp buttons for a BC phone number. */
+    public static function contactButtons(?string $phone): string
+    {
+        if (!$phone) {
+            return '';
+        }
+        return '<a class="btn btn-sm btn-success py-0 px-2" href="tel:+91' . e($phone) . '" title="Call / कॉल करें"><i class="bi bi-telephone-fill"></i></a> '
+            . '<a class="btn btn-sm btn-outline-success py-0 px-2" target="_blank" rel="noopener" href="https://wa.me/91' . e($phone) . '" title="WhatsApp chat"><i class="bi bi-whatsapp"></i></a>';
     }
 
     public static function blockOptions(array $user, $selected): string

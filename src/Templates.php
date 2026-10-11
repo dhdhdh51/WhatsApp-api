@@ -26,7 +26,7 @@ final class Templates
         'form'           => "{form}\n\n" . self::INSTRUCTION,
         'reminder'       => "⏰ {name} ji, aaj ki report abhi baaki hai.\n\n{form}\n\n" . self::INSTRUCTION,
         'final_reminder' => "⚠️ {name} ji, aakhri reminder! Report {cutoff} tak bhej dein.\n\n{form}\n\n" . self::INSTRUCTION,
-        'welcome'        => "🙏 Namaste {name} ji!\n\nAapko *BC Daily Report* system mein jod diya gaya hai ✅\nBC ID: {bc_code}\n\n📌 *Kaise kaam karega*\n1️⃣ Roz {form_time} baje isi number se aapko ek form aayega.\n2️⃣ Form copy karein, har line ke aage aaj ka number likhein aur bhej dein:\nAPY: 2\nPMJJBY: 1\nPMSBY: 3\nPMJDY: 5\n3️⃣ Kuch nahi kiya to 0 likhein.\n4️⃣ Chhota tareeka: sirf 4 number bhejein – 2 1 3 5 (kram: APY, PMJJBY, PMSBY, PMJDY)\n5️⃣ Galti ho jaye to {cutoff} tak form dobara bhej dein – report update ho jayegi.\n\n🔤 *Commands*\nFORM – aaj ka form mangwayein\nSTATUS – aaj ki report dekhein\nHELP – madad\n\n👉 Kripya is number ko apne phone mein save kar lein. Dhanyavad 🙏",
+        'welcome'        => "🙏 Namaste {name} ji!\n\nAapko *BC Daily Report* system mein jod diya gaya hai ✅\nBC ID: {bc_code}\n\n📌 *Kaise kaam karega*\n1️⃣ Roz {form_time} baje isi number se aapko ek form aayega.\n2️⃣ Form copy karein, har line ke aage aaj ka number likhein aur bhej dein:\nAPY: 2\nPMJJBY: 1\nPMSBY: 3\nPMJDY: 5\nAPY OFFLINE: 0\nJJBY OFFLINE: 0\nSBY OFFLINE: 0\n3️⃣ Kuch nahi kiya to 0 likhein.\n4️⃣ Chhota tareeka: sirf 4 number bhejein – 2 1 3 5 (kram: APY, PMJJBY, PMSBY, PMJDY). Offline bhi ho to 7 number: 2 1 3 5 0 1 0\n5️⃣ Galti ho jaye to {cutoff} tak form dobara bhej dein – report update ho jayegi.\n\n🔤 *Commands*\nFORM – aaj ka form mangwayein\nSTATUS – aaj ki report dekhein\nHELP – madad\n\n👉 Kripya is number ko apne phone mein save kar lein. Dhanyavad 🙏",
     ];
 
     /** The blank form block the BC copies. */
@@ -34,7 +34,7 @@ final class Templates
     {
         return "📋 Daily Report - " . date('d-m-Y', strtotime($date)) . "\n"
             . "Naam: {$name}\n\n"
-            . "APY:\nPMJJBY:\nPMSBY:\nPMJDY:";
+            . "APY:\nPMJJBY:\nPMSBY:\nPMJDY:\nAPY OFFLINE:\nJJBY OFFLINE:\nSBY OFFLINE:";
     }
 
     /** Full blank form message as used in error replies / FORM command. */
