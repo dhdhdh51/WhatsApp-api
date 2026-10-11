@@ -1,0 +1,48 @@
+# WAHA – WhatsApp HTTP API gateway.
+# Values like ${WAHA_API_KEY} come from the .env file in this folder (the same file the PHP app uses).
+#   docker compose up -d
+# The API/dashboard is bound to 127.0.0.1 only – never expose port 3000 to the internet.
+# Dashboard via SSH tunnel:  ssh -L 3000:127.0.0.1:3000 ubuntu@your-server  ->  http://localhost:3000/dashboard
+
+services:
+  waha:
+    image: devlikeapro/waha:latest   # pin a tested tag in production, e.g. devlikeapro/waha:2025.x.y
+    container_name: waha
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      TZ: ${APP_TIMEZONE:-Asia/Kolkata}
+      # --- security
+      WAHA_API_KEY: ${WAHA_API_KEY:?set WAHA_API_KEY in .env}
+      WAHA_DASHBOARD_ENABLED: "true"
+      WAHA_DASHBOARD_USERNAME: ${WAHA_DASHBOARD_USERNAME:-admin}
+      WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD:?set WAHA_DASHBOARD_PASSWORD in .env}
+      WHATSAPP_SWAGGER_USERNAME: ${WAHA_DASHBOARD_USERNAME:-admin}
+      WHATSAPP_SWAGGER_PASSWORD: ${WAHA_DASHBOARD_PASSWORD}
+      # --- engine & session
+      WHATSAPP_DEFAULT_ENGINE: ${WAHA_ENGINE:-WEBJS}
+      WHATSAPP_RESTART_ALL_SESSIONS: "True"
+      WHATSAPP_START_SESSION: ${WAHA_SESSION:-default}
+      # --- webhook -> PHP (signed with HMAC-SHA512 using WEBHOOK_SECRET)
+      WHATSAPP_HOOK_URL: ${APP_URL}/webhook.php
+      WHATSAPP_HOOK_EVENTS: message,session.status
+      WHATSAPP_HOOK_HMAC_KEY: ${WEBHOOK_SECRET:?set WEBHOOK_SECRET in .env}
+      WHATSAPP_HOOK_RETRIES_POLICY: constant
+      WHATSAPP_HOOK_RETRIES_DELAY_SECONDS: "5"
+      WHATSAPP_HOOK_RETRIES_ATTEMPTS: "5"
+      # --- do not send status/group/channel/broadcast events at all
+      WAHA_SESSION_CONFIG_IGNORE_STATUS: "true"
+      WAHA_SESSION_CONFIG_IGNORE_GROUPS: "true"
+      WAHA_SESSION_CONFIG_IGNORE_CHANNELS: "true"
+      WAHA_SESSION_CONFIG_IGNORE_BROADCAST: "true"
+      # BCs only send text – no need to download media
+      WHATSAPP_DOWNLOAD_MEDIA: "false"
+    volumes:
+      - ./waha/sessions:/app/.sessions   # keeps the WhatsApp login across restarts
+      - ./waha/media:/app/.media
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

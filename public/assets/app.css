@@ -1,0 +1,22 @@
+body { background: #f4f6f5; }
+.hi, .hi-nav { font-weight: 400; opacity: .75; }
+.hi { font-size: .8em; }
+.hi-nav { font-size: .75em; display: none; }
+@media (min-width: 1400px) { .hi-nav { display: inline; } }
+.navbar .nav-link { padding-left: .5rem; padding-right: .5rem; }
+.stat-card { border-left: 4px solid #198754; }
+.table td, .table th { vertical-align: middle; }
+.wa-pre { white-space: pre-wrap; word-break: break-word; font-family: inherit; margin: 0; }
+.msg-preview { max-width: 520px; white-space: normal; }
+.chat .card-body { background: #e5ddd5; max-height: 70vh; overflow-y: auto; }
+.bubble { max-width: 80%; padding: .45rem .65rem; border-radius: .6rem; margin: .25rem 0; font-size: .9rem; box-shadow: 0 1px 1px rgba(0,0,0,.08); }
+.bubble.in { background: #fff; margin-right: auto; border-top-left-radius: 0; }
+.bubble.out { background: #dcf8c6; margin-left: auto; border-top-right-radius: 0; }
+.bubble.failed { background: #f8d7da; }
+.bubble .meta { font-size: .7rem; color: #667; text-align: right; margin-top: .15rem; }
+.border-dashed { border-style: dashed !important; }
+.targets input { max-width: 90px; }
+@media (max-width: 576px) {
+  main.container-fluid { padding-left: .5rem; padding-right: .5rem; }
+  .table { font-size: .82rem; }
+}

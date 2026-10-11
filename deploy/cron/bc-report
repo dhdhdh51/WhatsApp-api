@@ -1,0 +1,11 @@
+# /etc/cron.d/bc-report  (owner root, mode 644, file name must not contain a dot)
+#   sudo cp deploy/cron/bc-report /etc/cron.d/bc-report
+#
+# scheduler: queues forms / reminders / summary / escalation at the times set in the panel
+# worker:    sends the queue one message at a time (a lock keeps it to a single process)
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+QUIET=1
+
+* * * * * www-data cd /var/www/bc-report && php bin/scheduler.php >> storage/logs/cron.log 2>&1
+* * * * * www-data cd /var/www/bc-report && php bin/worker.php    >> storage/logs/cron.log 2>&1
