@@ -3,6 +3,7 @@
 /storage/logs/*
 !/storage/logs/.gitkeep
 /vendor/
+docker-compose.override.yml
 .DS_Store
 .idea/
 .vscode/
