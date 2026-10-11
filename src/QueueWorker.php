@@ -63,8 +63,10 @@ final class QueueWorker
                 continue; // no delay needed, nothing was sent
             }
 
-            $this->waitGap();
-            $this->send($job);
+            $tMin = max(0, Settings::int('typing_min_sec'));
+            $typing = random_int($tMin, max($tMin, Settings::int('typing_max_sec')));
+            $this->waitGap($typing);
+            $this->send($job, $typing);
         }
     }
 
@@ -128,27 +130,30 @@ final class QueueWorker
         return null;
     }
 
-    /** Random 8-20 s gap since the last sent message (persisted, so it also holds across worker runs). */
-    private function waitGap(): void
+    /**
+     * Random gap (min_delay_sec..max_delay_sec) between two sent messages, measured send-to-send.
+     * The typing indicator that follows is counted inside the gap, so a 5 s setting really means ~5 s.
+     * Persisted via last_sent_at, so it also holds across worker runs.
+     */
+    private function waitGap(int $typing): void
     {
         $min = max(1, Settings::int('min_delay_sec'));
         $max = max($min, Settings::int('max_delay_sec'));
         $gap = random_int($min, $max);
         $last = Settings::get('last_sent_at');
         $elapsed = $last !== '' ? time() - (int) strtotime($last) : PHP_INT_MAX;
-        if ($elapsed < $gap) {
-            sleep($gap - $elapsed);
+        $wait = $gap - $typing - $elapsed;
+        if ($wait > 0) {
+            sleep($wait);
         }
     }
 
-    private function send(array $job): void
+    private function send(array $job, int $typing): void
     {
         $chat = (string) $job['chat_id'];
-        $tMin = max(0, Settings::int('typing_min_sec'));
-        $tMax = max($tMin, Settings::int('typing_max_sec'));
 
         $this->waha->startTyping($chat);
-        sleep(random_int($tMin, $tMax));
+        sleep($typing);
         $this->waha->stopTyping($chat);
 
         $r = $this->waha->sendText($chat, (string) $job['body']);
