@@ -8,3 +8,5 @@ docker-compose.override.yml
 .idea/
 .vscode/
 /public/uploads/
+/storage/firebase-sa.json
+*firebase-adminsdk*.json

@@ -86,6 +86,7 @@ public class MainActivity extends Activity {
         askNotificationPermission();
         PollWorker.schedule(this);
         AlarmScheduler.scheduleAll(this);
+        PushService.refresh(this);
         askFullScreenPermission();
     }
 
@@ -202,6 +203,7 @@ public class MainActivity extends Activity {
             Prefs.saveSession(MainActivity.this, token, last);
             PollWorker.schedule(MainActivity.this);
             PollWorker.runNow(MainActivity.this);
+            PushService.refresh(MainActivity.this);
         }
 
         @JavascriptInterface

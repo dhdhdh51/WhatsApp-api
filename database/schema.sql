@@ -277,6 +277,7 @@ CREATE TABLE IF NOT EXISTS app_tokens (
   bc_id         INT UNSIGNED NOT NULL,
   token_hash    CHAR(64) NOT NULL,
   device        VARCHAR(120) NULL,
+  fcm_token     VARCHAR(255) NULL COMMENT 'Firebase push token of this device',
   created_at    DATETIME NOT NULL,
   last_used_at  DATETIME NULL,
   PRIMARY KEY (id),

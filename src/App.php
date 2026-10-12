@@ -40,10 +40,17 @@ final class App
 
     public static function notify(int $bcId, string $kind, string $title, ?string $body = null): int
     {
-        return DB::insert(
+        $id = DB::insert(
             'INSERT INTO app_notifications (bc_id, kind, title, body, created_at) VALUES (?, ?, ?, ?, NOW())',
             [$bcId, $kind, mb_substr($title, 0, 150), $body]
         );
+        try { // instant push; the 15-min poll stays as backup
+            Fcm::pushToBc($bcId, ['id' => $id, 'kind' => $kind, 'title' => mb_substr($title, 0, 150),
+                'body' => mb_strimwidth((string) $body, 0, 900, '…')]);
+        } catch (\Throwable $e) {
+            Logger::warn('FCM push failed: ' . $e->getMessage());
+        }
+        return $id;
     }
 
     /** Is this BC actively using the app (opened it in the last 3 days)? */
@@ -172,5 +179,6 @@ final class App
     public static function sendTestRing(int $bcId, string $mode): void
     {
         self::notify($bcId, $mode === 'call' ? 'ring_call' : 'ring_alarm', $mode === 'call' ? '📞 Test call' : '⏰ Test alarm', 'Admin test');
+        // settings changed? phones refresh their alarm config on any push (handled in the app)
     }
 }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Firebase client config (from google-services.json, project bc-report-199e3). Client keys only – not secret. -->
+<resources>
+    <string name="google_app_id" translatable="false">1:623196295166:android:2676cea86af6da8c3bfaaf</string>
+    <string name="gcm_defaultSenderId" translatable="false">623196295166</string>
+    <string name="google_api_key" translatable="false">AIzaSyBTcnO167eXDHat5PDnrSTtAiEOE6AU-hM</string>
+    <string name="google_crash_reporting_api_key" translatable="false">AIzaSyBTcnO167eXDHat5PDnrSTtAiEOE6AU-hM</string>
+    <string name="project_id" translatable="false">bc-report-199e3</string>
+    <string name="google_storage_bucket" translatable="false">bc-report-199e3.firebasestorage.app</string>
+</resources>

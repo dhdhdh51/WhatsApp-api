@@ -168,6 +168,15 @@ switch ($action) {
         out(['ok' => true, 'rows' => array_map(static fn ($n) => ['id' => (int) $n['id'], 'title' => $n['title'], 'body' => $n['body'],
             'time' => fmt_dt($n['created_at'])], DB::all('SELECT * FROM app_notifications WHERE bc_id = ? ORDER BY id DESC LIMIT 50', [$bcId]))]);
 
+    case 'fcm':
+        $ft = trim((string) ($in['token'] ?? ''));
+        if ($method !== 'POST' || $ft === '' || strlen($ft) > 255) {
+            fail('bad token');
+        }
+        DB::exec('UPDATE app_tokens SET fcm_token = NULL WHERE fcm_token = ? AND token_hash <> ?', [$ft, hash('sha256', $token)]);
+        DB::exec('UPDATE app_tokens SET fcm_token = ? WHERE token_hash = ?', [$ft, hash('sha256', $token)]);
+        out(['ok' => true]);
+
     case 'alarm_check':
         out(['ok' => true, 'ring' => App::shouldRing($bcId), 'config' => App::alarmConfig()]);
 

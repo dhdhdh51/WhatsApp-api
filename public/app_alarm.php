@@ -93,7 +93,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $s = Settings::all();
-$appUsers = DB::all('SELECT id, name, bc_code, app_last_seen FROM bcs WHERE is_active = 1 AND app_last_seen IS NOT NULL ORDER BY app_last_seen DESC');
+$appUsers = DB::all('SELECT b.id, b.name, b.bc_code, b.app_last_seen, (SELECT COUNT(*) FROM app_tokens t WHERE t.bc_id = b.id AND t.fcm_token IS NOT NULL) fcm
+                     FROM bcs b WHERE b.is_active = 1 AND b.app_last_seen IS NOT NULL ORDER BY b.app_last_seen DESC');
 $tests = DB::all("SELECT n.created_at, n.kind, b.name FROM app_notifications n JOIN bcs b ON b.id = n.bc_id WHERE n.kind IN ('ring_call','ring_alarm') ORDER BY n.id DESC LIMIT 10");
 $audio = $s['app_call_audio'];
 
@@ -130,12 +131,14 @@ View::header('App call & alarm / ऐप कॉल और अलार्म', 'a
         <div class="col-12"><select name="target" class="form-select" required>
           <option value="">— select BC (app users) —</option>
           <option value="all">All app users (<?= count($appUsers) ?>) / सभी</option>
-          <?php foreach ($appUsers as $u): ?><option value="<?= (int) $u['id'] ?>"><?= e($u['name'] . ' (' . $u['bc_code'] . ')') ?></option><?php endforeach; ?>
+          <?php foreach ($appUsers as $u): ?><option value="<?= (int) $u['id'] ?>"><?= e($u['name'] . ' (' . $u['bc_code'] . ')') ?><?= $u['fcm'] ? ' 🔥' : '' ?></option><?php endforeach; ?>
         </select></div>
         <div class="col-6"><button name="mode" value="call" class="btn btn-outline-success w-100"><i class="bi bi-telephone-inbound"></i> <?= L('Test call', 'टेस्ट कॉल') ?></button></div>
         <div class="col-6"><button name="mode" value="alarm" class="btn btn-outline-warning w-100"><i class="bi bi-alarm"></i> <?= L('Test alarm', 'टेस्ट अलार्म') ?></button></div>
       </form>
-      <p class="small text-muted mt-2 mb-0">The test rings even if the report is already submitted. Without Firebase it arrives with the app's next check (max ~15 min); the daily 5:00 / 5:30 ring is exact because the phone schedules it itself.</p>
+      <p class="small text-muted mt-2 mb-0">The test rings even if the report is already submitted.
+        <?= App\Fcm::enabled() ? '🔥 Firebase is on – phones with app 1.0.5+ ring within seconds; older apps at their next check (max ~15 min).' : 'Firebase is off – arrives with the app\'s next check (max ~15 min).' ?>
+        The daily call / alarm is exact because the phone schedules it itself.</p>
     </div></div>
     <div class="card"><div class="card-header small"><?= L('App users', 'ऐप इस्तेमाल करने वाले') ?> (<?= count($appUsers) ?>) · <?= L('last tests', 'पिछले टेस्ट') ?></div>
       <ul class="list-group list-group-flush small" style="max-height:300px;overflow:auto">
