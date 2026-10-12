@@ -4,7 +4,7 @@ html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, "Se
 .top { position: sticky; top: 0; z-index: 5; background: #0b8a5a; color: #fff; padding: 14px 16px; display: flex; align-items: center; gap: 10px; }
 .top h1 { font-size: 18px; margin: 0; flex: 1; }
 .top .sub { font-size: 12px; opacity: .85; }
-.page { padding: 12px 12px 80px; max-width: 640px; margin: 0 auto; }
+.page { padding: 12px 12px 90px; max-width: 640px; margin: 0 auto; }
 .card { background: #fff; border-radius: 14px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 .card h2 { font-size: 16px; margin: 0 0 10px; }
 .muted { color: #6b7a73; font-size: 13px; }
@@ -31,13 +31,16 @@ td.n, th.n { text-align: right; }
 .tabs button b { display: block; font-size: 20px; font-weight: normal; }
 .tabs button.on { color: #0b8a5a; font-weight: 600; }
 .dot { position: absolute; top: 4px; right: 22%; background: #e5484d; color: #fff; border-radius: 9px; font-size: 10px; padding: 1px 5px; }
-.chat { display: flex; flex-direction: column; gap: 6px; padding-bottom: 70px; }
+.chat { display: flex; flex-direction: column; gap: 6px; }
+.chatpage { padding-bottom: 140px; }
+.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: #eef2f0; }
+.dock .tabs { position: static; }
 .msg { max-width: 82%; padding: 8px 10px; border-radius: 12px; font-size: 15px; white-space: pre-wrap; word-break: break-word; box-shadow: 0 1px 1px rgba(0,0,0,.06); }
 .msg.me { align-self: flex-end; background: #d9fdd3; border-top-right-radius: 3px; }
 .msg.them { align-self: flex-start; background: #fff; border-top-left-radius: 3px; }
 .msg .meta { font-size: 11px; color: #6b7a73; text-align: right; margin-top: 3px; }
 .msg .who { font-size: 12px; font-weight: 600; color: #0b8a5a; margin-bottom: 2px; }
-.composer { position: fixed; bottom: 58px; left: 0; right: 0; display: flex; gap: 8px; padding: 8px; background: #eef2f0; max-width: 640px; margin: 0 auto; }
+.composer { display: flex; gap: 8px; padding: 8px; max-width: 640px; margin: 0 auto; border-top: 1px solid #dfe6e2; background: #eef2f0; }
 .composer textarea { font-size: 16px; padding: 10px; height: 46px; resize: none; }
 .composer button { border: 0; border-radius: 50%; width: 46px; height: 46px; background: #0b8a5a; color: #fff; font-size: 20px; flex: none; }
 .notice { white-space: pre-wrap; font-size: 14px; }

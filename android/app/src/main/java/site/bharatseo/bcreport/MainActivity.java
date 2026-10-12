@@ -12,6 +12,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
+import android.view.WindowInsets;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -42,6 +43,7 @@ public class MainActivity extends Activity {
         offline.setVisibility(View.GONE);
         root.addView(offline, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
+        applyInsets(root);
 
         WebSettings ws = web.getSettings();
         ws.setJavaScriptEnabled(true);
@@ -94,6 +96,36 @@ public class MainActivity extends Activity {
     private void load(Intent intent) {
         String hash = intent != null ? intent.getStringExtra("hash") : null;
         web.loadUrl(BuildConfig.BASE_URL + "/app/" + (hash != null ? "#" + hash : ""));
+    }
+
+    /**
+     * Android 15 draws apps edge-to-edge: keep the page clear of the status bar, the system
+     * navigation buttons and the keyboard, so the bottom tabs and the chat box stay visible.
+     */
+    private void applyInsets(View root) {
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            int top;
+            int bottom;
+            int left;
+            int right;
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                android.graphics.Insets ime = insets.getInsets(WindowInsets.Type.ime());
+                top = bars.top;
+                left = bars.left;
+                right = bars.right;
+                bottom = Math.max(bars.bottom, ime.bottom);
+            } else {
+                top = insets.getSystemWindowInsetTop();
+                left = insets.getSystemWindowInsetLeft();
+                right = insets.getSystemWindowInsetRight();
+                bottom = insets.getSystemWindowInsetBottom();
+            }
+            v.setPadding(left, top, right, bottom);
+            return insets;
+        });
+        root.setBackgroundColor(Color.parseColor("#0B8A5A"));
+        root.requestApplyInsets();
     }
 
     private LinearLayout buildOfflineView() {

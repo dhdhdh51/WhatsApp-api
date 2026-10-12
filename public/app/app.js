@@ -174,11 +174,18 @@
   }
 
   // ------------------------------------------------------------------ chat
+  // keep the chat list clear of the bottom dock (composer + navigation), also when the keyboard opens
+  function fitDock() {
+    var d = document.querySelector('.dock'), p = document.querySelector('.chatpage');
+    if (d && p) { p.style.paddingBottom = (d.offsetHeight + 12) + 'px'; }
+  }
+  window.addEventListener('resize', function () { fitDock(); if (state.tab === 'chat') window.scrollTo(0, document.body.scrollHeight); });
   function stopChat() { if (state.chatTimer) { clearInterval(state.chatTimer); state.chatTimer = null; } }
   function renderChat() {
     state.lastChatId = 0;
-    $app.innerHTML = top('Chat', 'Apne CBC / Admin se baat karein') + '<div class="page"><div class="chat" id="msgs"><div class="muted">Load ho raha hai…</div></div></div>' +
-      '<div class="composer"><textarea id="tx" placeholder="Message likhein…" maxlength="2000"></textarea><button id="send">➤</button></div>' + tabs();
+    $app.innerHTML = top('Chat', 'Apne CBC / Admin se baat karein') + '<div class="page chatpage"><div class="chat" id="msgs"><div class="muted">Load ho raha hai…</div></div></div>' +
+      '<div class="dock"><div class="composer"><textarea id="tx" placeholder="Message likhein…" maxlength="2000" rows="1"></textarea><button id="send" aria-label="Send">➤</button></div>' + tabs() + '</div>';
+    fitDock();
     bindTabs();
     loadChat(true);
     state.chatTimer = setInterval(function () { loadChat(false); }, 8000);
@@ -208,6 +215,7 @@
       d.innerHTML = (m.mine ? '' : '<div class="who">' + esc(m.name) + '</div>') + fmt(m.body) + '<div class="meta">' + esc(m.time) + (m.mine ? (m.read ? ' ✓✓' : ' ✓') : '') + '</div>';
       box.appendChild(d);
     });
+    fitDock();
     window.scrollTo(0, document.body.scrollHeight);
   }
 
