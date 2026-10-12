@@ -22,6 +22,13 @@ final class QueueWorker
     public function run(): void
     {
         Queue::housekeeping();
+        // a long quiet period starts a fresh batch
+        $pauseMin = max(0, Settings::int('batch_pause_min'));
+        $last = Settings::get('last_sent_at');
+        if ($last !== '' && time() - (int) strtotime($last) >= $pauseMin * 60 && Settings::int('batch_sent') > 0
+            && !$this->inBatchPause()) {
+            Settings::set('batch_sent', '0');
+        }
         $idleRounds = 0;
 
         while (time() < $this->deadline) {
@@ -47,6 +54,15 @@ final class QueueWorker
             $idleRounds = 0;
 
             $isAdminMsg = in_array($job['kind'], Queue::ADMIN_KINDS, true);
+            if (!$isAdminMsg && $this->inBatchPause()) {
+                DB::exec("UPDATE message_queue SET status = 'pending', locked_at = NULL WHERE id = ?", [$job['id']]);
+                Settings::set('queue_pause_reason', 'batch_pause');
+                Logger::info('Batch break until ' . Settings::get('batch_resume_at'));
+                return;
+            }
+            if (Settings::get('queue_pause_reason') === 'batch_pause') {
+                Settings::set('queue_pause_reason', '');
+            }
             if (!$isAdminMsg && Queue::sentTodayCount() >= Settings::effectiveDailyLimit()) {
                 DB::exec("UPDATE message_queue SET status = 'pending', locked_at = NULL WHERE id = ?", [$job['id']]);
                 Settings::set('queue_pause_reason', 'daily_limit');
@@ -178,6 +194,9 @@ final class QueueWorker
                 'queue_id' => (int) $job['id'],
                 'report_date' => $job['report_date'],
             ]);
+            if (!in_array($job['kind'], Queue::ADMIN_KINDS, true)) {
+                $this->countBatch();
+            }
             if ($job['kind'] === 'welcome' && $job['bc_id']) {
                 DB::exec('UPDATE bcs SET welcome_sent_at = NOW() WHERE id = ?', [$job['bc_id']]);
             }
@@ -232,5 +251,31 @@ final class QueueWorker
             return false;
         }
         return true;
+    }
+
+    private function inBatchPause(): bool
+    {
+        $r = Settings::get('batch_resume_at');
+        return $r !== '' && strtotime($r) > time();
+    }
+
+    /** After batch_size scheduled messages: take a batch_pause_min break. */
+    private function countBatch(): void
+    {
+        $size = Settings::int('batch_size');
+        if ($size <= 0) {
+            return;
+        }
+        $n = Settings::int('batch_sent') + 1;
+        if ($n >= $size) {
+            $until = date('Y-m-d H:i:s', time() + max(1, Settings::int('batch_pause_min')) * 60);
+            Settings::set('batch_sent', '0');
+            Settings::set('batch_resume_at', $until);
+            Settings::set('queue_pause_reason', 'batch_pause');
+            Logger::info("Batch of {$size} sent – break until {$until}");
+            $this->deadline = 0;
+            return;
+        }
+        Settings::set('batch_sent', (string) $n);
     }
 }

@@ -23,6 +23,8 @@ $ints = [
     'typing_min_sec'             => [0, 10, 'Typing indicator min (sec)', 'टाइपिंग न्यूनतम'],
     'typing_max_sec'             => [0, 15, 'Typing indicator max (sec)', 'टाइपिंग अधिकतम'],
     'max_retries'                => [0, 2, 'Retries on failure (max 2)', 'विफल होने पर पुनः प्रयास'],
+    'batch_size'                 => [0, 1000, 'Batch size – messages before a break (0 = off)', 'एक बार में कितने संदेश'],
+    'batch_pause_min'            => [1, 720, 'Break after each batch (minutes)', 'हर बैच के बाद रुकें (मिनट)'],
     'max_value'                  => [1, 100000, 'Maximum allowed value per scheme', 'प्रति योजना अधिकतम संख्या'],
     'high_value_threshold'       => [0, 100000, 'Ask confirmation above (0 = off)', 'इससे ऊपर पुष्टि माँगें'],
     'unknown_reply_hours'        => [1, 720, 'Reply to the same number at most once every (hours)', 'एक नंबर को कितने घंटे में एक बार जवाब'],
@@ -201,7 +203,7 @@ View::header('Settings / सेटिंग्स', 'settings');
 
   <div class="col-lg-6">
     <div class="card"><div class="card-header"><?= L('Anti-ban safety', 'सुरक्षा (बैन से बचाव)') ?></div><div class="card-body row g-2">
-      <?php foreach (['daily_limit', 'min_delay_sec', 'max_delay_sec', 'typing_min_sec', 'typing_max_sec', 'max_retries'] as $k): ?>
+      <?php foreach (['daily_limit', 'min_delay_sec', 'max_delay_sec', 'typing_min_sec', 'typing_max_sec', 'max_retries', 'batch_size', 'batch_pause_min'] as $k): ?>
         <div class="col-6"><label class="form-label small"><?= L($ints[$k][2], $ints[$k][3]) ?></label><input type="number" name="<?= $k ?>" value="<?= e($s[$k]) ?>" class="form-control form-control-sm"></div>
       <?php endforeach; ?>
       <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" name="warmup_enabled" value="1" id="warmup_enabled" <?= $s['warmup_enabled'] === '1' ? 'checked' : '' ?>><label class="form-check-label small" for="warmup_enabled"><?= L(...$bools['warmup_enabled']) ?></label></div></div>

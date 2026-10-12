@@ -142,6 +142,7 @@ View::header('WhatsApp connection / व्हाट्सऐप कनेक्�
           <form method="post"><?= Csrf::field() ?><button name="action" value="pause" class="btn btn-sm btn-outline-dark"><i class="bi bi-pause"></i> <?= L('Pause queue', 'कतार रोकें') ?></button></form>
         <?php endif; ?>
         <?php if (Settings::get('queue_pause_reason')): ?><span class="badge text-bg-warning">Auto-paused: <?= e(Settings::get('queue_pause_reason')) ?></span><?php endif; ?>
+        <?php if (Settings::get('batch_resume_at') && strtotime(Settings::get('batch_resume_at')) > time()): ?><span class="badge text-bg-info">Batch break till <?= e(date('h:i A', strtotime(Settings::get('batch_resume_at')))) ?></span><?php endif; ?>
         <a class="btn btn-sm btn-outline-secondary ms-auto" href="/messages.php?tab=queue"><?= L('Open queue', 'कतार देखें') ?></a>
       </div>
       <p class="small text-muted mt-2 mb-0">Messages go out one at a time with a random <?= Settings::int('min_delay_sec') ?>–<?= Settings::int('max_delay_sec') ?> s gap and a typing indicator.
