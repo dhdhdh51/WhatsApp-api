@@ -168,12 +168,18 @@ switch ($action) {
         out(['ok' => true, 'rows' => array_map(static fn ($n) => ['id' => (int) $n['id'], 'title' => $n['title'], 'body' => $n['body'],
             'time' => fmt_dt($n['created_at'])], DB::all('SELECT * FROM app_notifications WHERE bc_id = ? ORDER BY id DESC LIMIT 50', [$bcId]))]);
 
+    case 'alarm_check':
+        out(['ok' => true, 'ring' => App::shouldRing($bcId), 'config' => App::alarmConfig()]);
+
+    case 'report_done':
+        out(['ok' => true, 'done' => (bool) DB::val('SELECT COUNT(*) FROM reports WHERE bc_id = ? AND report_date = ?', [$bcId, $today])]);
+
     case 'poll':
         $since = max(0, (int) ($_GET['since'] ?? 0));
         $rows = $since > 0
             ? DB::all('SELECT id, kind, title, body FROM app_notifications WHERE bc_id = ? AND id > ? ORDER BY id LIMIT 20', [$bcId, $since])
             : [];
-        out(['ok' => true, 'last' => (int) DB::val('SELECT COALESCE(MAX(id),0) FROM app_notifications WHERE bc_id = ?', [$bcId]),
+        out(['ok' => true, 'alarm' => App::alarmConfig(), 'last' => (int) DB::val('SELECT COALESCE(MAX(id),0) FROM app_notifications WHERE bc_id = ?', [$bcId]),
             'notifications' => array_map(static fn ($n) => ['id' => (int) $n['id'], 'kind' => $n['kind'], 'title' => $n['title'],
                 'body' => mb_strimwidth((string) $n['body'], 0, 300, '…')], $rows)]);
 

@@ -101,6 +101,7 @@
     api('today').then(function (d) {
       if (!d.ok) { $app.querySelector('.page').innerHTML = '<div class="err">' + esc(d.error) + '</div>'; return; }
       state.today = d;
+      if (d.report && native && native.setReportDone) native.setReportDone(d.date);
       var h = '';
       if (d.report) h += '<div class="ok">✅ Aaj ki report jama hai (' + esc(d.updated_at) + '). Badlav ke liye number badal kar dobara Save karein.</div>';
       else if (d.open) h += '<div class="warn">⏳ Aaj ki report abhi baaki hai. Antim samay: ' + esc(d.cutoff) + '</div>';
@@ -155,6 +156,7 @@
         return;
       }
       if (!j.ok) { rm.innerHTML = '<div class="err">' + esc(j.error) + '</div>'; return; }
+      if (native && native.setReportDone && state.today) native.setReportDone(state.today.date);
       toast(j.message); renderHome();
     });
   }
@@ -238,9 +240,20 @@
       $app.querySelector('.page').innerHTML = '<div class="card"><h2>' + esc(d.name) + '</h2>' +
         '<p class="muted">BC ID: ' + esc(d.bc_code) + '<br>Mobile: ' + esc(d.phone) + (d.branch ? '<br>Branch: ' + esc(d.branch) : '') + (d.cbc ? '<br>CBC: ' + esc(d.cbc) : '') + '</p></div>' +
         '<div class="card"><p class="muted">Har 15 minute mein app nayi suchna check karta hai (internet chahiye). Notification aane ke liye app ko notification ki permission dein.</p>' +
-        '<button class="btn light" id="pw">Password badlein</button><button class="btn red" id="lo">Logout</button></div>';
+        '<button class="btn light" id="pw">Password badlein</button><button class="btn red" id="lo">Logout</button></div>' +
+        (native && native.testRing ? '<div class="card"><h2>📞 Call aur ⏰ alarm</h2><p class="muted" id="ri"></p>' +
+          '<button class="btn light" id="tc">Test call (is phone par)</button><button class="btn light" id="ta">Test alarm (is phone par)</button>' +
+          '<button class="btn light" id="rs">Call/alarm permission</button></div>' : '');
       document.getElementById('pw').onclick = function () { renderPassword(false); };
       document.getElementById('lo').onclick = function () { if (confirm('Logout karein?')) logout(false); };
+      if (native && native.testRing) {
+        var inf = (native.ringInfo ? native.ringInfo() : '17:00|17:30|1').split('|');
+        document.getElementById('ri').textContent = inf[2] === '1'
+          ? 'Report baaki ho to roz ' + inf[0] + ' baje call aur ' + inf[1] + ' baje alarm bajega.' : 'Call/alarm abhi band hai.';
+        document.getElementById('tc').onclick = function () { native.testRing('call'); };
+        document.getElementById('ta').onclick = function () { native.testRing('alarm'); };
+        document.getElementById('rs').onclick = function () { native.ringSettings(); };
+      }
     });
   }
 

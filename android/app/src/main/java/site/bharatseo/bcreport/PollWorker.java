@@ -5,6 +5,8 @@ import android.content.Context;
 import androidx.annotation.NonNull;
 import androidx.work.Constraints;
 import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.ExistingWorkPolicy;
+import androidx.work.OneTimeWorkRequest;
 import androidx.work.NetworkType;
 import androidx.work.PeriodicWorkRequest;
 import androidx.work.WorkManager;
@@ -35,6 +37,14 @@ public class PollWorker extends Worker {
         WorkManager.getInstance(c).enqueueUniquePeriodicWork("bc_poll", ExistingPeriodicWorkPolicy.KEEP, req);
     }
 
+    /** Check right now (after login): gets call/alarm config + audio and schedules the alarms. */
+    static void runNow(Context c) {
+        OneTimeWorkRequest req = new OneTimeWorkRequest.Builder(PollWorker.class)
+                .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build();
+        WorkManager.getInstance(c).enqueueUniqueWork("bc_poll_now", ExistingWorkPolicy.REPLACE, req);
+    }
+
     @NonNull
     @Override
     public Result doWork() {
@@ -61,6 +71,10 @@ public class PollWorker extends Worker {
                 return Result.retry();
             }
             JSONObject j = new JSONObject(read(con.getInputStream()));
+            JSONObject cfg = j.optJSONObject("alarm");
+            if (cfg != null) {
+                Api.applyConfig(c, cfg);
+            }
             long serverLast = j.optLong("last", last);
             if (last == 0) {
                 Prefs.setLastId(c, serverLast); // first run: don't replay old notifications
@@ -72,7 +86,12 @@ public class PollWorker extends Worker {
                 for (int i = 0; i < arr.length(); i++) {
                     JSONObject n = arr.getJSONObject(i);
                     long id = n.getLong("id");
-                    Notifier.show(c, id, n.optString("kind", ""), n.optString("title", "BC Report"), n.optString("body", ""));
+                    String kind = n.optString("kind", "");
+                    if (kind.startsWith("ring_")) {
+                        Ringer.ring(c, "ring_call".equals(kind) ? "call" : "alarm"); // admin test
+                    } else {
+                        Notifier.show(c, id, kind, n.optString("title", "BC Report"), n.optString("body", ""));
+                    }
                     max = Math.max(max, id);
                 }
             }

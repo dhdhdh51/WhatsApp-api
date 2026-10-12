@@ -42,5 +42,50 @@ final class Prefs {
 
     static void clear(Context c) {
         p(c).edit().clear().apply();
+        AlarmScheduler.scheduleAll(c); // token gone -> alarms cancelled
+    }
+
+    // ---- call / alarm
+    static void saveAlarm(Context c, boolean enabled, String call, String alarm, String text) {
+        p(c).edit().putBoolean("al_on", enabled).putString("al_call", call).putString("al_alarm", alarm).putString("al_text", text).apply();
+    }
+
+    static boolean alarmEnabled(Context c) {
+        return p(c).getBoolean("al_on", true);
+    }
+
+    static String callTime(Context c) {
+        return p(c).getString("al_call", "17:00");
+    }
+
+    static String alarmTime(Context c) {
+        return p(c).getString("al_alarm", "17:30");
+    }
+
+    static String alarmText(Context c) {
+        return p(c).getString("al_text", "");
+    }
+
+    static int alarmVersion(Context c) {
+        return p(c).getInt("al_ver", -1);
+    }
+
+    static void setAlarmVersion(Context c, int v) {
+        p(c).edit().putInt("al_ver", v).apply();
+    }
+
+    private static String todayIst() {
+        java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US);
+        f.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Kolkata"));
+        return f.format(new java.util.Date());
+    }
+
+    /** The web app tells us when today's report is submitted, so no ring is needed even offline. */
+    static void setReportDone(Context c, String date) {
+        p(c).edit().putString("done_date", date).apply();
+    }
+
+    static boolean reportDoneToday(Context c) {
+        return todayIst().equals(p(c).getString("done_date", ""));
     }
 }

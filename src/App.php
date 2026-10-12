@@ -140,4 +140,37 @@ final class App
         [$w, $p] = Scope::bc($user);
         return (int) DB::val("SELECT COUNT(*) FROM chat_messages c JOIN bcs b ON b.id = c.bc_id WHERE c.sender = 'bc' AND c.read_at IS NULL AND {$w}", $p);
     }
+
+    // ------------------------------------------------------------------ call / alarm
+
+    /** Config the phone uses to schedule its own 5:00 call and 5:30 alarm. */
+    public static function alarmConfig(): array
+    {
+        $file = Settings::get('app_call_audio');
+        return [
+            'enabled' => Settings::bool('app_call_enabled'),
+            'call_time' => Settings::padTime(Settings::get('app_call_time') ?: '17:00'),
+            'alarm_time' => Settings::padTime(Settings::get('app_alarm_time') ?: '17:30'),
+            'text' => Settings::get('app_call_text'),
+            'audio_url' => $file !== '' ? rtrim((string) Env::get('APP_URL', ''), '/') . '/uploads/' . rawurlencode($file) : '',
+            'version' => (int) Settings::get('app_call_version'),
+        ];
+    }
+
+    /** Should the phone ring now? Only when today's report is still pending (not leave / holiday / submitted). */
+    public static function shouldRing(int $bcId): bool
+    {
+        $today = Calendar::today();
+        if (!Settings::bool('app_call_enabled') || !Calendar::isOpen($today)) {
+            return false;
+        }
+        $rows = Calendar::dayRows($today, null, ['bc_ids' => [$bcId]]);
+        return $rows && $rows[0]['status'] === 'pending';
+    }
+
+    /** Admin test: make the phone ring (arrives with the next app check, max ~15 min). */
+    public static function sendTestRing(int $bcId, string $mode): void
+    {
+        self::notify($bcId, $mode === 'call' ? 'ring_call' : 'ring_alarm', $mode === 'call' ? '📞 Test call' : '⏰ Test alarm', 'Admin test');
+    }
 }
