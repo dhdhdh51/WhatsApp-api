@@ -38,7 +38,7 @@ if (q('ajax') === '1' && $bc) {
     DB::exec("UPDATE chat_messages SET read_at = NOW() WHERE bc_id = ? AND sender = 'bc' AND read_at IS NULL", [$bcId]);
     $after = max(0, (int) q('after', 0));
     header('Content-Type: application/json');
-    echo json_encode(array_map(static fn ($m) => ['id' => (int) $m['id'], 'mine' => $m['sender'] === 'staff', 'name' => $m['sender'] === 'bc' ? $bc['name'] : ($m['uname'] ?: 'Admin'),
+    echo json_encode(array_map(static fn ($m) => ['id' => (int) $m['id'], 'mine' => $m['sender'] === 'staff', 'name' => $m['sender'] === 'bc' ? $bc['name'] : ($m['uname'] ?: App::SYSTEM_NAME),
         'body' => $m['body'], 'time' => date('d-m h:i A', strtotime((string) $m['created_at']))],
         DB::all('SELECT c.*, u.name uname FROM chat_messages c LEFT JOIN users u ON u.id = c.user_id WHERE c.bc_id = ? AND c.id > ? ORDER BY c.id LIMIT 200', [$bcId, $after])),
         JSON_UNESCAPED_UNICODE);

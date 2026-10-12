@@ -20,6 +20,24 @@ final class App
         'morning'         => '📊 Kal ka pradarshan + aaj ka lakshya',
     ];
 
+    /** Sender name shown in the app chat for automatic (template) messages. */
+    public const SYSTEM_NAME = '📢 BC Report';
+
+    /**
+     * A scheduled template message (morning, form, reminder, target, welcome) goes into the BC's app chat
+     * + one phone notification. Form/reminder notifications open the Report tab, the rest open the chat.
+     */
+    public static function deliver(int $bcId, string $kind, string $body): void
+    {
+        $isForm = in_array($kind, ['form', 'reminder', 'final_reminder', 'manual_reminder'], true);
+        if ($isForm) {
+            $cut = fmt_time12(Settings::padTime(Settings::get('cutoff_time') ?: '23:59'));
+            $body = (self::MIRROR[$kind] ?? '📋 Report bharein') . "\n\nApp mein *Report* tab kholkar aaj ke number bharein aur bhejein.\nAntim samay: {$cut}.";
+        }
+        DB::insert('INSERT INTO chat_messages (bc_id, sender, user_id, body, created_at) VALUES (?, \'staff\', NULL, ?, NOW())', [$bcId, $body]);
+        self::notify($bcId, $isForm ? 'form' : 'chat', self::MIRROR[$kind] ?? '💬 BC Report', mb_strimwidth($body, 0, 300, '…'));
+    }
+
     public static function notify(int $bcId, string $kind, string $title, ?string $body = null): int
     {
         return DB::insert(

@@ -190,7 +190,7 @@ switch ($action) {
         $rows = DB::all('SELECT c.id, c.sender, c.body, c.created_at, c.read_at, u.name FROM chat_messages c LEFT JOIN users u ON u.id = c.user_id
                          WHERE c.bc_id = ? AND c.id > ? ORDER BY c.id DESC LIMIT 100', [$bcId, $after]);
         out(['ok' => true, 'rows' => array_reverse(array_map(static fn ($c) => ['id' => (int) $c['id'], 'mine' => $c['sender'] === 'bc',
-            'name' => $c['sender'] === 'bc' ? null : ($c['name'] ?: 'Admin'), 'body' => $c['body'],
+            'name' => $c['sender'] === 'bc' ? null : ($c['name'] ?: App::SYSTEM_NAME), 'body' => $c['body'],
             'time' => date('d-m h:i A', strtotime((string) $c['created_at'])), 'read' => $c['read_at'] !== null], $rows))]);
 
     default:

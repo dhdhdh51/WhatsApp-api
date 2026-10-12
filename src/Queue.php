@@ -37,10 +37,7 @@ final class Queue
         }
         $id = (int) DB::pdo()->lastInsertId();
         if ($mirror) {
-            $short = in_array($kind, ['form', 'reminder', 'final_reminder', 'manual_reminder'], true)
-                ? 'App kholkar aaj ki report bharein. Antim samay: ' . fmt_time12(Settings::padTime(Settings::get('cutoff_time') ?: '23:59')) . '.'
-                : $body;
-            App::notify($bcId, $kind, App::MIRROR[$kind], $short);
+            App::deliver($bcId, $kind, $body);
         }
         return $id;
     }

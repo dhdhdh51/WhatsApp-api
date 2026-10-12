@@ -8,6 +8,7 @@
 
   function token() { return localStorage.getItem('bc_token') || ''; }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function fmt(s) { return esc(s).replace(/\*([^*\n]+)\*/g, '<b>$1</b>'); }
   function pad(n) { n = parseInt(n || 0, 10); return (n < 10 ? '0' : '') + n; }
   function toast(t) { var el = document.getElementById('toast'); el.textContent = t; el.className = 'toast show'; setTimeout(function () { el.className = 'toast'; }, 2600); }
 
@@ -204,7 +205,7 @@
       state.lastChatId = m.id;
       var d = document.createElement('div');
       d.className = 'msg ' + (m.mine ? 'me' : 'them');
-      d.innerHTML = (m.mine ? '' : '<div class="who">' + esc(m.name) + '</div>') + esc(m.body) + '<div class="meta">' + esc(m.time) + (m.mine ? (m.read ? ' ✓✓' : ' ✓') : '') + '</div>';
+      d.innerHTML = (m.mine ? '' : '<div class="who">' + esc(m.name) + '</div>') + fmt(m.body) + '<div class="meta">' + esc(m.time) + (m.mine ? (m.read ? ' ✓✓' : ' ✓') : '') + '</div>';
       box.appendChild(d);
     });
     window.scrollTo(0, document.body.scrollHeight);
