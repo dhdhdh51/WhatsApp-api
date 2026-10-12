@@ -40,6 +40,7 @@ $times = [
 $bools = ['send_summary' => ['Send daily summary', 'दैनिक सारांश भेजें'], 'send_escalation' => ['Send escalations', 'एस्केलेशन भेजें'],
     'warmup_enabled' => ['Warm-up mode (low limit for the first days)', 'वार्म-अप मोड'],
     'send_target_msg' => ['Send monthly target to BCs in the morning', 'सुबह बीसी को लक्ष्य भेजें'],
+    'app_skip_whatsapp' => ['Do not send WhatsApp to BCs who use the app (only app notification)', 'ऐप वाले बीसी को व्हाट्सऐप न भेजें'],
     'unknown_auto_reply' => ['Auto-reply to people who are not in the BC team', 'टीम से बाहर वालों को अपने-आप जवाब']];
 
 $errors = [];
@@ -113,6 +114,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    $ap = (string) ($_POST['app_default_password'] ?? '');
+    if ($ap !== '') {
+        if (mb_strlen($ap) < 6) {
+            $errors[] = 'App default password: min 6 characters';
+        } else {
+            $new['app_default_password_hash'] = password_hash($ap, PASSWORD_DEFAULT);
+        }
+    }
+
     $ws = (string) p('warmup_start_date');
     if ($ws !== '' && !valid_date($ws)) {
         $errors[] = 'Warm-up start date invalid';
@@ -141,7 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $changed = [];
         foreach ($new as $k => $v) {
             if (($old[$k] ?? null) !== $v) {
-                $changed[$k] = ['old' => $old[$k] ?? null, 'new' => $v];
+                $changed[$k] = str_ends_with($k, '_hash') ? '(changed)' : ['old' => $old[$k] ?? null, 'new' => $v];
                 Settings::set($k, $v);
             }
         }
@@ -156,6 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $s = Settings::all();
 if ($errors) {
     $s = array_merge($s, array_map('strval', array_filter(array_intersect_key($_POST, $s), 'is_string')));
+    $s['app_default_password_hash'] = Settings::get('app_default_password_hash');
 }
 $offDays = Settings::weeklyOffDays();
 $dayNames = ['Sun / रवि', 'Mon / सोम', 'Tue / मंगल', 'Wed / बुध', 'Thu / गुरु', 'Fri / शुक्र', 'Sat / शनि'];
@@ -219,6 +230,14 @@ View::header('Settings / सेटिंग्स', 'settings');
         <textarea name="unknown_reply_text" rows="4" class="form-control form-control-sm" maxlength="1000"><?= e($s['unknown_reply_text']) ?></textarea></div>
       <div class="col-6"><label class="form-label small"><?= L($ints['unknown_reply_hours'][2], $ints['unknown_reply_hours'][3]) ?></label><input type="number" name="unknown_reply_hours" value="<?= e($s['unknown_reply_hours']) ?>" class="form-control form-control-sm"></div>
       <div class="col-12 small text-muted">Their messages are always saved in <a href="/inbox.php">Inbox</a> (also for inactive BCs). Groups are ignored. / उनके संदेश इनबॉक्स में सेव होते हैं।</div>
+    </div></div>
+    <div class="card mt-3"><div class="card-header"><i class="bi bi-phone"></i> <?= L('BC mobile app', 'बीसी मोबाइल ऐप') ?></div><div class="card-body row g-2">
+      <div class="col-12"><label class="form-label small"><?= L('Default first-login password for all BCs', 'सभी बीसी का पहला पासवर्ड') ?></label>
+        <input type="text" name="app_default_password" class="form-control form-control-sm" autocomplete="off" minlength="6" placeholder="<?= $s['app_default_password_hash'] !== '' ? 'set – leave empty to keep' : 'not set – BCs cannot log in yet' ?>">
+        <div class="form-text">BC logs in with mobile number + this password and must choose an own password. Reset a BC on the BCs page.</div></div>
+      <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" name="app_skip_whatsapp" value="1" id="app_skip_whatsapp" <?= $s['app_skip_whatsapp'] === '1' ? 'checked' : '' ?>><label class="form-check-label small" for="app_skip_whatsapp"><?= L(...$bools['app_skip_whatsapp']) ?></label></div>
+        <div class="form-text">"Uses the app" = opened the app in the last 3 days. Welcome messages always go on WhatsApp (they contain the app link).</div></div>
+      <div class="col-12 small"><a href="/app-download.php"><i class="bi bi-download"></i> App download page / ऐप डाउनलोड</a></div>
     </div></div>
     <div class="card mt-3"><div class="card-body small">
       <a href="/templates.php"><i class="bi bi-card-text"></i> <?= L('Edit message templates', 'संदेश टेम्पलेट बदलें') ?></a>

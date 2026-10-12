@@ -1,0 +1,58 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Server URL and version can be overridden by the GitHub workflow (env APP_BASE_URL, VERSION_CODE).
+def baseUrl = System.getenv('APP_BASE_URL') ?: 'https://bc.bharatseo.site'
+def vCode = (System.getenv('VERSION_CODE') ?: '1') as int
+def ksFile = System.getenv('KEYSTORE_FILE')
+
+android {
+    namespace 'site.bharatseo.bcreport'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'site.bharatseo.bcreport'
+        minSdk 26
+        targetSdk 35
+        versionCode vCode
+        versionName "1.0.${vCode}"
+        buildConfigField 'String', 'BASE_URL', "\"${baseUrl}\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    signingConfigs {
+        release {
+            if (ksFile) {
+                storeFile file(ksFile)
+                storePassword System.getenv('KEYSTORE_PASSWORD')
+                keyAlias System.getenv('KEY_ALIAS') ?: 'bcreport'
+                keyPassword System.getenv('KEY_PASSWORD') ?: System.getenv('KEYSTORE_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig ksFile ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+dependencies {
+    implementation 'androidx.work:work-runtime:2.9.1'
+}

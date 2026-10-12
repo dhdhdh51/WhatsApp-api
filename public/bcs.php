@@ -59,6 +59,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ? 'Welcome message queued / स्वागत संदेश कतार में'
                     : 'Not sent – BC is inactive or sent STOP / नहीं भेजा (निष्क्रिय या STOP)');
                 break;
+            case 'app_reset':
+                App\App::resetPassword($id);
+                Audit::log((int) $user['id'], 'bc_app_reset', 'bc', $id);
+                flash('success', 'App password reset to the default password / ऐप पासवर्ड रीसेट');
+                break;
             case 'clear_stop':
                 DB::exec('UPDATE bcs SET opted_out = 0, opted_out_at = NULL WHERE id = ?', [$id]);
                 Audit::log((int) $user['id'], 'bc_opt_in', 'bc', $id, ['via' => 'panel']);
@@ -161,6 +166,7 @@ View::header('BC management / बीसी प्रबंधन', 'bcs');
     <td class="small"><?= e($r['cbc_name']) ?></td>
     <td><?= $r['is_active'] ? '<span class="badge text-bg-success">Active</span>' : '<span class="badge text-bg-secondary">Inactive</span>' ?>
         <?= $r['opted_out'] ? '<span class="badge text-bg-warning" title="' . e(fmt_dt($r['opted_out_at'])) . '">STOP – no reminders</span>' : '' ?>
+        <?= $r['app_last_seen'] ? '<span class="badge text-bg-success" title="' . e(fmt_dt($r['app_last_seen'])) . '">📱 app</span>' : '' ?>
         <?php if ($r['welcome_sent_at']): ?><span class="badge text-bg-light border" title="<?= e(fmt_dt($r['welcome_sent_at'])) ?>">👋 welcomed</span>
         <?php elseif (in_array($r['welcome_status'], ['pending', 'sending'], true)): ?><span class="badge text-bg-info">👋 welcome queued</span>
         <?php elseif ($r['welcome_status'] === 'failed'): ?><span class="badge text-bg-danger">👋 welcome failed</span>
@@ -172,6 +178,7 @@ View::header('BC management / बीसी प्रबंधन', 'bcs');
         <button name="action" value="toggle_active" class="btn btn-sm btn-outline-<?= $r['is_active'] ? 'danger' : 'success' ?>" title="<?= $r['is_active'] ? 'Deactivate' : 'Activate' ?>"
           onclick="return confirm('Change active status?')"><i class="bi bi-<?= $r['is_active'] ? 'pause' : 'play' ?>-circle"></i></button>
         <?php if ($r['is_active'] && !$r['opted_out']): ?><button name="action" value="welcome" class="btn btn-sm btn-outline-success" title="Send welcome / how-to message" onclick="return confirm('Send the welcome message to this BC?')"><i class="bi bi-envelope-heart"></i></button><?php endif; ?>
+        <button name="action" value="app_reset" class="btn btn-sm btn-outline-secondary" title="Reset app password" onclick="return confirm('Reset app password of this BC to the default password?')"><i class="bi bi-key"></i></button>
         <?php if ($r['opted_out']): ?><button name="action" value="clear_stop" class="btn btn-sm btn-outline-warning" title="Clear STOP"><i class="bi bi-bell"></i></button><?php endif; ?>
       </form>
       <?php endif; ?>

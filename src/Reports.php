@@ -17,6 +17,12 @@ final class Reports
         return self::save($bcId, $date, $values, $blank, 'whatsapp', null, null, $raw, $waMsgId);
     }
 
+    /** Report submitted from the mobile app. */
+    public static function saveFromApp(int $bcId, string $date, array $values): array
+    {
+        return self::save($bcId, $date, $values, [], 'app', null, null, '[app]', null);
+    }
+
     /** Manual edit by the Admin (allowed at any time, reason is mandatory). */
     public static function saveByAdmin(int $bcId, string $date, array $values, int $userId, string $reason): array
     {

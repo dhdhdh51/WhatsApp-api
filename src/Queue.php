@@ -22,13 +22,27 @@ final class Queue
         ?int $createdBy = null,
         ?string $scheduledAt = null
     ): int {
+        $mirror = $bcId !== null && isset(App::MIRROR[$kind]);
+        // BC uses the mobile app -> optionally skip WhatsApp (row kept as 'cancelled' for dedup + log)
+        $skipWa = $mirror && $kind !== 'welcome' && Settings::bool('app_skip_whatsapp') && App::isActiveUser($bcId);
         $stmt = DB::run(
             'INSERT IGNORE INTO message_queue
-             (bc_id, chat_id, body, kind, priority, report_date, status, attempts, scheduled_at, dedup_key, created_by, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, \'pending\', 0, ?, ?, ?, NOW())',
-            [$bcId, $chatId, $body, $kind, $priority, $reportDate, $scheduledAt ?? date('Y-m-d H:i:s'), $dedupKey, $createdBy]
+             (bc_id, chat_id, body, kind, priority, report_date, status, attempts, scheduled_at, dedup_key, created_by, created_at, last_error)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, NOW(), ?)',
+            [$bcId, $chatId, $body, $kind, $priority, $reportDate, $skipWa ? 'cancelled' : 'pending',
+                $scheduledAt ?? date('Y-m-d H:i:s'), $dedupKey, $createdBy, $skipWa ? 'sent in app only' : null]
         );
-        return $stmt->rowCount() > 0 ? (int) DB::pdo()->lastInsertId() : 0;
+        if ($stmt->rowCount() === 0) {
+            return 0;
+        }
+        $id = (int) DB::pdo()->lastInsertId();
+        if ($mirror) {
+            $short = in_array($kind, ['form', 'reminder', 'final_reminder', 'manual_reminder'], true)
+                ? 'App kholkar aaj ki report bharein. Antim samay: ' . fmt_time12(Settings::padTime(Settings::get('cutoff_time') ?: '23:59')) . '.'
+                : $body;
+            App::notify($bcId, $kind, App::MIRROR[$kind], $short);
+        }
+        return $id;
     }
 
     public static function hasPendingFor(int $bcId, string $date): bool

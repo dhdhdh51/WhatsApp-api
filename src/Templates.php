@@ -56,6 +56,7 @@ final class Templates
             '{bc_code}' => (string) ($bc['bc_code'] ?? ''),
             '{cutoff}'  => fmt_time12(Settings::padTime(Settings::get('cutoff_time') ?: '23:59')),
             '{form_time}' => fmt_time12(Settings::padTime(Settings::get('form_time') ?: '18:00')),
+            '{app_link}' => rtrim((string) Env::get('APP_URL', ''), '/') . '/app-download.php',
         ];
         foreach ($extra as $k => $v) {
             $vars['{' . $k . '}'] = (string) $v;

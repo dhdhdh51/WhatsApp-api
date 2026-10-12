@@ -1,0 +1,49 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Devanagari", sans-serif; background: #eef2f0; color: #1d2b25; }
+.splash { display: flex; height: 100vh; align-items: center; justify-content: center; font-size: 22px; color: #0b8a5a; font-weight: 600; }
+.top { position: sticky; top: 0; z-index: 5; background: #0b8a5a; color: #fff; padding: 14px 16px; display: flex; align-items: center; gap: 10px; }
+.top h1 { font-size: 18px; margin: 0; flex: 1; }
+.top .sub { font-size: 12px; opacity: .85; }
+.page { padding: 12px 12px 80px; max-width: 640px; margin: 0 auto; }
+.card { background: #fff; border-radius: 14px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.card h2 { font-size: 16px; margin: 0 0 10px; }
+.muted { color: #6b7a73; font-size: 13px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.field.off label { color: #a46200; }
+input, textarea { width: 100%; font-size: 18px; padding: 11px 12px; border: 1px solid #cdd7d2; border-radius: 10px; background: #fff; font-family: inherit; }
+input:focus, textarea:focus { outline: none; border-color: #0b8a5a; box-shadow: 0 0 0 3px rgba(11,138,90,.15); }
+.field.off input { background: #fff9ee; }
+.btn { display: block; width: 100%; border: 0; border-radius: 12px; padding: 14px; font-size: 17px; font-weight: 600; background: #0b8a5a; color: #fff; margin-top: 12px; cursor: pointer; }
+.btn.light { background: #e3efe9; color: #0b8a5a; }
+.btn.red { background: #fde2e2; color: #b42318; }
+.btn:disabled { opacity: .6; }
+.ok { background: #e6f6ee; color: #0b6b46; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 10px; }
+.warn { background: #fff4e0; color: #8a5300; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 10px; }
+.err { background: #fde2e2; color: #b42318; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+td, th { padding: 6px 4px; border-bottom: 1px solid #edf1ef; text-align: left; }
+td.n, th.n { text-align: right; }
+.bar { height: 6px; background: #e8eeeb; border-radius: 4px; overflow: hidden; margin-top: 3px; }
+.bar > i { display: block; height: 100%; background: #0b8a5a; }
+.tabs { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: #fff; border-top: 1px solid #dfe6e2; z-index: 10; padding-bottom: env(safe-area-inset-bottom); }
+.tabs button { flex: 1; border: 0; background: none; padding: 9px 2px 8px; font-size: 12px; color: #6b7a73; position: relative; }
+.tabs button b { display: block; font-size: 20px; font-weight: normal; }
+.tabs button.on { color: #0b8a5a; font-weight: 600; }
+.dot { position: absolute; top: 4px; right: 22%; background: #e5484d; color: #fff; border-radius: 9px; font-size: 10px; padding: 1px 5px; }
+.chat { display: flex; flex-direction: column; gap: 6px; padding-bottom: 70px; }
+.msg { max-width: 82%; padding: 8px 10px; border-radius: 12px; font-size: 15px; white-space: pre-wrap; word-break: break-word; box-shadow: 0 1px 1px rgba(0,0,0,.06); }
+.msg.me { align-self: flex-end; background: #d9fdd3; border-top-right-radius: 3px; }
+.msg.them { align-self: flex-start; background: #fff; border-top-left-radius: 3px; }
+.msg .meta { font-size: 11px; color: #6b7a73; text-align: right; margin-top: 3px; }
+.msg .who { font-size: 12px; font-weight: 600; color: #0b8a5a; margin-bottom: 2px; }
+.composer { position: fixed; bottom: 58px; left: 0; right: 0; display: flex; gap: 8px; padding: 8px; background: #eef2f0; max-width: 640px; margin: 0 auto; }
+.composer textarea { font-size: 16px; padding: 10px; height: 46px; resize: none; }
+.composer button { border: 0; border-radius: 50%; width: 46px; height: 46px; background: #0b8a5a; color: #fff; font-size: 20px; flex: none; }
+.notice { white-space: pre-wrap; font-size: 14px; }
+.toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: #1d2b25; color: #fff; padding: 10px 16px; border-radius: 20px; font-size: 14px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 50; max-width: 90%; }
+.toast.show { opacity: .95; }
+.login { padding: 30px 18px; max-width: 420px; margin: 0 auto; }
+.logo { text-align: center; font-size: 46px; margin-top: 20px; }
+.login h1 { text-align: center; color: #0b8a5a; font-size: 22px; margin: 6px 0 22px; }
+.mb { margin-bottom: 12px; }

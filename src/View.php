@@ -16,6 +16,7 @@ final class View
         'leaves'    => ['/leaves.php', 'Leave', 'छुट्टी', 'calendar-x', false],
         'holidays'  => ['/holidays.php', 'Holidays', 'अवकाश', 'calendar-event', true],
         'messages'  => ['/messages.php', 'Messages', 'संदेश', 'chat-dots', false],
+        'chat'      => ['/chat.php', 'App Chat', 'ऐप चैट', 'phone', false],
         'inbox'     => ['/inbox.php', 'Inbox', 'इनबॉक्स', 'inbox', true],
         'whatsapp'  => ['/whatsapp.php', 'WhatsApp', 'व्हाट्सऐप', 'whatsapp', true],
         'settings'  => ['/settings.php', 'Settings', 'सेटिंग्स', 'gear', true],
@@ -32,6 +33,7 @@ final class View
         $wa = Settings::get('wa_status');
         $inboxUnread = ($user && $user['role'] === 'admin')
             ? (int) DB::val('SELECT COUNT(*) FROM inbox_threads WHERE archived = 0 AND unread > 0') : 0;
+        $chatUnread = $user ? App::staffUnread($user) : 0;
         ?><!doctype html>
 <html lang="en">
 <head>
@@ -54,7 +56,7 @@ final class View
       <ul class="navbar-nav me-auto flex-wrap">
       <?php foreach (self::NAV as $key => [$url, $en, $hi, $icon, $adminOnly]):
           if ($adminOnly && $user['role'] !== 'admin') continue; ?>
-        <li class="nav-item"><a class="nav-link <?= $active === $key ? 'active fw-semibold' : '' ?>" href="<?= $url ?>"><i class="bi bi-<?= $icon ?>"></i> <?= e($en) ?> <small class="hi-nav"><?= e($hi) ?></small><?php if ($key === 'inbox' && $inboxUnread > 0): ?> <span class="badge text-bg-danger rounded-pill"><?= $inboxUnread ?></span><?php endif; ?></a></li>
+        <li class="nav-item"><a class="nav-link <?= $active === $key ? 'active fw-semibold' : '' ?>" href="<?= $url ?>"><i class="bi bi-<?= $icon ?>"></i> <?= e($en) ?> <small class="hi-nav"><?= e($hi) ?></small><?php if ($key === 'inbox' && $inboxUnread > 0): ?> <span class="badge text-bg-danger rounded-pill"><?= $inboxUnread ?></span><?php endif; ?><?php if ($key === 'chat' && $chatUnread > 0): ?> <span class="badge text-bg-danger rounded-pill"><?= $chatUnread ?></span><?php endif; ?></a></li>
       <?php endforeach; ?>
       </ul>
       <div class="d-flex align-items-center gap-2 text-white small">

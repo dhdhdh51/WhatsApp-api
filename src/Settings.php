@@ -27,6 +27,8 @@ final class Settings
         'typing_min_sec'             => '1',
         'typing_max_sec'             => '3',
         'max_retries'                => '2',
+        'app_default_password_hash'  => '',
+        'app_skip_whatsapp'          => '0',
         'batch_size'                 => '50',
         'batch_pause_min'            => '60',
         'batch_sent'                 => '0',

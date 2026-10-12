@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BC Report</string>
+    <string name="channel_name">Report aur suchna</string>
+    <string name="offline">Internet nahi hai. Internet chalu karke dobara koshish karein.</string>
+    <string name="retry">Dobara koshish karein</string>
+</resources>

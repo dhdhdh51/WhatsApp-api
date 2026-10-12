@@ -1,0 +1,198 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * JSON API for the BC mobile app.  /api/app.php?a=<action>
+ * Auth: "Authorization: Bearer <token>" (from a=login).
+ */
+
+require __DIR__ . '/../../src/bootstrap.php';
+
+use App\App;
+use App\Calendar;
+use App\DB;
+use App\ReportParser;
+use App\Reports;
+use App\Settings;
+use App\Targets;
+
+header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store');
+header('X-Content-Type-Options: nosniff');
+
+function out(array $data, int $code = 200): never
+{
+    http_response_code($code);
+    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+function fail(string $msg, int $code = 400): never
+{
+    out(['ok' => false, 'error' => $msg], $code);
+}
+
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$action = (string) ($_GET['a'] ?? '');
+$in = [];
+if ($method === 'POST') {
+    $raw = (string) file_get_contents('php://input', false, null, 0, 65536);
+    $in = json_decode($raw, true);
+    if (!is_array($in)) {
+        $in = $_POST;
+    }
+}
+
+$fields = [];
+foreach (ReportParser::LABELS as $k => $label) {
+    $fields[] = ['key' => $k, 'label' => $label, 'offline' => in_array($k, ReportParser::OFFLINE, true)];
+}
+
+// ------------------------------------------------------------------ public
+if ($action === 'login') {
+    if ($method !== 'POST') {
+        fail('POST required', 405);
+    }
+    $r = App::login((string) ($in['phone'] ?? ''), (string) ($in['password'] ?? ''), (string) ($in['device'] ?? ($_SERVER['HTTP_USER_AGENT'] ?? '')));
+    if (!$r['ok']) {
+        fail($r['error'], 401);
+    }
+    out(['ok' => true, 'token' => $r['token'], 'must_change' => $r['must_change'], 'name' => $r['bc']['name'],
+        'last_notification' => (int) DB::val('SELECT COALESCE(MAX(id),0) FROM app_notifications WHERE bc_id = ?', [$r['bc']['id']])]);
+}
+
+// ------------------------------------------------------------------ authenticated
+$auth = (string) ($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
+$token = preg_match('/^Bearer\s+(\S+)$/i', $auth, $m) ? $m[1] : (string) ($_GET['t'] ?? '');
+$bc = App::bcFromToken($token);
+if (!$bc) {
+    fail('Login expired. Dobara login karein.', 401);
+}
+$bcId = (int) $bc['id'];
+$today = Calendar::today();
+
+switch ($action) {
+    case 'logout':
+        DB::exec('DELETE FROM app_tokens WHERE token_hash = ?', [hash('sha256', $token)]);
+        out(['ok' => true]);
+
+    case 'password':
+        $cur = (string) ($in['current'] ?? '');
+        $new = (string) ($in['new'] ?? '');
+        $valid = $bc['app_password_hash']
+            ? password_verify($cur, (string) $bc['app_password_hash'])
+            : (Settings::get('app_default_password_hash') !== '' && password_verify($cur, Settings::get('app_default_password_hash')));
+        if (!$valid) {
+            fail('Purana password galat hai.');
+        }
+        if (mb_strlen($new) < 6 || $new === $cur) {
+            fail('Naya password kam se kam 6 akshar ka ho aur purane se alag ho.');
+        }
+        App::setPassword($bcId, $new);
+        out(['ok' => true]);
+
+    case 'me':
+        $cbc = $bc['cbc_id'] ? DB::val('SELECT name FROM users WHERE id = ?', [$bc['cbc_id']]) : null;
+        out(['ok' => true, 'name' => $bc['name'], 'bc_code' => $bc['bc_code'], 'phone' => $bc['phone'], 'cbc' => $cbc,
+            'must_change' => !$bc['app_password_hash'] || (int) $bc['app_must_change'] === 1,
+            'branch' => DB::val('SELECT name FROM branches WHERE id = ?', [$bc['branch_id']])]);
+
+    case 'today':
+        $rep = DB::one('SELECT * FROM reports WHERE bc_id = ? AND report_date = ?', [$bcId, $today]);
+        $yday = date('Y-m-d', strtotime('-1 day'));
+        $yrep = DB::one('SELECT * FROM reports WHERE bc_id = ? AND report_date = ?', [$bcId, $yday]);
+        $month = date('Y-m-01');
+        $t = DB::one('SELECT * FROM targets WHERE bc_id = ? AND month = ?', [$bcId, $month]);
+        $ach = DB::one('SELECT ' . implode(', ', array_map(static fn ($k) => "COALESCE(SUM({$k}),0) {$k}", ReportParser::SCHEMES))
+            . ' FROM reports WHERE bc_id = ? AND report_date >= ? AND report_date <= ?', [$bcId, $month, $today]);
+        $monthly = [];
+        foreach (ReportParser::SCHEMES as $k) {
+            if ($t && (int) $t["{$k}_target"] > 0) {
+                $monthly[] = ['key' => $k, 'label' => ReportParser::LABELS[$k], 'target' => (int) $t["{$k}_target"], 'done' => (int) $ach[$k]];
+            }
+        }
+        $pick = static fn (?array $r) => $r ? array_map('intval', array_intersect_key($r, array_flip(ReportParser::SCHEMES))) : null;
+        out(['ok' => true, 'date' => $today, 'date_text' => date('d-m-Y'), 'open' => Calendar::isOpen($today),
+            'cutoff' => fmt_time12(Settings::padTime(Settings::get('cutoff_time') ?: '23:59')),
+            'fields' => $fields, 'report' => $pick($rep), 'updated_at' => $rep ? date('h:i A', strtotime((string) $rep['updated_at'])) : null,
+            'yesterday' => ['date_text' => date('d-m-Y', strtotime($yday)), 'report' => $pick($yrep)],
+            'daily_target' => Targets::dailyTarget($t), 'monthly' => $monthly, 'month_text' => date('M Y'),
+            'chat_unread' => (int) DB::val("SELECT COUNT(*) FROM chat_messages WHERE bc_id = ? AND sender = 'staff' AND read_at IS NULL", [$bcId])]);
+
+    case 'report':
+        if ($method !== 'POST') {
+            fail('POST required', 405);
+        }
+        if (!Calendar::isOpen($today)) {
+            fail('Aaj ki report ka samay khatam ho gaya hai. Ab badlav sirf Admin kar sakte hain.');
+        }
+        $max = max(1, Settings::int('max_value'));
+        $vals = [];
+        foreach (ReportParser::SCHEMES as $k) {
+            $v = trim((string) ($in['values'][$k] ?? '0'));
+            $v = $v === '' ? '0' : $v;
+            if (!preg_match('/^\d{1,6}$/', $v)) {
+                fail(ReportParser::LABELS[$k] . ': sirf poora number (0 ya usse zyada) likhein.');
+            }
+            if ((int) $v > $max) {
+                fail(ReportParser::LABELS[$k] . " ka number bahut bada hai (max {$max}).");
+            }
+            $vals[$k] = (int) $v;
+        }
+        $th = Settings::int('high_value_threshold');
+        $high = [];
+        foreach ($vals as $k => $v) {
+            if ($th > 0 && $v > $th) {
+                $high[] = ReportParser::LABELS[$k] . ' ' . $v;
+            }
+        }
+        if ($high && empty($in['confirm'])) {
+            out(['ok' => false, 'need_confirm' => true, 'error' => implode(', ', $high) . ' – ye number zyada lag raha hai. Kya ye sahi hai?']);
+        }
+        $saved = Reports::saveFromApp($bcId, $today, $vals);
+        DB::exec('DELETE FROM pending_confirmations WHERE bc_id = ?', [$bcId]);
+        out(['ok' => true, 'updated' => $saved['updated'],
+            'message' => ($saved['updated'] ? 'Report update ho gayi ✅ ' : 'Report mil gayi ✅ ') . Reports::summaryLine($vals)]);
+
+    case 'history':
+        $rows = DB::all('SELECT * FROM reports WHERE bc_id = ? ORDER BY report_date DESC LIMIT 60', [$bcId]);
+        out(['ok' => true, 'fields' => $fields, 'rows' => array_map(static function ($r) {
+            $o = ['date_text' => date('d-m-Y', strtotime((string) $r['report_date']))];
+            foreach (ReportParser::SCHEMES as $k) {
+                $o[$k] = (int) $r[$k];
+            }
+            return $o;
+        }, $rows)]);
+
+    case 'notices':
+        out(['ok' => true, 'rows' => array_map(static fn ($n) => ['id' => (int) $n['id'], 'title' => $n['title'], 'body' => $n['body'],
+            'time' => fmt_dt($n['created_at'])], DB::all('SELECT * FROM app_notifications WHERE bc_id = ? ORDER BY id DESC LIMIT 50', [$bcId]))]);
+
+    case 'poll':
+        $since = max(0, (int) ($_GET['since'] ?? 0));
+        $rows = $since > 0
+            ? DB::all('SELECT id, kind, title, body FROM app_notifications WHERE bc_id = ? AND id > ? ORDER BY id LIMIT 20', [$bcId, $since])
+            : [];
+        out(['ok' => true, 'last' => (int) DB::val('SELECT COALESCE(MAX(id),0) FROM app_notifications WHERE bc_id = ?', [$bcId]),
+            'notifications' => array_map(static fn ($n) => ['id' => (int) $n['id'], 'kind' => $n['kind'], 'title' => $n['title'],
+                'body' => mb_strimwidth((string) $n['body'], 0, 300, '…')], $rows)]);
+
+    case 'chat':
+        if ($method === 'POST') {
+            $body = trim(str_replace("\r\n", "\n", (string) ($in['body'] ?? '')));
+            if ($body === '' || mb_strlen($body) > 2000) {
+                fail('Message likhein (max 2000 akshar).');
+            }
+            App::chatSend($bcId, 'bc', null, $body);
+        }
+        $after = max(0, (int) ($_GET['after'] ?? 0));
+        DB::exec("UPDATE chat_messages SET read_at = NOW() WHERE bc_id = ? AND sender = 'staff' AND read_at IS NULL", [$bcId]);
+        $rows = DB::all('SELECT c.id, c.sender, c.body, c.created_at, c.read_at, u.name FROM chat_messages c LEFT JOIN users u ON u.id = c.user_id
+                         WHERE c.bc_id = ? AND c.id > ? ORDER BY c.id DESC LIMIT 100', [$bcId, $after]);
+        out(['ok' => true, 'rows' => array_reverse(array_map(static fn ($c) => ['id' => (int) $c['id'], 'mine' => $c['sender'] === 'bc',
+            'name' => $c['sender'] === 'bc' ? null : ($c['name'] ?: 'Admin'), 'body' => $c['body'],
+            'time' => date('d-m h:i A', strtotime((string) $c['created_at'])), 'read' => $c['read_at'] !== null], $rows))]);
+
+    default:
+        fail('Unknown action', 404);
+}
