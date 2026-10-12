@@ -153,8 +153,12 @@ final class App
     /** Config the phone uses to schedule its own 5:00 call and 5:30 alarm. */
     public static function alarmConfig(): array
     {
+        $base = rtrim((string) Env::get('APP_URL', ''), '/') . '/uploads/';
         $file = Settings::get('app_call_audio');
+        $afile = Settings::get('app_alarm_audio');
         return [
+            'alarm_text' => Settings::get('app_alarm_text'),
+            'alarm_audio_url' => $afile !== '' ? $base . rawurlencode($afile) : '',
             'enabled' => Settings::bool('app_call_enabled'),
             'call_time' => Settings::padTime(Settings::get('app_call_time') ?: '17:00'),
             'alarm_time' => Settings::padTime(Settings::get('app_alarm_time') ?: '17:30'),

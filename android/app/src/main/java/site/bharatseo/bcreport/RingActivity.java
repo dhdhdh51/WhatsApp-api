@@ -164,7 +164,12 @@ public class RingActivity extends Activity {
     /** Recorded audio if downloaded, otherwise the text in Hindi voice. */
     private void playMessage(boolean loop) {
         stopMessage();
-        File f = new File(getFilesDir(), "call_audio");
+        File f = new File(getFilesDir(), alarm ? "alarm_audio" : "call_audio");
+        if (alarm && !(f.exists() && f.length() > 0) && !Prefs.alarmOnlyText(this).isEmpty()) {
+            f = new File(getFilesDir(), "no_file"); // alarm text set, no alarm audio -> speak alarm text
+        } else if (alarm && !(f.exists() && f.length() > 0)) {
+            f = new File(getFilesDir(), "call_audio"); // nothing for alarm -> use the call audio
+        }
         if (f.exists() && f.length() > 0) {
             try {
                 player = new MediaPlayer();
@@ -191,9 +196,10 @@ public class RingActivity extends Activity {
     }
 
     private void speak(boolean loop) {
-        final String msg = Prefs.alarmText(this).isEmpty()
+        final String own = alarm && !Prefs.alarmOnlyText(this).isEmpty() ? Prefs.alarmOnlyText(this) : Prefs.alarmText(this);
+        final String msg = own.isEmpty()
                 ? "Namaste. Aapki aaj ki report abhi tak nahi aayi hai. Kripya abhi BC Report app kholkar report bhejein."
-                : Prefs.alarmText(this);
+                : own;
         tts = new TextToSpeech(this, st -> {
             if (st != TextToSpeech.SUCCESS || tts == null) {
                 return;

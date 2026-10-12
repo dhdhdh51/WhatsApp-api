@@ -69,21 +69,25 @@ final class Api {
         boolean changed = version != Prefs.alarmVersion(c);
         Prefs.saveAlarm(c, cfg.optBoolean("enabled", true), cfg.optString("call_time", "17:00"),
                 cfg.optString("alarm_time", "17:30"), cfg.optString("text", ""));
+        Prefs.setAlarmOnlyText(c, cfg.optString("alarm_text", ""));
         if (changed) {
-            String url = cfg.optString("audio_url", "");
-            File f = new File(c.getFilesDir(), "call_audio");
-            boolean ok = true;
-            if (url.isEmpty()) {
-                //noinspection ResultOfMethodCallIgnored
-                f.delete();
-            } else {
-                ok = download(url, f);
-            }
+            boolean ok = sync(c, cfg.optString("audio_url", ""), "call_audio")
+                    & sync(c, cfg.optString("alarm_audio_url", ""), "alarm_audio");
             if (ok) {
                 Prefs.setAlarmVersion(c, version);
             }
         }
         AlarmScheduler.scheduleAll(c);
+    }
+
+    private static boolean sync(Context c, String url, String name) {
+        File f = new File(c.getFilesDir(), name);
+        if (url.isEmpty()) {
+            //noinspection ResultOfMethodCallIgnored
+            f.delete();
+            return true;
+        }
+        return download(url, f);
     }
 
     private static boolean download(String url, File target) {

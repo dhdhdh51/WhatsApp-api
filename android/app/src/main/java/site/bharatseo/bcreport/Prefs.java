@@ -66,6 +66,14 @@ final class Prefs {
         return p(c).getString("al_text", "");
     }
 
+    static void setAlarmOnlyText(Context c, String t) {
+        p(c).edit().putString("al_text_alarm", t).apply();
+    }
+
+    static String alarmOnlyText(Context c) {
+        return p(c).getString("al_text_alarm", "");
+    }
+
     static int alarmVersion(Context c) {
         return p(c).getInt("al_ver", -1);
     }

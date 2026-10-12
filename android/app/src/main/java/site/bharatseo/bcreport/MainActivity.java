@@ -57,7 +57,8 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri u = request.getUrl();
                 String base = Uri.parse(BuildConfig.BASE_URL).getHost();
-                if (u.getHost() != null && u.getHost().equals(base) && "https".equals(u.getScheme())) {
+                String path = u.getPath() != null ? u.getPath() : "";
+                if (u.getHost() != null && u.getHost().equals(base) && "https".equals(u.getScheme()) && !path.endsWith(".apk")) {
                     return false; // stay inside the app
                 }
                 try {
@@ -82,6 +83,13 @@ public class MainActivity extends Activity {
             }
         });
 
+        // downloads (app update APK) go to the phone's browser / download manager
+        web.setDownloadListener((url, ua, cd, mime, len) -> {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+            } catch (ActivityNotFoundException ignored) {
+            }
+        });
         load(getIntent());
         askNotificationPermission();
         PollWorker.schedule(this);
@@ -209,11 +217,6 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void setReportDone(String date) {
             Prefs.setReportDone(MainActivity.this, date);
-        }
-
-        @JavascriptInterface
-        public void testRing(String mode) {
-            Ringer.ring(MainActivity.this, "call".equals(mode) ? "call" : "alarm");
         }
 
         @JavascriptInterface

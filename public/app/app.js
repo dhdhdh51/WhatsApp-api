@@ -241,21 +241,40 @@
         '<p class="muted">BC ID: ' + esc(d.bc_code) + '<br>Mobile: ' + esc(d.phone) + (d.branch ? '<br>Branch: ' + esc(d.branch) : '') + (d.cbc ? '<br>CBC: ' + esc(d.cbc) : '') + '</p></div>' +
         '<div class="card"><p class="muted">Har 15 minute mein app nayi suchna check karta hai (internet chahiye). Notification aane ke liye app ko notification ki permission dein.</p>' +
         '<button class="btn light" id="pw">Password badlein</button><button class="btn red" id="lo">Logout</button></div>' +
-        (native && native.testRing ? '<div class="card"><h2>📞 Call aur ⏰ alarm</h2><p class="muted" id="ri"></p>' +
-          '<button class="btn light" id="tc">Test call (is phone par)</button><button class="btn light" id="ta">Test alarm (is phone par)</button>' +
+        (native && native.ringSettings ? '<div class="card"><h2>📞 Call aur ⏰ alarm</h2><p class="muted" id="ri"></p>' +
           '<button class="btn light" id="rs">Call/alarm permission</button></div>' : '');
       document.getElementById('pw').onclick = function () { renderPassword(false); };
       document.getElementById('lo').onclick = function () { if (confirm('Logout karein?')) logout(false); };
-      if (native && native.testRing) {
+      if (native && native.ringSettings) {
         var inf = (native.ringInfo ? native.ringInfo() : '17:00|17:30|1').split('|');
         document.getElementById('ri').textContent = inf[2] === '1'
           ? 'Report baaki ho to roz ' + inf[0] + ' baje call aur ' + inf[1] + ' baje alarm bajega.' : 'Call/alarm abhi band hai.';
-        document.getElementById('tc').onclick = function () { native.testRing('call'); };
-        document.getElementById('ta').onclick = function () { native.testRing('alarm'); };
         document.getElementById('rs').onclick = function () { native.ringSettings(); };
       }
     });
   }
+
+  // ------------------------------------------------------------------ update popup
+  // Installed app version comes from the WebView user agent ("BCReportApp/1.0.N" -> N).
+  function checkUpdate() {
+    var m = navigator.userAgent.match(/BCReportApp\/(\d+)\.(\d+)\.(\d+)/);
+    if (!m) return; // plain browser – nothing to update
+    var mine = parseInt(m[3], 10);
+    fetch('/downloads/version.json?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
+      if (!v || !v.code || mine >= v.code) return;
+      var d = document.createElement('div');
+      d.className = 'upd';
+      d.innerHTML = '<div class="updbox"><div style="font-size:42px">⬆️</div><h2>Naya update aaya hai</h2>' +
+        '<p>Aapke phone mein app ka purana version (1.0.' + mine + ') hai. Naya version <b>' + esc(v.name) + '</b> install karein – ' +
+        'call, alarm aur turant notification ke liye zaroori hai.</p>' +
+        '<a class="btn" id="updgo" href="https://bharatseo.site/bc-app.html">Update karein</a>' +
+        '<button class="btn light" id="updlater">Baad mein</button>' +
+        '<p class="muted" style="margin-top:10px">Download hone par file kholkar <b>Install / Update</b> dabayein. Aapka login aur data waise hi rahega.</p></div>';
+      document.body.appendChild(d);
+      document.getElementById('updlater').onclick = function () { d.remove(); };
+    }).catch(function () {});
+  }
+  checkUpdate();
 
   // ------------------------------------------------------------------ start
   if (!token()) { renderLogin(''); return; }

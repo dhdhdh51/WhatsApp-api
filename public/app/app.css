@@ -50,3 +50,9 @@ td.n, th.n { text-align: right; }
 .logo { text-align: center; font-size: 46px; margin-top: 20px; }
 .login h1 { text-align: center; color: #0b8a5a; font-size: 22px; margin: 6px 0 22px; }
 .mb { margin-bottom: 12px; }
+
+.upd { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 18px; }
+.updbox { background: #fff; border-radius: 16px; padding: 20px; max-width: 380px; width: 100%; text-align: center; }
+.updbox h2 { margin: 6px 0 8px; color: #0b8a5a; font-size: 20px; }
+.updbox p { font-size: 15px; line-height: 1.5; }
+.updbox a.btn { text-decoration: none; }
