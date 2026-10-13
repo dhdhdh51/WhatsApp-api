@@ -101,15 +101,12 @@ public class RingActivity extends Activity {
             vibrate();
             playMessage(true);
             showAfterButtons();
-            watchReport();
         } else {
             startTone();
             addButton("Call uthayein", "#2E7D32", v -> accept());
-            addButton("Kaat dein", "#C62828", v -> done());
         }
-        if (!alarm) {
-            handler.postDelayed(this::done, 3 * 60 * 1000); // call stops after 3 minutes; the alarm keeps going
-        }
+        // Both call and alarm remain active/repeat until today's report is submitted.
+        watchReport();
     }
 
     private TextView text(String s, int sp, boolean bold) {
@@ -144,15 +141,13 @@ public class RingActivity extends Activity {
         if (!alarm) {
             addButton("Dobara sunein", "#2E7D32", v -> playMessage(false));
         }
-        if (!alarm) {
-            addButton("Band karein", "#455A64", v -> done());
-        }
+
     }
 
     private void accept() {
         stopTone();
         status.setText("Sandesh sunein…");
-        playMessage(false);
+        playMessage(true);
         showAfterButtons();
     }
 
@@ -289,12 +284,10 @@ public class RingActivity extends Activity {
         finish();
     }
 
-    /** Alarm: the back button must not dismiss it – only submitting the report does. */
+    /** Calls and alarms cannot be dismissed in-app; the report (or server status) stops them. */
     @Override
     public void onBackPressed() {
-        if (!alarm) {
-            super.onBackPressed();
-        }
+        // Intentionally no-op.
     }
 
     /** While the alarm screen is open, check every minute if the report has arrived. */

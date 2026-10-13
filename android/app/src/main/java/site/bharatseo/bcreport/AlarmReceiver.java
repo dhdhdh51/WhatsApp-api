@@ -24,9 +24,7 @@ public class AlarmReceiver extends BroadcastReceiver {
                 Boolean ring = Api.shouldRing(c);
                 if (ring == null || ring) { // no internet -> ring anyway (better safe)
                     Ringer.ring(c, mode);
-                    if ("alarm".equals(mode)) {
-                        AlarmScheduler.scheduleRepeat(c); // rings again until the report is submitted
-                    }
+                    AlarmScheduler.scheduleRepeat(c, mode); // re-rings every 10 min until the report is submitted
                 } else {
 
                     AlarmScheduler.cancelRepeat(c); // submitted / leave / holiday / after cutoff

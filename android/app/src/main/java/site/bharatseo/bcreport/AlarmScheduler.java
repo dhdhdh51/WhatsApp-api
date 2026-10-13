@@ -21,34 +21,41 @@ final class AlarmScheduler {
         schedule(c, "alarm", Prefs.alarmTime(c), 102);
     }
 
-    static final int RC_REPEAT = 103;
+    static final int RC_REPEAT_CALL = 103;
+    static final int RC_REPEAT_ALARM = 104;
     static final int REPEAT_MIN = 10;
 
-    private static PendingIntent repeatIntent(Context c) {
-        Intent i = new Intent(c, AlarmReceiver.class).setAction(ACTION_RING).putExtra("mode", "alarm").putExtra("repeat", true);
-        return PendingIntent.getBroadcast(c, RC_REPEAT, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    private static int repeatCode(String mode) {
+        return "call".equals(mode) ? RC_REPEAT_CALL : RC_REPEAT_ALARM;
     }
 
-    /** Ring again in REPEAT_MIN minutes, until the report is submitted (or the cutoff). */
-    static void scheduleRepeat(Context c) {
+    private static PendingIntent repeatIntent(Context c, String mode) {
+        Intent i = new Intent(c, AlarmReceiver.class).setAction(ACTION_RING).putExtra("mode", mode).putExtra("repeat", true);
+        return PendingIntent.getBroadcast(c, repeatCode(mode), i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    /** Ring a call/alarm again in REPEAT_MIN minutes until the report is submitted (or cutoff). */
+    static void scheduleRepeat(Context c, String mode) {
         AlarmManager am = c.getSystemService(AlarmManager.class);
         if (am == null || Prefs.token(c).isEmpty()) {
             return;
         }
         long at = System.currentTimeMillis() + REPEAT_MIN * 60_000L;
+        int rc = repeatCode(mode);
         if (Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()) {
-            PendingIntent show = PendingIntent.getActivity(c, RC_REPEAT, new Intent(c, MainActivity.class),
+            PendingIntent show = PendingIntent.getActivity(c, rc, new Intent(c, MainActivity.class),
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            am.setAlarmClock(new AlarmManager.AlarmClockInfo(at, show), repeatIntent(c));
+            am.setAlarmClock(new AlarmManager.AlarmClockInfo(at, show), repeatIntent(c, mode));
         } else {
-            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, repeatIntent(c));
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, repeatIntent(c, mode));
         }
     }
 
     static void cancelRepeat(Context c) {
         AlarmManager am = c.getSystemService(AlarmManager.class);
         if (am != null) {
-            am.cancel(repeatIntent(c));
+            am.cancel(repeatIntent(c, "call"));
+            am.cancel(repeatIntent(c, "alarm"));
         }
     }
 
