@@ -65,6 +65,13 @@ foreach ($todayRows as $r) {
     }
 }
 ksort($todayByCbc);
+// App adoption in the current user's branch/CBC scope.
+[$appScope, $appParams] = Scope::bc($user);
+$appExtra = [];
+if ($branch !== '') { $appExtra[] = 'b.branch_id = ?'; $appParams[] = (int) $branch; }
+if ($cbc !== '') { $appExtra[] = 'b.cbc_id = ?'; $appParams[] = (int) $cbc; }
+$appStats = DB::one('SELECT COUNT(*) total, SUM(b.app_first_seen IS NOT NULL) activated, SUM(b.app_last_seen >= (NOW() - INTERVAL 7 DAY)) active7 FROM bcs b WHERE b.is_active = 1 AND ' . $appScope . ($appExtra ? ' AND ' . implode(' AND ', $appExtra) : ''), $appParams) ?: ['total' => 0, 'activated' => 0, 'active7' => 0];
+
 $cnt = ['submitted' => 0, 'pending' => 0, 'off' => 0];
 foreach ($todayRows as $r) {
     if ($r['status'] === 'submitted') {
@@ -114,6 +121,14 @@ View::header('Dashboard / डैशबोर्ड', 'dashboard', true);
     <div class="small"><?= L('Pending today', 'आज बाकी') ?></div><div class="fs-4 fw-bold"><?= $cnt['pending'] ?></div></div></div></a></div>
   <div class="col-4"><div class="card"><div class="card-body py-2 text-secondary">
     <div class="small"><?= L('Leave / holiday', 'छुट्टी / अवकाश') ?></div><div class="fs-4 fw-bold"><?= $cnt['off'] ?></div></div></div></div>
+</div>
+<div class="row g-2 mb-3">
+  <div class="col-6"><a href="/app_usage.php?status=activated" class="text-decoration-none"><div class="card border-success"><div class="card-body py-2 text-success">
+    <div class="small"><?= L('App activated', 'ऐप चालू') ?></div><div class="fs-4 fw-bold"><?= (int) $appStats['activated'] ?> <span class="fs-6">/ <?= (int) $appStats['total'] ?></span></div>
+    <div class="small text-muted"><?= L('Installed + first login', 'इंस्टॉल + पहला लॉगिन') ?></div></div></div></a></div>
+  <div class="col-6"><a href="/app_usage.php?status=active" class="text-decoration-none"><div class="card border-primary"><div class="card-body py-2 text-primary">
+    <div class="small"><?= L('App active (7 days)', 'ऐप सक्रिय (7 दिन)') ?></div><div class="fs-4 fw-bold"><?= (int) $appStats['active7'] ?></div>
+    <div class="small text-muted"><?= L('Open App users list', 'ऐप उपयोगकर्ता सूची') ?></div></div></div></a></div>
 </div>
 
 <div class="row g-3">

@@ -61,6 +61,12 @@ final class App
 
     // ------------------------------------------------------------------ auth
 
+    /** Extract the native app version from WebView user agent; normal browsers deliberately return null. */
+    public static function versionFromDevice(string $device): ?string
+    {
+        return preg_match('/BCReportApp\/([0-9]+(?:\.[0-9]+){1,2})/i', $device, $m) ? $m[1] : null;
+    }
+
     /** @return array{ok:bool, error?:string, token?:string, must_change?:bool, bc?:array} */
     public static function login(string $phoneRaw, string $password, string $device): array
     {
@@ -93,9 +99,12 @@ final class App
             return ['ok' => false, 'error' => 'Mobile number ya password galat hai.'];
         }
         $token = bin2hex(random_bytes(32));
+        $safeDevice = mb_substr($device, 0, 120);
+        $version = self::versionFromDevice($device);
         DB::insert('INSERT INTO app_tokens (bc_id, token_hash, device, created_at, last_used_at) VALUES (?, ?, ?, NOW(), NOW())',
-            [$bc['id'], hash('sha256', $token), mb_substr($device, 0, 120)]);
-        DB::exec('UPDATE bcs SET app_last_seen = NOW() WHERE id = ?', [$bc['id']]);
+            [$bc['id'], hash('sha256', $token), $safeDevice]);
+        DB::exec('UPDATE bcs SET app_first_seen = COALESCE(app_first_seen, NOW()), app_last_seen = NOW(), app_version = COALESCE(?, app_version) WHERE id = ?',
+            [$version, $bc['id']]);
         Audit::log(null, 'app_login', 'bc', (int) $bc['id'], ['device' => mb_substr($device, 0, 60)]);
         return ['ok' => true, 'token' => $token, 'must_change' => $usedDefault || (int) $bc['app_must_change'] === 1, 'bc' => $bc];
     }
@@ -106,13 +115,14 @@ final class App
         if (!preg_match('/^[a-f0-9]{64}$/', $token)) {
             return null;
         }
-        $t = DB::one('SELECT t.id tid, b.* FROM app_tokens t JOIN bcs b ON b.id = t.bc_id WHERE t.token_hash = ? AND b.is_active = 1',
+        $t = DB::one('SELECT t.id tid, t.device, b.* FROM app_tokens t JOIN bcs b ON b.id = t.bc_id WHERE t.token_hash = ? AND b.is_active = 1',
             [hash('sha256', $token)]);
         if (!$t) {
             return null;
         }
         DB::exec('UPDATE app_tokens SET last_used_at = NOW() WHERE id = ?', [$t['tid']]);
-        DB::exec('UPDATE bcs SET app_last_seen = NOW() WHERE id = ?', [$t['id']]);
+        DB::exec('UPDATE bcs SET app_first_seen = COALESCE(app_first_seen, NOW()), app_last_seen = NOW(), app_version = COALESCE(?, app_version) WHERE id = ?',
+            [self::versionFromDevice((string) $t['device']), $t['id']]);
         return $t;
     }
 
