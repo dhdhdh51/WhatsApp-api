@@ -14,6 +14,7 @@ import android.net.Uri;
 final class Ringer {
     static final String CH_CALL = "bc_call_v1";
     static final String CH_ALARM = "bc_alarm_v1";
+    static final String ACTION_REPORT_DONE = "site.bharatseo.bcreport.REPORT_DONE";
     static final int NID = 7001;
 
     private Ringer() {
@@ -78,6 +79,13 @@ final class Ringer {
         } catch (SecurityException ignored) {
             // notification permission not granted
         }
+    }
+
+    /** Cancel notification and signal an open RingActivity to close (report submitted). */
+    static void stopActive(Context c) {
+        cancel(c);
+        Intent i = new Intent(ACTION_REPORT_DONE).setPackage(c.getPackageName());
+        c.sendBroadcast(i);
     }
 
     static void cancel(Context c) {

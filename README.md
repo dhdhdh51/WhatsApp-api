@@ -299,6 +299,29 @@ curl -s https://reports.example.com/webhook.php -H 'Content-Type: application/js
 - Audit trail: `report_versions` keeps every submission and edit, including the raw WhatsApp text. Admin edits need a
   reason. `audit_log` records logins, BC, settings, template, holiday and leave changes, STOP/START, and queue actions.
 
+## Employer-managed phones (MDM / app uninstall block)
+
+For a consented, organization-owned phone, BC Report supports **Android Device Owner** mode. In that mode the app is
+blocked from normal uninstall through Android's device-policy system. This is not available for ordinary personal phones
+or a normal APK install: Android requires Device Owner enrollment during the phone's initial setup / after a factory reset.
+
+1. Open **Managed phones / मैनेज्ड फ़ोन** in the admin panel.
+2. Back up permitted data and factory-reset the company phone.
+3. During the first Android setup screen, start the OEM's Android Enterprise QR provisioning flow (on many phones, tap the
+   Welcome screen six times) and scan the QR shown in the panel.
+4. Android downloads the signed APK, enrolls it as Device Owner, and prevents normal removal. The panel then shows
+   **Device Owner – blocked** after the BC logs in.
+
+For an IT test device without QR provisioning, only on a reset device with no personal accounts:
+
+```bash
+adb install -r bc-report.apk
+adb shell dpm set-device-owner site.bharatseo.bcreport/.MdmAdminReceiver
+```
+
+Device Owner removal must be performed through the authorized organization process (normally a factory reset). Keep the
+written consent and make sure the BC knows the device is managed.
+
 ## Operations
 
 - **Logs:** `storage/logs/app-YYYY-MM-DD.log`, `storage/logs/cron.log`, and `docker compose logs waha`.

@@ -28,7 +28,7 @@ td.n, th.n { text-align: right; }
 .bar > i { display: block; height: 100%; background: #0b8a5a; }
 .tabs { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: #fff; border-top: 1px solid #dfe6e2; z-index: 10; padding-bottom: env(safe-area-inset-bottom); }
 .tabs button { flex: 1; border: 0; background: none; padding: 9px 2px 8px; font-size: 12px; color: #6b7a73; position: relative; }
-.tabs button b { display: block; font-size: 20px; font-weight: normal; }
+.tabs button b { display: block; font-size: 16px; font-weight: 800; line-height: 20px; }
 .tabs button.on { color: #0b8a5a; font-weight: 600; }
 .dot { position: absolute; top: 4px; right: 22%; background: #e5484d; color: #fff; border-radius: 9px; font-size: 10px; padding: 1px 5px; }
 .chat { display: flex; flex-direction: column; gap: 6px; }
@@ -42,12 +42,12 @@ td.n, th.n { text-align: right; }
 .msg .who { font-size: 12px; font-weight: 600; color: #0b8a5a; margin-bottom: 2px; }
 .composer { display: flex; gap: 8px; padding: 8px; max-width: 640px; margin: 0 auto; border-top: 1px solid #dfe6e2; background: #eef2f0; }
 .composer textarea { font-size: 16px; padding: 10px; height: 46px; resize: none; }
-.composer button { border: 0; border-radius: 50%; width: 46px; height: 46px; background: #0b8a5a; color: #fff; font-size: 20px; flex: none; }
+.composer button { border: 0; border-radius: 12px; min-width: 58px; height: 46px; background: #0b8a5a; color: #fff; font-size: 13px; font-weight:700; flex: none; }
 .notice { white-space: pre-wrap; font-size: 14px; }
 .toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: #1d2b25; color: #fff; padding: 10px 16px; border-radius: 20px; font-size: 14px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 50; max-width: 90%; }
 .toast.show { opacity: .95; }
 .login { padding: 30px 18px; max-width: 420px; margin: 0 auto; }
-.logo { text-align: center; font-size: 46px; margin-top: 20px; }
+.logo { width:64px; height:64px; line-height:64px; border-radius:18px; background:#0b8a5a; color:#fff; font-size:24px; font-weight:800; margin:20px auto 0; text-align:center; }
 .login h1 { text-align: center; color: #0b8a5a; font-size: 22px; margin: 6px 0 22px; }
 .mb { margin-bottom: 12px; }
 
@@ -56,3 +56,5 @@ td.n, th.n { text-align: right; }
 .updbox h2 { margin: 6px 0 8px; color: #0b8a5a; font-size: 20px; }
 .updbox p { font-size: 15px; line-height: 1.5; }
 .updbox a.btn { text-decoration: none; }
+
+.update-mark { width:48px; height:48px; line-height:48px; border-radius:14px; background:#e3efe9; color:#0b8a5a; font-weight:800; margin:0 auto 8px; }

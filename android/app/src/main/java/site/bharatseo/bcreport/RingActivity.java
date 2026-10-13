@@ -2,6 +2,8 @@ package site.bharatseo.bcreport;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.BroadcastReceiver;
+import android.content.IntentFilter;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.media.AudioAttributes;
@@ -27,7 +29,7 @@ import java.util.Locale;
 
 /**
  * "Incoming call" screen (call mode: ring until Accept, then the recorded message plays)
- * or alarm screen (alarm mode: the message plays on repeat until dismissed).
+ * or alarm screen (alarm mode: the message repeats until today's report is submitted).
  */
 public class RingActivity extends Activity {
 
@@ -43,6 +45,15 @@ public class RingActivity extends Activity {
     private boolean finished;
     private LinearLayout buttons;
     private TextView status;
+    private boolean reportReceiverRegistered;
+    private final BroadcastReceiver reportDoneReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(android.content.Context context, Intent intent) {
+            if (Ringer.ACTION_REPORT_DONE.equals(intent.getAction())) {
+                AlarmScheduler.cancelRepeat(getApplicationContext());
+                done();
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -64,7 +75,7 @@ public class RingActivity extends Activity {
         root.setBackgroundColor(Color.parseColor(alarm ? "#8A3B0B" : "#0B8A5A"));
         root.setPadding(48, 96, 48, 96);
 
-        TextView icon = text(alarm ? "⏰" : "📞", 64, true);
+        TextView icon = text(alarm ? "ALARM" : "CALL", 30, true);
         TextView title = text("BC Report", 30, true);
         TextView sub = text(alarm ? "Aaj ki report abhi baaki hai!" : "BC Supervisor – call", 18, false);
         status = text(alarm ? "Sandesh chal raha hai…" : "Call aa rahi hai…", 16, false);
@@ -78,17 +89,27 @@ public class RingActivity extends Activity {
         buttons.setPadding(0, 64, 0, 0);
         root.addView(buttons, new LinearLayout.LayoutParams(-1, -2));
         setContentView(root);
+        IntentFilter reportDone = new IntentFilter(Ringer.ACTION_REPORT_DONE);
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(reportDoneReceiver, reportDone, RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(reportDoneReceiver, reportDone);
+        }
+        reportReceiverRegistered = true;
 
         if (alarm) {
             vibrate();
             playMessage(true);
             showAfterButtons();
+            watchReport();
         } else {
             startTone();
-            addButton("📞  Call uthayein", "#2E7D32", v -> accept());
+            addButton("Call uthayein", "#2E7D32", v -> accept());
             addButton("Kaat dein", "#C62828", v -> done());
         }
-        handler.postDelayed(this::done, 3 * 60 * 1000); // stop after 3 minutes in any case
+        if (!alarm) {
+            handler.postDelayed(this::done, 3 * 60 * 1000); // call stops after 3 minutes; the alarm keeps going
+        }
     }
 
     private TextView text(String s, int sp, boolean bold) {
@@ -119,11 +140,13 @@ public class RingActivity extends Activity {
 
     private void showAfterButtons() {
         buttons.removeAllViews();
-        addButton("📋  Report bharein", "#1565C0", v -> openReport());
+        addButton("Report bharein", "#1565C0", v -> openReport());
         if (!alarm) {
-            addButton("🔁  Dobara sunein", "#2E7D32", v -> playMessage(false));
+            addButton("Dobara sunein", "#2E7D32", v -> playMessage(false));
         }
-        addButton("Band karein", "#455A64", v -> done());
+        if (!alarm) {
+            addButton("Band karein", "#455A64", v -> done());
+        }
     }
 
     private void accept() {
@@ -266,12 +289,44 @@ public class RingActivity extends Activity {
         finish();
     }
 
+    /** Alarm: the back button must not dismiss it – only submitting the report does. */
+    @Override
+    public void onBackPressed() {
+        if (!alarm) {
+            super.onBackPressed();
+        }
+    }
+
+    /** While the alarm screen is open, check every minute if the report has arrived. */
+    private void watchReport() {
+        handler.postDelayed(() -> {
+            if (finished) {
+                return;
+            }
+            new Thread(() -> {
+                Boolean ring = Api.shouldRing(getApplicationContext());
+                handler.post(() -> {
+                    if (Boolean.FALSE.equals(ring)) {
+                        AlarmScheduler.cancelRepeat(getApplicationContext());
+                        done();
+                    } else {
+                        watchReport();
+                    }
+                });
+            }).start();
+        }, 60_000);
+    }
+
     @Override
     protected void onDestroy() {
         finished = true;
         handler.removeCallbacksAndMessages(null);
         stopTone();
         stopMessage();
+        if (reportReceiverRegistered) {
+            try { unregisterReceiver(reportDoneReceiver); } catch (IllegalArgumentException ignored) { }
+            reportReceiverRegistered = false;
+        }
         super.onDestroy();
     }
 }

@@ -1,0 +1,9 @@
+{
+  "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME": "site.bharatseo.bcreport/.MdmAdminReceiver",
+  "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION": "https://bc.bharatseo.site/downloads/bc-report.apk",
+  "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_CHECKSUM": "EWAkV0t1v152jYr5HOZ2QxXbCz8t4OWb2SqBFE7jowo",
+  "android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE": {
+    "server_url": "https://bc.bharatseo.site",
+    "organization": "BC Daily Report"
+  }
+}

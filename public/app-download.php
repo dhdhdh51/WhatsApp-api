@@ -21,15 +21,15 @@ h1{color:#0b8a5a;font-size:24px;margin:8px 0}
 a.b{display:block;text-align:center;background:#0b8a5a;color:#fff;text-decoration:none;font-size:19px;font-weight:600;padding:16px;border-radius:12px;margin:14px 0}
 ol{padding-left:20px;line-height:1.7} .m{color:#6b7a73;font-size:14px}
 </style></head><body><div class="w">
-<div class="c" style="text-align:center"><div style="font-size:52px">📋</div><h1>BC Daily Report App</h1>
+<div class="c" style="text-align:center"><div style="margin:0 auto 10px;background:#0b8a5a;color:#fff;width:64px;height:64px;line-height:64px;border-radius:18px;font-size:22px;font-weight:800">BC</div><h1>BC Daily Report App</h1>
 <p class="m">Roz ki report, aaj ka lakshya, suchna aur CBC / Admin se chat – sab ek app mein.</p>
-<a class="b" href="<?= htmlspecialchars($url) ?>">⬇️ App download karein (Android)</a></div>
+<a class="b" href="<?= htmlspecialchars($url) ?>">App download karein (Android)</a></div>
 <div class="c"><b>Install kaise karein</b><ol>
 <li>Upar ke button se app download karein.</li>
 <li>Download hone par file <b>bc-report.apk</b> par tap karein.</li>
 <li>Phone poochhe "Install unknown apps" – <b>Allow / Anumati dein</b> dabayein, phir wapas aakar <b>Install</b>.</li>
 <li>App kholein, apna <b>mobile number</b> aur <b>password</b> daalein (password apne CBC / Admin se lein).</li>
-<li>Pehli baar apna naya password banayein aur <b>notification ki permission</b> dein.</li>
+<li>Pehli baar apna naya password banayein.</li>
 </ol>
 <p class="m">"Play Protect" warning aaye to "Install anyway / Phir bhi install karein" dabayein – ye app aapke bank ke BC kaam ke liye hai.</p></div>
 <div class="c"><b>App nahi chal raha?</b><p class="m">Browser mein ye link kholkar bhi report bhar sakte hain:<br>

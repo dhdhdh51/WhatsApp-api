@@ -91,11 +91,12 @@ public class MainActivity extends Activity {
             }
         });
         load(getIntent());
-        askNotificationPermission();
+        // Notification permission is requested only after a BC actually logs in.
         PollWorker.schedule(this);
         AlarmScheduler.scheduleAll(this);
         PushService.refresh(this);
-        askFullScreenPermission();
+        Mdm.enforce(this);
+        Mdm.report(this, Prefs.token(this));
     }
 
     @Override
@@ -167,34 +168,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Android 14+: allow the ringing screen to open over the lock screen. */
-    private void askFullScreenPermission() {
-        if (Build.VERSION.SDK_INT < 34 || Prefs.token(this).isEmpty()) {
-            return;
-        }
-        android.app.NotificationManager nm = getSystemService(android.app.NotificationManager.class);
-        if (nm != null && !nm.canUseFullScreenIntent()) {
-            new android.app.AlertDialog.Builder(this)
-                    .setTitle("Call / alarm ki permission")
-                    .setMessage("Report yaad dilane wali call aur alarm lock screen par dikhe, iske liye agle page par BC Report ko Allow karein.")
-                    .setPositiveButton("Allow karein", (d, w) -> openRingSettings())
-                    .setNegativeButton("Baad mein", null)
-                    .show();
-        }
-    }
-
-    private void openRingSettings() {
-        try {
-            if (Build.VERSION.SDK_INT >= 34) {
-                startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:" + getPackageName())));
-            } else {
-                startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName()));
-            }
-        } catch (ActivityNotFoundException ignored) {
-        }
-    }
-
     @Override
     public void onBackPressed() {
         if (web.canGoBack()) {
@@ -209,24 +182,20 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void setSession(String token, String origin, String last) {
             Prefs.saveSession(MainActivity.this, token, last);
+            runOnUiThread(MainActivity.this::askNotificationPermission);
             PollWorker.schedule(MainActivity.this);
             PollWorker.runNow(MainActivity.this);
             PushService.refresh(MainActivity.this);
+            AlarmScheduler.scheduleAll(MainActivity.this);
+            Mdm.enforce(MainActivity.this);
+            Mdm.report(MainActivity.this, token);
         }
 
         @JavascriptInterface
         public void setReportDone(String date) {
             Prefs.setReportDone(MainActivity.this, date);
-        }
-
-        @JavascriptInterface
-        public void ringSettings() {
-            runOnUiThread(MainActivity.this::openRingSettings);
-        }
-
-        @JavascriptInterface
-        public String ringInfo() {
-            return Prefs.callTime(MainActivity.this) + "|" + Prefs.alarmTime(MainActivity.this) + "|" + (Prefs.alarmEnabled(MainActivity.this) ? "1" : "0");
+            AlarmScheduler.cancelRepeat(MainActivity.this); // report is in -> no more alarm today
+            Ringer.stopActive(MainActivity.this);
         }
 
         @JavascriptInterface

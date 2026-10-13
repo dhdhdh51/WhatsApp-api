@@ -15,6 +15,7 @@ public class AlarmReceiver extends BroadcastReceiver {
         }
         final String mode = "call".equals(intent.getStringExtra("mode")) ? "call" : "alarm";
         if (Prefs.reportDoneToday(c) || !Prefs.alarmEnabled(c)) {
+            AlarmScheduler.cancelRepeat(c);
             return;
         }
         final PendingResult pr = goAsync();
@@ -23,6 +24,12 @@ public class AlarmReceiver extends BroadcastReceiver {
                 Boolean ring = Api.shouldRing(c);
                 if (ring == null || ring) { // no internet -> ring anyway (better safe)
                     Ringer.ring(c, mode);
+                    if ("alarm".equals(mode)) {
+                        AlarmScheduler.scheduleRepeat(c); // rings again until the report is submitted
+                    }
+                } else {
+
+                    AlarmScheduler.cancelRepeat(c); // submitted / leave / holiday / after cutoff
                 }
             } finally {
                 pr.finish();

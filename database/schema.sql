@@ -278,6 +278,7 @@ CREATE TABLE IF NOT EXISTS app_tokens (
   token_hash    CHAR(64) NOT NULL,
   device        VARCHAR(120) NULL,
   fcm_token     VARCHAR(255) NULL COMMENT 'Firebase push token of this device',
+  mdm_owner    TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'reported Android Device Owner enrollment',
   created_at    DATETIME NOT NULL,
   last_used_at  DATETIME NULL,
   PRIMARY KEY (id),

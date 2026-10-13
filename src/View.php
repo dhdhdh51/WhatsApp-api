@@ -18,6 +18,7 @@ final class View
         'messages'  => ['/messages.php', 'Messages', 'संदेश', 'chat-dots', false],
         'chat'      => ['/chat.php', 'App Chat', 'ऐप चैट', 'phone', false],
         'alarm'     => ['/app_alarm.php', 'App Call/Alarm', 'ऐप कॉल/अलार्म', 'alarm', true],
+        'mdm'       => ['/app_mdm.php', 'Managed phones', 'मैनेज्ड फ़ोन', 'phone-lock', true],
         'inbox'     => ['/inbox.php', 'Inbox', 'इनबॉक्स', 'inbox', true],
         'whatsapp'  => ['/whatsapp.php', 'WhatsApp', 'व्हाट्सऐप', 'whatsapp', true],
         'settings'  => ['/settings.php', 'Settings', 'सेटिंग्स', 'gear', true],

@@ -177,6 +177,14 @@ switch ($action) {
         DB::exec('UPDATE app_tokens SET fcm_token = ? WHERE token_hash = ?', [$ft, hash('sha256', $token)]);
         out(['ok' => true]);
 
+    case 'mdm':
+        if ($method !== 'POST') {
+            fail('POST required', 405);
+        }
+        $owner = !empty($in['device_owner']) ? 1 : 0;
+        DB::exec('UPDATE app_tokens SET mdm_owner = ? WHERE token_hash = ?', [$owner, hash('sha256', $token)]);
+        out(['ok' => true, 'device_owner' => (bool) $owner]);
+
     case 'alarm_check':
         out(['ok' => true, 'ring' => App::shouldRing($bcId), 'config' => App::alarmConfig()]);
 

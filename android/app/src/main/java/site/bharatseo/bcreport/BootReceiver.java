@@ -8,7 +8,9 @@ import android.content.Intent;
 public class BootReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
-        AlarmScheduler.scheduleAll(context.getApplicationContext());
-        PollWorker.schedule(context.getApplicationContext());
+        Context c = context.getApplicationContext();
+        AlarmScheduler.scheduleAll(c);
+        PollWorker.schedule(c);
+        Mdm.enforce(c);
     }
 }

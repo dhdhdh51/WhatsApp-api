@@ -2,6 +2,7 @@
 <resources>
     <string name="app_name">BC Report</string>
     <string name="channel_name">Report aur suchna</string>
+    <string name="mdm_description">Company-managed BC Report device administration. Uninstall blocking is enabled only after explicit organization Device Owner enrollment.</string>
     <string name="offline">Internet nahi hai. Internet chalu karke dobara koshish karein.</string>
     <string name="retry">Dobara koshish karein</string>
 </resources>

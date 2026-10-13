@@ -41,7 +41,7 @@
   // ------------------------------------------------------------------ login
   function renderLogin(msg) {
     $app.innerHTML =
-      '<div class="login"><div class="logo">📋</div><h1>BC Daily Report</h1>' +
+      '<div class="login"><div class="logo">BC</div><h1>BC Daily Report</h1>' +
       (msg ? '<div class="err">' + esc(msg) + '</div>' : '') +
       '<div class="field mb"><label>Mobile number</label><input id="ph" type="tel" inputmode="numeric" maxlength="13" placeholder="98765 43210" autocomplete="username"></div>' +
       '<div class="field mb"><label>Password</label><input id="pw" type="password" autocomplete="current-password"></div>' +
@@ -85,7 +85,7 @@
   function tabs() {
     var t = state.tab, u = state.today && state.today.chat_unread ? '<span class="dot">' + state.today.chat_unread + '</span>' : '';
     function b(k, i, l, extra) { return '<button data-tab="' + k + '" class="' + (t === k ? 'on' : '') + '"><b>' + i + '</b>' + l + (extra || '') + '</button>'; }
-    return '<div class="tabs">' + b('home', '📋', 'Report') + b('history', '📅', 'History') + b('chat', '💬', 'Chat', u) + b('notices', '🔔', 'Suchna') + b('more', '☰', 'More') + '</div>';
+    return '<div class="tabs">' + b('home', 'R', 'Report') + b('history', 'H', 'History') + b('chat', 'C', 'Chat', u) + b('notices', 'S', 'Suchna') + b('more', 'M', 'More') + '</div>';
   }
   function bindTabs() {
     Array.prototype.forEach.call(document.querySelectorAll('[data-tab]'), function (el) { el.onclick = function () { show(el.getAttribute('data-tab')); }; });
@@ -186,7 +186,7 @@
   function renderChat() {
     state.lastChatId = 0;
     $app.innerHTML = top('Chat', 'Apne CBC / Admin se baat karein') + '<div class="page chatpage"><div class="chat" id="msgs"><div class="muted">Load ho raha hai…</div></div></div>' +
-      '<div class="dock"><div class="composer"><textarea id="tx" placeholder="Message likhein…" maxlength="2000" rows="1"></textarea><button id="send" aria-label="Send">➤</button></div>' + tabs() + '</div>';
+      '<div class="dock"><div class="composer"><textarea id="tx" placeholder="Message likhein…" maxlength="2000" rows="1"></textarea><button id="send" aria-label="Send">Send</button></div>' + tabs() + '</div>';
     fitDock();
     bindTabs();
     loadChat(true);
@@ -239,18 +239,11 @@
       if (!d.ok) return;
       $app.querySelector('.page').innerHTML = '<div class="card"><h2>' + esc(d.name) + '</h2>' +
         '<p class="muted">BC ID: ' + esc(d.bc_code) + '<br>Mobile: ' + esc(d.phone) + (d.branch ? '<br>Branch: ' + esc(d.branch) : '') + (d.cbc ? '<br>CBC: ' + esc(d.cbc) : '') + '</p></div>' +
-        '<div class="card"><p class="muted">Har 15 minute mein app nayi suchna check karta hai (internet chahiye). Notification aane ke liye app ko notification ki permission dein.</p>' +
+        '<div class="card"><p class="muted">Har 15 minute mein app nayi suchna check karta hai (internet chahiye).</p>' +
         '<button class="btn light" id="pw">Password badlein</button><button class="btn red" id="lo">Logout</button></div>' +
-        (native && native.ringSettings ? '<div class="card"><h2>📞 Call aur ⏰ alarm</h2><p class="muted" id="ri"></p>' +
-          '<button class="btn light" id="rs">Call/alarm permission</button></div>' : '');
+'';
       document.getElementById('pw').onclick = function () { renderPassword(false); };
       document.getElementById('lo').onclick = function () { if (confirm('Logout karein?')) logout(false); };
-      if (native && native.ringSettings) {
-        var inf = (native.ringInfo ? native.ringInfo() : '17:00|17:30|1').split('|');
-        document.getElementById('ri').textContent = inf[2] === '1'
-          ? 'Report baaki ho to roz ' + inf[0] + ' baje call aur ' + inf[1] + ' baje alarm bajega.' : 'Call/alarm abhi band hai.';
-        document.getElementById('rs').onclick = function () { native.ringSettings(); };
-      }
     });
   }
 
@@ -264,7 +257,7 @@
       if (!v || !v.code || mine >= v.code) return;
       var d = document.createElement('div');
       d.className = 'upd';
-      d.innerHTML = '<div class="updbox"><div style="font-size:42px">⬆️</div><h2>Naya update aaya hai</h2>' +
+      d.innerHTML = '<div class="updbox"><div class="update-mark">UP</div><h2>Naya update aaya hai</h2>' +
         '<p>Aapke phone mein app ka purana version (1.0.' + mine + ') hai. Naya version <b>' + esc(v.name) + '</b> install karein – ' +
         'call, alarm aur turant notification ke liye zaroori hai.</p>' +
         '<a class="btn" id="updgo" href="https://bharatseo.site/bc-app.html">Update karein</a>' +
