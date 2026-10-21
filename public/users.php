@@ -71,6 +71,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($role === 'cbc' && !$phone) {
         $errors[] = 'CBC ke liye mobile number zaroori hai (app login) / सीबीसी के लिए मोबाइल नंबर आवश्यक है';
     }
+    if ($role === 'cbc' && $phone && DB::val('SELECT COUNT(*) FROM bcs WHERE phone = ? AND is_active = 1', [$phone])) {
+        $errors[] = 'Ye number pehle se ek active BC ka hai — CBC ko alag number dein (ek number sirf ek login) / यह नंबर पहले से एक बीसी का है';
+    }
     if (!$id && mb_strlen($pass) < 10) {
         $errors[] = 'Password required (min 10 chars)';
     }
