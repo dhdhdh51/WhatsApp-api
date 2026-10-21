@@ -112,11 +112,6 @@ $audioBlock = static function (string $k, string $pre) use ($s): string {
 
 View::header('App call & alarm / ऐप कॉल और अलार्म', 'alarm');
 ?>
-<div class="alert alert-info small">
-  Every day the BC's phone itself rings at the <strong>call time</strong> (looks like an incoming call – on "Accept" your message plays) and again at the
-  <strong>alarm time</strong> (alarm sound + message) – <strong>only if today's report is still pending</strong> (not on leave / holiday / weekly off).
-  Works only for BCs who installed the app and logged in once. / जिनकी रिपोर्ट बाकी है, उनका फ़ोन तय समय पर कॉल और अलार्म की तरह बजेगा।
-</div>
 <div class="row g-3">
   <div class="col-lg-6">
     <div class="card"><div class="card-header"><?= L('Timing and message', 'समय और संदेश') ?></div><div class="card-body">

@@ -126,6 +126,24 @@ final class Fcm
         return $n;
     }
 
+    /** Push to every device of a CBC staff user; dead tokens are removed. Returns devices reached. */
+    public static function pushToCbc(int $userId, array $data): int
+    {
+        if (!self::enabled()) {
+            return 0;
+        }
+        $n = 0;
+        foreach (DB::all('SELECT id, fcm_token FROM cbc_app_tokens WHERE user_id = ? AND fcm_token IS NOT NULL', [$userId]) as $t) {
+            $res = self::send((string) $t['fcm_token'], $data);
+            if ($res === 'ok') {
+                $n++;
+            } elseif ($res === 'invalid') {
+                DB::exec('UPDATE cbc_app_tokens SET fcm_token = NULL WHERE id = ?', [$t['id']]);
+            }
+        }
+        return $n;
+    }
+
     /** @return array{status:int, json:mixed, raw:string} */
     private static function http(string $method, string $url, string $body, array $headers): array
     {

@@ -180,11 +180,23 @@ final class App
         ];
     }
 
-    /** Admin test: make a CBC's phone ring on its next poll (max ~15 min). */
+    /**
+     * Admin test: ring a CBC's phone. Instant via Firebase when available; otherwise it
+     * arrives at the phone's next poll (max ~15 min).
+     */
     public static function sendTestRingCbc(int $cbcUserId, string $mode): void
     {
-        DB::exec('UPDATE cbc_app_tokens SET poll_seq = poll_seq + 1, test_mode = ? WHERE user_id = ?',
-            [$mode === 'call' ? 'call' : 'alarm', $cbcUserId]);
+        $kind = $mode === 'call' ? 'ring_call' : 'ring_alarm';
+        $reached = 0;
+        try {
+            $reached = Fcm::pushToCbc($cbcUserId, ['id' => 0, 'kind' => $kind, 'title' => 'Test', 'body' => 'Admin test']);
+        } catch (\Throwable $e) {
+            Logger::warn('CBC FCM test failed: ' . $e->getMessage());
+        }
+        if ($reached === 0) { // no instant push delivered -> poll fallback
+            DB::exec('UPDATE cbc_app_tokens SET poll_seq = poll_seq + 1, test_mode = ? WHERE user_id = ?',
+                [$mode === 'call' ? 'call' : 'alarm', $cbcUserId]);
+        }
     }
 
     /** Should a CBC's phone ring now? True when any of their BCs is still pending today. */

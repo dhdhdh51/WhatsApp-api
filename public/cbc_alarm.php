@@ -114,10 +114,6 @@ $audioBlock = static function (string $k, string $pre) use ($s): string {
 
 View::header('CBC call & alarm / सीबीसी कॉल और अलार्म', 'cbcalarm');
 ?>
-<div class="alert alert-info small">
-  Jab kisi CBC ke <strong>kisi bhi BC ki aaj ki report baaki</strong> hogi, us CBC ka phone <strong>call time</strong> par (incoming call jaisa – "Accept" par aawaz bajegi) aur phir <strong>alarm time</strong> par (alarm + aawaz) bajega.
-  Ye BC wale alarm se <strong>alag</strong> hai – iski apni audio/voice, text aur time hai. Sirf un CBC pe chalega jinhone app mein login kiya hai.
-</div>
 <div class="row g-3">
   <div class="col-lg-6">
     <div class="card"><div class="card-header"><?= L('Timing and message', 'समय और संदेश') ?></div><div class="card-body">

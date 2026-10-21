@@ -63,12 +63,6 @@ foreach (DB::all('SELECT * FROM templates ORDER BY type, variant_no') as $t) {
 
 View::header('Message templates / संदेश टेम्पलेट', 'templates');
 ?>
-<div class="alert alert-info small">
-  Placeholders: <code>{form}</code> (required – the blank form the BC copies), <code>{name}</code>, <code>{date}</code>, <code>{bc_code}</code>, <code>{cutoff}</code>, <code>{form_time}</code>.
-  The <strong>Welcome</strong> message (sent once when a BC is added) is free text – <code>{form}</code> not needed and scheme names are allowed there.
-  Active variants of each type are rotated automatically (by day and BC). <strong>Do not write scheme names (APY, PMJJBY …) outside <code>{form}</code></strong> – the BC copies the whole message back and the parser would get confused.
-  <br>प्लेसहोल्डर: {form} ज़रूरी है। सक्रिय टेम्पलेट अपने-आप बदल-बदल कर भेजे जाते हैं। {form} के बाहर योजना का नाम न लिखें।
-</div>
 <?php foreach (Templates::TYPES as $type => [$en, $hi]): $list = $all[$type] ?? []; ?>
 <h5 id="<?= $type ?>" class="mt-4"><?= L($en, $hi) ?> <small class="text-muted">(<?= count(array_filter($list, static fn ($t) => $t['is_active'])) ?> active)</small></h5>
 <div class="row g-3">

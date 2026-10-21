@@ -70,10 +70,6 @@ $rows = DB::all("SELECT b.id, b.name, b.bc_code, b.phone, b.app_first_seen, b.ap
 
 View::header('App users / ऐप उपयोगकर्ता', 'appusers');
 ?>
-<div class="alert alert-info small">
-  <strong>App activated</strong> means the BC installed/opened the app and logged in successfully at least once. APK file download alone cannot be safely linked to a particular BC.
-  <br><strong>ऐप चालू</strong> = बीसी ने ऐप खोलकर कम से कम एक बार सफल login किया है। सिर्फ APK download को किसी एक बीसी से नहीं जोड़ा जा सकता।
-</div>
 <div class="row g-2 mb-3 text-center">
   <div class="col-6 col-md"><a class="card text-decoration-none h-100 <?= $status === 'all' ? 'border-success' : '' ?>" href="/app_usage.php"><div class="card-body py-2"><div class="fs-4 fw-bold"><?= (int) $stats['total'] ?></div><div class="small text-muted">Active BCs</div></div></a></div>
   <div class="col-6 col-md"><a class="card text-decoration-none h-100 <?= $status === 'activated' ? 'border-success' : '' ?>" href="/app_usage.php?status=activated"><div class="card-body py-2"><div class="fs-4 fw-bold text-success"><?= (int) $stats['activated'] ?></div><div class="small text-muted">App activated</div></div></a></div>

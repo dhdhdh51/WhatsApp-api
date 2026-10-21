@@ -68,10 +68,6 @@ $notLoggedIn = (int) $sum['total'] - (int) $sum['logged_in'];
 
 View::header('CBC App / सीबीसी ऐप', 'cbcapp');
 ?>
-<div class="alert alert-info small">
-  Ye un <strong>CBC</strong> ki list hai jo app mein login kar chuke hain (aur jinhe "BC ne report nahi ki" ka alarm milta hai) aur jo abhi tak login nahi kar paaye.
-  CBC apne <strong>mobile number + panel password</strong> se usi app mein login karte hain.
-</div>
 <div class="row g-2 mb-3 text-center">
   <div class="col-6 col-md-3"><a class="card text-decoration-none h-100 <?= $status === 'all' ? 'border-success' : '' ?>" href="/cbc_app.php"><div class="card-body py-2"><div class="fs-4 fw-bold"><?= (int) $sum['total'] ?></div><div class="small text-muted">Total CBC</div></div></a></div>
   <div class="col-6 col-md-3"><a class="card text-decoration-none h-100 <?= $status === 'logged_in' ? 'border-success' : '' ?>" href="/cbc_app.php?status=logged_in"><div class="card-body py-2"><div class="fs-4 fw-bold text-success"><?= (int) $sum['logged_in'] ?></div><div class="small text-muted">Logged in / लॉगिन किया</div></div></a></div>

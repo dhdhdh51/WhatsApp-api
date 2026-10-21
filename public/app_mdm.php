@@ -25,11 +25,6 @@ $rows = DB::all("SELECT b.id, b.name, b.bc_code, b.phone, b.app_last_seen,
 
 View::header('Managed phones (MDM) / मैनेज्ड फ़ोन', 'mdm');
 ?>
-<div class="alert alert-warning small">
-  <strong>Consent + company phone required.</strong> "App uninstall block" works only after Android <strong>Device Owner</strong> enrollment on an organisation-managed phone.
-  A normal installed app cannot legally or technically stop a user from uninstalling it. Device Owner enrollment needs a <strong>factory-reset phone</strong> (or an IT technician using ADB before the phone is handed over).
-  <br><strong>लिखित सहमति और कंपनी का फ़ोन ज़रूरी है।</strong> सामान्य फोन पर ऐप हटाना नहीं रोका जा सकता; Device Owner enrollment में फैक्टरी रीसेट लगता है।
-</div>
 
 <div class="row g-3">
   <div class="col-lg-6">
