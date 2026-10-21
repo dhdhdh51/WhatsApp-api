@@ -55,6 +55,7 @@
           go.disabled = false;
           if (!j.ok) { renderLogin(j.error); return; }
           saveSession(j.token, j.last_notification);
+          if (j.type === 'cbc') { renderCbc('status'); return; }
           if (j.must_change) renderPassword(true); else show('home');
         });
     };
@@ -269,11 +270,70 @@
   }
   checkUpdate();
 
+  // ------------------------------------------------------------------ CBC (supervisor) view
+  function statusChip(s) {
+    var m = { submitted: ['Jama ✅', 'g'], pending: ['Baaki ⏳', 'r'], leave: ['Chhutti', 'b'], holiday: ['Avkash', 'b'], weekly_off: ['Weekly off', 'b'] };
+    var x = m[s] || [s, 'b'];
+    return '<span class="chip ' + x[1] + '">' + esc(x[0]) + '</span>';
+  }
+  function cbcTabs() {
+    var t = state.cbcTab;
+    function b(k, i, l) { return '<button data-ctab="' + k + '" class="' + (t === k ? 'on' : '') + '"><b>' + i + '</b>' + l + '</button>'; }
+    return '<div class="tabs">' + b('status', 'B', 'BC Status') + b('more', 'M', 'More') + '</div>';
+  }
+  function bindCbcTabs() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ctab]'), function (el) { el.onclick = function () { renderCbc(el.getAttribute('data-ctab')); }; });
+  }
+  function renderCbc(sub) {
+    stopChat();
+    state.tab = ''; state.cbcTab = sub || 'status';
+    $app.innerHTML = top('BC Status', 'Aapke BC ki aaj ki report') + '<div class="page"><div class="card muted">Load ho raha hai…</div></div>' + cbcTabs();
+    bindCbcTabs();
+    if (state.cbcTab === 'more') { renderCbcMore(); return; }
+    api('status').then(function (d) {
+      if (!d.ok) { $app.querySelector('.page').innerHTML = '<div class="err">' + esc(d.error || 'Error') + '</div>'; return; }
+      var c = d.counts, h = '';
+      h += '<div class="cbc-sum">' +
+        '<div class="cbc-stat r"><b>' + c.pending + '</b><span>Baaki</span></div>' +
+        '<div class="cbc-stat g"><b>' + c.submitted + '</b><span>Jama</span></div>' +
+        '<div class="cbc-stat n"><b>' + c.off + '</b><span>Chhutti/Off</span></div></div>';
+      if (!d.open) h += '<div class="warn">Aaj report ka samay khatam ho gaya hai.</div>';
+      else if (c.pending > 0) h += '<div class="warn">⏳ ' + c.pending + ' BC ne abhi report nahi ki. Unhe call/WhatsApp karke yaad dilayein.</div>';
+      else h += '<div class="ok">✅ Aapke sabhi BC ne aaj report kar di hai. Shabash!</div>';
+      h += '<div class="card"><h2>📋 BC list – ' + esc(d.date_text) + '</h2>';
+      if (!d.bcs.length) h += '<p class="muted">Aapke paas koi active BC nahi hai.</p>';
+      d.bcs.forEach(function (b) {
+        var ph = String(b.phone || '').replace(/\D/g, '');
+        var act = (b.status === 'pending' && ph) ?
+          '<a class="rbtn call" href="tel:+91' + esc(ph) + '">📞 Call</a>' +
+          '<a class="rbtn wa" target="_blank" rel="noopener" href="https://wa.me/91' + esc(ph) + '">WhatsApp</a>' : '';
+        var sub2 = [b.branch, b.block].filter(Boolean).join(' · ');
+        h += '<div class="cbc-row"><div class="cbc-head"><div class="cbc-name">' + esc(b.name) +
+          ' <span class="muted">' + esc(b.bc_code || '') + '</span></div>' + statusChip(b.status) + '</div>' +
+          (sub2 ? '<div class="muted sm">' + esc(sub2) + '</div>' : '') +
+          (act ? '<div class="cbc-act">' + act + '</div>' : '') + '</div>';
+      });
+      h += '</div>';
+      $app.querySelector('.page').innerHTML = h;
+    });
+  }
+  function renderCbcMore() {
+    api('me').then(function (d) {
+      if (!d.ok) return;
+      $app.querySelector('.page').innerHTML =
+        '<div class="card"><h2>' + esc(d.name || 'CBC') + '</h2><p class="muted">Role: CBC<br>Mobile: ' + esc(d.phone || '') + '<br>BC: ' + (d.bc_count || 0) + '</p></div>' +
+        '<div class="card"><p class="muted">Jab aapke kisi BC ki report baaki hogi, app samay par alarm bajayega (internet chahiye).</p>' +
+        '<button class="btn red" id="lo">Logout</button></div>';
+      document.getElementById('lo').onclick = function () { if (confirm('Logout karein?')) logout(false); };
+    });
+  }
+
   // ------------------------------------------------------------------ start
   if (!token()) { renderLogin(''); return; }
   api('me').then(function (d) {
     if (!d.ok) return;
     if (native && native.setSession) native.setSession(token(), location.origin, '');
+    if (d.type === 'cbc') { renderCbc('status'); return; }
     if (d.must_change) renderPassword(true); else show(location.hash === '#chat' ? 'chat' : location.hash === '#notices' ? 'notices' : 'home');
   });
 })();

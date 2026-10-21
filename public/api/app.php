@@ -57,18 +57,86 @@ if ($action === 'login') {
     if (!$r['ok']) {
         fail($r['error'], 401);
     }
-    out(['ok' => true, 'token' => $r['token'], 'must_change' => $r['must_change'], 'name' => $r['bc']['name'],
+    if (($r['type'] ?? 'bc') === 'cbc') {
+        out(['ok' => true, 'type' => 'cbc', 'token' => $r['token'], 'must_change' => false, 'name' => $r['user']['name']]);
+    }
+    out(['ok' => true, 'type' => 'bc', 'token' => $r['token'], 'must_change' => $r['must_change'], 'name' => $r['bc']['name'],
         'last_notification' => (int) DB::val('SELECT COALESCE(MAX(id),0) FROM app_notifications WHERE bc_id = ?', [$r['bc']['id']])]);
 }
 
 // ------------------------------------------------------------------ authenticated
 $auth = (string) ($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
 $token = preg_match('/^Bearer\s+(\S+)$/i', $auth, $m) ? $m[1] : (string) ($_GET['t'] ?? '');
-$bc = App::bcFromToken($token);
-if (!$bc) {
+$actor = App::actorFromToken($token);
+if (!$actor) {
     fail('Login expired. Dobara login karein.', 401);
 }
-$bcId = (int) $bc['id'];
+
+// ------------------------------------------------------------------ CBC (staff) app
+if ($actor['type'] === 'cbc') {
+    $u = $actor['row'];
+    $uid = (int) $actor['id'];
+    $today = Calendar::today();
+    switch ($action) {
+        case 'logout':
+            DB::exec('DELETE FROM cbc_app_tokens WHERE token_hash = ?', [hash('sha256', $token)]);
+            out(['ok' => true]);
+
+        case 'me':
+            out(['ok' => true, 'type' => 'cbc', 'role' => 'CBC', 'name' => $u['name'], 'phone' => $u['phone'],
+                'bc_count' => (int) DB::val('SELECT COUNT(*) FROM bcs WHERE cbc_id = ? AND is_active = 1', [$uid])]);
+
+        case 'status':
+            $rows = Calendar::dayRows($today, null, ['cbc_id' => $uid]);
+            $counts = ['submitted' => 0, 'pending' => 0, 'off' => 0];
+            $bcs = [];
+            foreach ($rows as $r) {
+                $st = (string) $r['status'];
+                if ($st === 'submitted') {
+                    $counts['submitted']++;
+                } elseif ($st === 'pending') {
+                    $counts['pending']++;
+                } else {
+                    $counts['off']++;
+                }
+                $bcs[] = ['name' => $r['name'], 'bc_code' => $r['bc_code'], 'phone' => $r['phone'],
+                    'status' => $st, 'branch' => $r['branch_name'], 'block' => $r['block']];
+            }
+            usort($bcs, static function ($a, $b) {
+                $rank = ['pending' => 0, 'submitted' => 1, 'leave' => 2, 'holiday' => 2, 'weekly_off' => 2];
+                return (($rank[$a['status']] ?? 3) <=> ($rank[$b['status']] ?? 3)) ?: strcmp((string) $a['name'], (string) $b['name']);
+            });
+            out(['ok' => true, 'date_text' => date('d-m-Y'), 'open' => Calendar::isOpen($today),
+                'cutoff' => fmt_time12(Settings::padTime(Settings::get('cutoff_time') ?: '23:59')),
+                'counts' => $counts + ['total' => count($rows)], 'bcs' => $bcs]);
+
+        case 'alarm_check':
+            out(['ok' => true, 'ring' => App::shouldRingCbc($uid), 'config' => App::alarmConfig()]);
+
+        case 'report_done': // native uses this name; for a CBC "done" = no BC left pending
+            out(['ok' => true, 'done' => !App::shouldRingCbc($uid)]);
+
+        case 'poll':
+            out(['ok' => true, 'alarm' => App::alarmConfig(), 'last' => 0, 'notifications' => []]);
+
+        case 'fcm':
+            $ft = trim((string) ($in['token'] ?? ''));
+            if ($method !== 'POST' || $ft === '' || strlen($ft) > 255) {
+                fail('bad token');
+            }
+            DB::exec('UPDATE cbc_app_tokens SET fcm_token = ? WHERE token_hash = ?', [$ft, hash('sha256', $token)]);
+            out(['ok' => true]);
+
+        case 'mdm':
+            out(['ok' => true, 'device_owner' => false]);
+
+        default:
+            fail('Unknown action', 404);
+    }
+}
+
+$bc = $actor['row'];
+$bcId = (int) $actor['id'];
 $today = Calendar::today();
 
 switch ($action) {

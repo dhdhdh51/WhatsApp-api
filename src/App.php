@@ -67,7 +67,12 @@ final class App
         return preg_match('/BCReportApp\/([0-9]+(?:\.[0-9]+){1,2})/i', $device, $m) ? $m[1] : null;
     }
 
-    /** @return array{ok:bool, error?:string, token?:string, must_change?:bool, bc?:array} */
+    /**
+     * Mobile app login. A phone number may belong to a BC (bcs table) or to a
+     * CBC staff user (users table, role = cbc). BC is tried first, then CBC.
+     *
+     * @return array{ok:bool, error?:string, type?:string, token?:string, must_change?:bool, bc?:array, user?:array}
+     */
     public static function login(string $phoneRaw, string $password, string $device): array
     {
         $phone = Phone::normalize($phoneRaw);
@@ -81,6 +86,7 @@ final class App
             return ['ok' => false, 'error' => 'Bahut baar galat password. 15 minute baad koshish karein.'];
         }
         $bc = $phone ? DB::one('SELECT * FROM bcs WHERE phone = ? AND is_active = 1', [$phone]) : null;
+        $cbc = null;
         $ok = false;
         $usedDefault = false;
         if ($bc) {
@@ -92,7 +98,13 @@ final class App
                 $usedDefault = $ok;
             }
         } else {
-            password_verify($password, '$2y$10$' . str_repeat('a', 53)); // timing
+            // No BC with this phone – maybe a CBC staff member logging in with their panel password.
+            $cbc = $phone ? DB::one("SELECT * FROM users WHERE role = 'cbc' AND phone = ? AND is_active = 1", [$phone]) : null;
+            if ($cbc) {
+                $ok = password_verify($password, (string) $cbc['password_hash']);
+            } else {
+                password_verify($password, '$2y$10$' . str_repeat('a', 53)); // timing
+            }
         }
         DB::insert('INSERT INTO login_attempts (ip, username, success, attempted_at) VALUES (?, ?, ?, NOW())', [$ip, $key, $ok ? 1 : 0]);
         if (!$ok) {
@@ -100,13 +112,69 @@ final class App
         }
         $token = bin2hex(random_bytes(32));
         $safeDevice = mb_substr($device, 0, 120);
-        $version = self::versionFromDevice($device);
-        DB::insert('INSERT INTO app_tokens (bc_id, token_hash, device, created_at, last_used_at) VALUES (?, ?, ?, NOW(), NOW())',
-            [$bc['id'], hash('sha256', $token), $safeDevice]);
-        DB::exec('UPDATE bcs SET app_first_seen = COALESCE(app_first_seen, NOW()), app_last_seen = NOW(), app_version = COALESCE(?, app_version) WHERE id = ?',
-            [$version, $bc['id']]);
-        Audit::log(null, 'app_login', 'bc', (int) $bc['id'], ['device' => mb_substr($device, 0, 60)]);
-        return ['ok' => true, 'token' => $token, 'must_change' => $usedDefault || (int) $bc['app_must_change'] === 1, 'bc' => $bc];
+
+        if ($bc) {
+            $version = self::versionFromDevice($device);
+            DB::insert('INSERT INTO app_tokens (bc_id, token_hash, device, created_at, last_used_at) VALUES (?, ?, ?, NOW(), NOW())',
+                [$bc['id'], hash('sha256', $token), $safeDevice]);
+            DB::exec('UPDATE bcs SET app_first_seen = COALESCE(app_first_seen, NOW()), app_last_seen = NOW(), app_version = COALESCE(?, app_version) WHERE id = ?',
+                [$version, $bc['id']]);
+            Audit::log(null, 'app_login', 'bc', (int) $bc['id'], ['device' => mb_substr($device, 0, 60)]);
+            return ['ok' => true, 'type' => 'bc', 'token' => $token, 'must_change' => $usedDefault || (int) $bc['app_must_change'] === 1, 'bc' => $bc];
+        }
+
+        DB::insert('INSERT INTO cbc_app_tokens (user_id, token_hash, device, created_at, last_used_at) VALUES (?, ?, ?, NOW(), NOW())',
+            [$cbc['id'], hash('sha256', $token), $safeDevice]);
+        Audit::log(null, 'app_login', 'user', (int) $cbc['id'], ['device' => mb_substr($device, 0, 60), 'role' => 'cbc']);
+        return ['ok' => true, 'type' => 'cbc', 'token' => $token, 'must_change' => false, 'user' => $cbc];
+    }
+
+    /**
+     * Resolve a bearer token to an actor (a BC or a CBC staff user).
+     *
+     * @return array{type:string, id:int, row:array}|null
+     */
+    public static function actorFromToken(string $token): ?array
+    {
+        $bc = self::bcFromToken($token);
+        if ($bc) {
+            return ['type' => 'bc', 'id' => (int) $bc['id'], 'row' => $bc];
+        }
+        $cbc = self::cbcFromToken($token);
+        if ($cbc) {
+            return ['type' => 'cbc', 'id' => (int) $cbc['id'], 'row' => $cbc];
+        }
+        return null;
+    }
+
+    /** CBC staff user for a bearer token, or null. */
+    public static function cbcFromToken(string $token): ?array
+    {
+        if (!preg_match('/^[a-f0-9]{64}$/', $token)) {
+            return null;
+        }
+        $t = DB::one("SELECT t.id tid, t.device, u.* FROM cbc_app_tokens t JOIN users u ON u.id = t.user_id
+                      WHERE t.token_hash = ? AND u.is_active = 1 AND u.role = 'cbc'", [hash('sha256', $token)]);
+        if (!$t) {
+            return null;
+        }
+        DB::exec('UPDATE cbc_app_tokens SET last_used_at = NOW() WHERE id = ?', [$t['tid']]);
+        return $t;
+    }
+
+    /** Should a CBC's phone ring now? True when any of their BCs is still pending today. */
+    public static function shouldRingCbc(int $cbcUserId): bool
+    {
+        $today = Calendar::today();
+        if (!Settings::bool('app_call_enabled') || !Calendar::isOpen($today)) {
+            return false;
+        }
+        foreach (Calendar::dayRows($today, null, ['cbc_id' => $cbcUserId]) as $r) {
+            if ($r['status'] === 'pending') {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** BC for a bearer token, or null. */

@@ -172,3 +172,25 @@ tr:last-child td { border-bottom: none; }
 .updbox p { font-size: 15px; line-height: 1.5; }
 .updbox a.btn { text-decoration: none; }
 .update-mark { width: 52px; height: 52px; line-height: 52px; border-radius: 16px; background: var(--accent-soft); color: var(--accent-ink); font-weight: 800; margin: 0 auto 8px; }
+
+/* ---------- CBC (supervisor) view ---------- */
+.cbc-sum { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.cbc-stat { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 10px; text-align: center; box-shadow: var(--shadow-sm); }
+.cbc-stat b { display: block; font-size: 26px; font-weight: 800; letter-spacing: -.5px; line-height: 1.1; }
+.cbc-stat span { font-size: 12px; color: var(--muted); font-weight: 600; }
+.cbc-stat.r b { color: #d61f4e; }
+.cbc-stat.g b { color: var(--accent-ink); }
+.cbc-stat.n b { color: #6b7a73; }
+
+.cbc-row { border: 1px solid var(--line); border-radius: 14px; padding: 11px 12px; margin-bottom: 10px; background: #fcfefd; }
+.cbc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cbc-name { font-weight: 700; font-size: 15px; }
+.cbc-row .sm { font-size: 12px; margin-top: 2px; }
+.chip { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.chip.g { background: #e6f6ee; color: #0b6b46; }
+.chip.r { background: #fde2e4; color: #b4123a; }
+.chip.b { background: #eef2f7; color: #5a6b86; }
+.cbc-act { display: flex; gap: 8px; margin-top: 10px; }
+.cbc-act .rbtn { flex: 1; text-align: center; text-decoration: none; font-weight: 700; font-size: 14px; padding: 10px; border-radius: 12px; }
+.rbtn.call { background: var(--accent-grad); color: #fff; }
+.rbtn.wa { background: #e6f6ee; color: #0b6b46; border: 1px solid #bfe6cf; }
