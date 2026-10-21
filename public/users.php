@@ -68,6 +68,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($phoneRaw !== '' && !$phone) {
         $errors[] = 'Invalid Indian mobile number';
     }
+    if ($role === 'cbc' && !$phone) {
+        $errors[] = 'CBC ke liye mobile number zaroori hai (app login) / सीबीसी के लिए मोबाइल नंबर आवश्यक है';
+    }
     if (!$id && mb_strlen($pass) < 10) {
         $errors[] = 'Password required (min 10 chars)';
     }
@@ -157,7 +160,9 @@ View::header('Users / यूज़र (Admin & Managers)', 'users');
         <option value="<?= $rk ?>" <?= ($edit['role'] ?? 'cbc') === $rk ? 'selected' : '' ?>><?= e($rl) ?></option>
       <?php endforeach; ?></select></div>
     <div class="col-6"><label class="form-label small"><?= L('Password', 'पासवर्ड') ?></label><input type="password" name="password" class="form-control form-control-sm" minlength="10" placeholder="<?= !empty($edit['id']) ? 'leave empty = unchanged' : 'min 10 chars' ?>"></div>
-    <div class="col-6"><label class="form-label small"><?= L('WhatsApp (summaries)', 'व्हाट्सऐप') ?></label><input name="phone" class="form-control form-control-sm" value="<?= e($edit['phone'] ?? '') ?>"></div>
+    <div class="col-6"><label class="form-label small"><?= L('Mobile number', 'मोबाइल नंबर') ?> <span class="text-danger" id="phoneReq" style="display:none">*</span></label>
+      <div class="input-group input-group-sm"><span class="input-group-text">+91</span><input name="phone" class="form-control form-control-sm" value="<?= e($edit['phone'] ?? '') ?>" inputmode="tel" maxlength="16" placeholder="98765 43210"></div>
+      <div class="form-text small"><?= L('CBC logs into the app with this number + password. WhatsApp summary bhi isi par.', 'सीबीसी इसी नंबर + पासवर्ड से ऐप में लॉगिन करता है।') ?></div></div>
     <div class="col-6 pt-3">
       <div class="form-check"><input class="form-check-input" type="checkbox" name="receive_summary" value="1" id="rs" <?= !empty($edit['receive_summary']) ? 'checked' : '' ?>><label class="form-check-label small" for="rs">WhatsApp summary 9 PM (pending list of own BCs)</label></div>
       <div class="form-check"><input class="form-check-input" type="checkbox" name="is_active" value="1" id="ia" <?= !isset($edit['is_active']) || $edit['is_active'] ? 'checked' : '' ?>><label class="form-check-label small" for="ia">Active</label></div></div>
@@ -169,4 +174,4 @@ View::header('Users / यूज़र (Admin & Managers)', 'users');
   </form></div></div>
 </div>
 </div>
-<?php View::footer();
+<?php View::footer('<script>(function(){var r=document.querySelector("select[name=role]"),req=document.getElementById("phoneReq");if(r&&req){var t=function(){req.style.display=r.value==="cbc"?"inline":"none";};r.addEventListener("change",t);t();}})();</script>');
