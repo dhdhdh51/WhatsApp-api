@@ -241,10 +241,8 @@
       $app.querySelector('.page').innerHTML = '<div class="card"><h2>' + esc(d.name) + '</h2>' +
         '<p class="muted">BC ID: ' + esc(d.bc_code) + '<br>Mobile: ' + esc(d.phone) + (d.branch ? '<br>Branch: ' + esc(d.branch) : '') + (d.cbc ? '<br>CBC: ' + esc(d.cbc) : '') + '</p></div>' +
         '<div class="card"><p class="muted">Har 15 minute mein app nayi suchna check karta hai (internet chahiye).</p>' +
-        '<button class="btn light" id="pw">Password badlein</button><button class="btn red" id="lo">Logout</button></div>' +
-'';
+        '<button class="btn light" id="pw">Password badlein</button></div>';
       document.getElementById('pw').onclick = function () { renderPassword(false); };
-      document.getElementById('lo').onclick = function () { if (confirm('Logout karein?')) logout(false); };
     });
   }
 
@@ -322,9 +320,7 @@
       if (!d.ok) return;
       $app.querySelector('.page').innerHTML =
         '<div class="card"><h2>' + esc(d.name || 'CBC') + '</h2><p class="muted">Role: CBC<br>Mobile: ' + esc(d.phone || '') + '<br>BC: ' + (d.bc_count || 0) + '</p></div>' +
-        '<div class="card"><p class="muted">Jab aapke kisi BC ki report baaki hogi, app samay par alarm bajayega (internet chahiye).</p>' +
-        '<button class="btn red" id="lo">Logout</button></div>';
-      document.getElementById('lo').onclick = function () { if (confirm('Logout karein?')) logout(false); };
+        '<div class="card"><p class="muted">Jab aapke kisi BC ki report baaki hogi, app samay par alarm bajayega (internet chahiye).</p></div>';
     });
   }
 

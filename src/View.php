@@ -19,6 +19,7 @@ final class View
         'chat'      => ['/chat.php', 'App Chat', 'ऐप चैट', 'phone', false],
         'alarm'     => ['/app_alarm.php', 'App Call/Alarm', 'ऐप कॉल/अलार्म', 'alarm', true],
         'appusers'  => ['/app_usage.php', 'App users', 'ऐप उपयोगकर्ता', 'phone', false],
+        'cbcapp'    => ['/cbc_app.php', 'CBC App', 'सीबीसी ऐप', 'phone-vibrate', true],
         'mdm'       => ['/app_mdm.php', 'Managed phones', 'मैनेज्ड फ़ोन', 'phone-lock', true],
         'inbox'     => ['/inbox.php', 'Inbox', 'इनबॉक्स', 'inbox', true],
         'whatsapp'  => ['/whatsapp.php', 'WhatsApp', 'व्हाट्सऐप', 'whatsapp', true],
