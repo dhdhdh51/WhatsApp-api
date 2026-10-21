@@ -115,11 +115,11 @@ View::header('Dashboard / डैशबोर्ड', 'dashboard', true);
 </div>
 
 <div class="row g-2 mb-3">
-  <div class="col-4"><a href="/status.php?status=submitted" class="text-decoration-none"><div class="card border-success"><div class="card-body py-2 text-success">
+  <div class="col-12 col-sm-4"><a href="/status.php?status=submitted" class="text-decoration-none"><div class="card border-success"><div class="card-body py-2 text-success">
     <div class="small"><?= L('Submitted today', 'आज जमा') ?></div><div class="fs-4 fw-bold"><?= $cnt['submitted'] ?></div></div></div></a></div>
-  <div class="col-4"><a href="/status.php?status=pending" class="text-decoration-none"><div class="card border-danger"><div class="card-body py-2 text-danger">
+  <div class="col-12 col-sm-4"><a href="/status.php?status=pending" class="text-decoration-none"><div class="card border-danger"><div class="card-body py-2 text-danger">
     <div class="small"><?= L('Pending today', 'आज बाकी') ?></div><div class="fs-4 fw-bold"><?= $cnt['pending'] ?></div></div></div></a></div>
-  <div class="col-4"><div class="card"><div class="card-body py-2 text-secondary">
+  <div class="col-12 col-sm-4"><div class="card"><div class="card-body py-2 text-secondary">
     <div class="small"><?= L('Leave / holiday', 'छुट्टी / अवकाश') ?></div><div class="fs-4 fw-bold"><?= $cnt['off'] ?></div></div></div></div>
 </div>
 <div class="row g-2 mb-3">
