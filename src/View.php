@@ -34,6 +34,7 @@ final class View
         $user = Auth::user();
         $app = Env::get('APP_NAME', 'BC Daily Report');
         $wa = Settings::get('wa_status');
+        $waOk = $wa === 'WORKING';
         $inboxUnread = ($user && $user['role'] === 'admin')
             ? (int) DB::val('SELECT COUNT(*) FROM inbox_threads WHERE archived = 0 AND unread > 0') : 0;
         $chatUnread = $user ? App::staffUnread($user) : 0;
@@ -50,38 +51,47 @@ final class View
 </head>
 <body>
 <?php if ($user): ?>
-<nav class="navbar navbar-expand-lg navbar-dark bg-success sticky-top">
-  <div class="container-fluid">
-    <a class="navbar-brand fw-semibold" href="/dashboard.php"><i class="bi bi-whatsapp"></i> <?= e($app) ?></a>
-    <span class="badge <?= $wa === 'WORKING' ? 'bg-light text-success' : 'bg-danger' ?> d-lg-none" title="WhatsApp"><?= e($wa) ?></span>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav"><span class="navbar-toggler-icon"></span></button>
-    <div class="collapse navbar-collapse" id="nav">
-      <ul class="navbar-nav me-auto flex-wrap">
+<div class="app-shell">
+  <aside class="offcanvas-lg offcanvas-start app-sidebar" tabindex="-1" id="appSidebar" aria-label="Menu">
+    <div class="app-sidebar-head">
+      <a class="app-brand" href="/dashboard.php"><span class="app-brand-icon"><i class="bi bi-whatsapp"></i></span> <span><?= e($app) ?></span></a>
+      <button type="button" class="btn-close btn-close-white d-lg-none" data-bs-dismiss="offcanvas" data-bs-target="#appSidebar" aria-label="Close"></button>
+    </div>
+    <nav class="app-nav">
       <?php foreach (self::NAV as $key => [$url, $en, $hi, $icon, $adminOnly]):
           if ($adminOnly && $user['role'] !== 'admin') continue; ?>
-        <li class="nav-item"><a class="nav-link <?= $active === $key ? 'active fw-semibold' : '' ?>" href="<?= $url ?>"><i class="bi bi-<?= $icon ?>"></i> <?= e($en) ?> <small class="hi-nav"><?= e($hi) ?></small><?php if ($key === 'inbox' && $inboxUnread > 0): ?> <span class="badge text-bg-danger rounded-pill"><?= $inboxUnread ?></span><?php endif; ?><?php if ($key === 'chat' && $chatUnread > 0): ?> <span class="badge text-bg-danger rounded-pill"><?= $chatUnread ?></span><?php endif; ?></a></li>
+        <a class="app-nav-link <?= $active === $key ? 'active' : '' ?>" href="<?= $url ?>"><i class="bi bi-<?= $icon ?>"></i> <span class="app-nav-label"><?= e($en) ?><small class="app-nav-hi"><?= e($hi) ?></small></span><?php if ($key === 'inbox' && $inboxUnread > 0): ?><span class="badge text-bg-danger rounded-pill"><?= $inboxUnread ?></span><?php endif; ?><?php if ($key === 'chat' && $chatUnread > 0): ?><span class="badge text-bg-danger rounded-pill"><?= $chatUnread ?></span><?php endif; ?></a>
       <?php endforeach; ?>
-      </ul>
-      <div class="d-flex align-items-center gap-2 text-white small">
-        <span class="badge <?= $wa === 'WORKING' ? 'bg-light text-success' : 'bg-danger' ?> d-none d-lg-inline">WA: <?= e($wa) ?></span>
-        <a class="text-white text-decoration-none" href="/account.php"><i class="bi bi-person-circle"></i> <?= e($user['name']) ?> (<?= e(Auth::roleLabel($user['role'])) ?>)</a>
-        <form method="post" action="/logout.php" class="d-inline"><?= Csrf::field() ?><button class="btn btn-sm btn-outline-light">Logout</button></form>
+    </nav>
+  </aside>
+  <div class="app-main">
+    <header class="app-topbar">
+      <button class="app-burger" type="button" data-bs-toggle="offcanvas" data-bs-target="#appSidebar" aria-label="Open menu"><i class="bi bi-list"></i></button>
+      <h1 class="app-title"><?= e($title) ?></h1>
+      <div class="app-topbar-right">
+        <span class="wa-badge <?= $waOk ? 'ok' : 'bad' ?>" title="WhatsApp"><i class="bi bi-whatsapp"></i> <span class="d-none d-sm-inline"><?= e($wa) ?></span></span>
+        <a class="app-user" href="/account.php"><i class="bi bi-person-circle fs-5"></i> <span class="d-none d-md-inline"><?= e($user['name']) ?> (<?= e(Auth::roleLabel($user['role'])) ?>)</span></a>
+        <form method="post" action="/logout.php" class="d-inline"><?= Csrf::field() ?><button class="btn btn-sm btn-outline-danger">Logout</button></form>
       </div>
-    </div>
-  </div>
-</nav>
-<?php endif; ?>
-<main class="container-fluid py-3">
-<h4 class="mb-3"><?= e($title) ?></h4>
+    </header>
+    <main class="app-content">
 <?php foreach (flash() as $f): ?>
-  <div class="alert alert-<?= e($f['type']) ?> alert-dismissible fade show"><?= e($f['msg']) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
-<?php endforeach;
+      <div class="alert alert-<?= e($f['type']) ?> alert-dismissible fade show"><?= e($f['msg']) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+<?php endforeach; ?>
+<?php else: ?>
+<main class="app-content app-content-auth">
+<?php endif;
     }
 
     public static function footer(string $extraJs = ''): void
     {
+        $user = Auth::user();
         ?>
-</main>
+    </main>
+<?php if ($user): ?>
+  </div>
+</div>
+<?php endif; ?>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="/assets/app.js"></script>
 <?= $extraJs ?>
