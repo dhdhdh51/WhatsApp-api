@@ -162,11 +162,36 @@ final class App
         return $t;
     }
 
+    /** Call/alarm config for a CBC phone (its own audio/text/time, separate from BC). */
+    public static function alarmConfigCbc(): array
+    {
+        $base = rtrim((string) Env::get('APP_URL', ''), '/') . '/uploads/';
+        $call = Settings::get('cbc_call_audio');
+        $alarm = Settings::get('cbc_alarm_audio');
+        return [
+            'alarm_text' => Settings::get('cbc_alarm_text'),
+            'alarm_audio_url' => $alarm !== '' ? $base . rawurlencode($alarm) : '',
+            'enabled' => Settings::bool('cbc_alarm_enabled'),
+            'call_time' => Settings::padTime(Settings::get('cbc_call_time') ?: '18:00'),
+            'alarm_time' => Settings::padTime(Settings::get('cbc_alarm_time') ?: '18:30'),
+            'text' => Settings::get('cbc_call_text'),
+            'audio_url' => $call !== '' ? $base . rawurlencode($call) : '',
+            'version' => (int) Settings::get('cbc_alarm_version'),
+        ];
+    }
+
+    /** Admin test: make a CBC's phone ring on its next poll (max ~15 min). */
+    public static function sendTestRingCbc(int $cbcUserId, string $mode): void
+    {
+        DB::exec('UPDATE cbc_app_tokens SET poll_seq = poll_seq + 1, test_mode = ? WHERE user_id = ?',
+            [$mode === 'call' ? 'call' : 'alarm', $cbcUserId]);
+    }
+
     /** Should a CBC's phone ring now? True when any of their BCs is still pending today. */
     public static function shouldRingCbc(int $cbcUserId): bool
     {
         $today = Calendar::today();
-        if (!Settings::bool('app_call_enabled') || !Calendar::isOpen($today)) {
+        if (!Settings::bool('cbc_alarm_enabled') || !Calendar::isOpen($today)) {
             return false;
         }
         foreach (Calendar::dayRows($today, null, ['cbc_id' => $cbcUserId]) as $r) {

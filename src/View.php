@@ -20,6 +20,7 @@ final class View
         'alarm'     => ['/app_alarm.php', 'App Call/Alarm', 'ऐप कॉल/अलार्म', 'alarm', true],
         'appusers'  => ['/app_usage.php', 'App users', 'ऐप उपयोगकर्ता', 'phone', false],
         'cbcapp'    => ['/cbc_app.php', 'CBC App', 'सीबीसी ऐप', 'phone-vibrate', true],
+        'cbcalarm'  => ['/cbc_alarm.php', 'CBC Alarm', 'सीबीसी अलार्म', 'alarm-fill', true],
         'mdm'       => ['/app_mdm.php', 'Managed phones', 'मैनेज्ड फ़ोन', 'phone-lock', true],
         'inbox'     => ['/inbox.php', 'Inbox', 'इनबॉक्स', 'inbox', true],
         'whatsapp'  => ['/whatsapp.php', 'WhatsApp', 'व्हाट्सऐप', 'whatsapp', true],

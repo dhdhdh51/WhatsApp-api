@@ -111,13 +111,22 @@ if ($actor['type'] === 'cbc') {
                 'counts' => $counts + ['total' => count($rows)], 'bcs' => $bcs]);
 
         case 'alarm_check':
-            out(['ok' => true, 'ring' => App::shouldRingCbc($uid), 'config' => App::alarmConfig()]);
+            out(['ok' => true, 'ring' => App::shouldRingCbc($uid), 'config' => App::alarmConfigCbc()]);
 
         case 'report_done': // native uses this name; for a CBC "done" = no BC left pending
             out(['ok' => true, 'done' => !App::shouldRingCbc($uid)]);
 
         case 'poll':
-            out(['ok' => true, 'alarm' => App::alarmConfig(), 'last' => 0, 'notifications' => []]);
+            $th = hash('sha256', $token);
+            $row = DB::one('SELECT poll_seq, test_mode FROM cbc_app_tokens WHERE token_hash = ?', [$th]);
+            $seq = (int) ($row['poll_seq'] ?? 1);
+            $notifs = [];
+            if ($row && $row['test_mode']) {
+                DB::exec('UPDATE cbc_app_tokens SET test_mode = NULL WHERE token_hash = ?', [$th]);
+                $notifs[] = ['id' => $seq, 'kind' => $row['test_mode'] === 'call' ? 'ring_call' : 'ring_alarm',
+                    'title' => 'Test', 'body' => 'Admin test'];
+            }
+            out(['ok' => true, 'alarm' => App::alarmConfigCbc(), 'last' => $seq, 'notifications' => $notifs]);
 
         case 'fcm':
             $ft = trim((string) ($in['token'] ?? ''));
