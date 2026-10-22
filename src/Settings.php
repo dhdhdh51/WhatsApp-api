@@ -45,6 +45,8 @@ final class Settings
         'cbc_alarm_text'             => 'ध्यान दें! आपके कुछ बीसी की आज की रिपोर्ट अभी भी बाकी है। कृपया तुरंत ऐप खोलकर देखें और उन बीसी से आज की रिपोर्ट भिजवाएँ। धन्यवाद।',
         'cbc_alarm_audio'            => '',
         'cbc_alarm_version'          => '1',
+        // Video meetings (Jitsi). Change to a self-hosted Jitsi base to leave the public server.
+        'meeting_base_url'           => 'https://meet.jit.si/',
         'app_skip_whatsapp'          => '0',
         'batch_size'                 => '50',
         'batch_pause_min'            => '60',

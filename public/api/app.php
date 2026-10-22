@@ -11,6 +11,7 @@ require __DIR__ . '/../../src/bootstrap.php';
 use App\App;
 use App\Calendar;
 use App\DB;
+use App\Meetings;
 use App\ReportParser;
 use App\Reports;
 use App\Settings;
@@ -108,7 +109,7 @@ if ($actor['type'] === 'cbc') {
             });
             out(['ok' => true, 'date_text' => date('d-m-Y'), 'open' => Calendar::isOpen($today),
                 'cutoff' => fmt_time12(Settings::padTime(Settings::get('cutoff_time') ?: '23:59')),
-                'counts' => $counts + ['total' => count($rows)], 'bcs' => $bcs]);
+                'counts' => $counts + ['total' => count($rows)], 'bcs' => $bcs, 'meeting' => Meetings::forCbc()]);
 
         case 'alarm_check':
             out(['ok' => true, 'ring' => App::shouldRingCbc($uid), 'config' => App::alarmConfigCbc()]);
@@ -194,6 +195,7 @@ switch ($action) {
             'fields' => $fields, 'report' => $pick($rep), 'updated_at' => $rep ? date('h:i A', strtotime((string) $rep['updated_at'])) : null,
             'yesterday' => ['date_text' => date('d-m-Y', strtotime($yday)), 'report' => $pick($yrep)],
             'daily_target' => Targets::dailyTarget($t), 'monthly' => $monthly, 'month_text' => date('M Y'),
+            'meeting' => Meetings::forBc($bc),
             'chat_unread' => (int) DB::val("SELECT COUNT(*) FROM chat_messages WHERE bc_id = ? AND sender = 'staff' AND read_at IS NULL", [$bcId])]);
 
     case 'report':

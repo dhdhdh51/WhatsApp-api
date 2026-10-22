@@ -11,6 +11,12 @@
   function fmt(s) { return esc(s).replace(/\*([^*\n]+)\*/g, '<b>$1</b>'); }
   function pad(n) { n = parseInt(n || 0, 10); return (n < 10 ? '0' : '') + n; }
   function toast(t) { var el = document.getElementById('toast'); el.textContent = t; el.className = 'toast show'; setTimeout(function () { el.className = 'toast'; }, 2600); }
+  function meetBanner(m) {
+    if (!m || !m.url) return '';
+    return '<a class="meet-banner" target="_blank" rel="noopener" href="' + esc(m.url) + '">' +
+      '<div class="mb-info"><div class="mb-title">📹 ' + esc(m.title || 'Video meeting') + '</div>' +
+      '<div class="mb-sub">Video meeting live hai – tap karke judein</div></div><span class="mb-join">Join</span></a>';
+  }
 
   function api(action, opts) {
     opts = opts || {};
@@ -104,6 +110,7 @@
       state.today = d;
       if (d.report && native && native.setReportDone) native.setReportDone(d.date);
       var h = '';
+      h += meetBanner(d.meeting);
       if (d.report) h += '<div class="ok">✅ Aaj ki report jama hai (' + esc(d.updated_at) + '). Badlav ke liye number badal kar dobara Save karein.</div>';
       else if (d.open) h += '<div class="warn">⏳ Aaj ki report abhi baaki hai. Antim samay: ' + esc(d.cutoff) + '</div>';
       if (!d.open) h += '<div class="err">⛔ Aaj ka samay khatam. Ab badlav sirf Admin kar sakte hain.</div>';
@@ -291,6 +298,7 @@
     api('status').then(function (d) {
       if (!d.ok) { $app.querySelector('.page').innerHTML = '<div class="err">' + esc(d.error || 'Error') + '</div>'; return; }
       var c = d.counts, h = '';
+      h += meetBanner(d.meeting);
       h += '<div class="cbc-sum">' +
         '<div class="cbc-stat r"><b>' + c.pending + '</b><span>Baaki</span></div>' +
         '<div class="cbc-stat g"><b>' + c.submitted + '</b><span>Jama</span></div>' +

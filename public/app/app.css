@@ -194,3 +194,15 @@ tr:last-child td { border-bottom: none; }
 .cbc-act .rbtn { flex: 1; text-align: center; text-decoration: none; font-weight: 700; font-size: 14px; padding: 10px; border-radius: 12px; }
 .rbtn.call { background: var(--accent-grad); color: #fff; }
 .rbtn.wa { background: #e6f6ee; color: #0b6b46; border: 1px solid #bfe6cf; }
+
+/* ---------- Video meeting banner ---------- */
+.meet-banner {
+  display: flex; align-items: center; gap: 10px; text-decoration: none;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: #fff; border-radius: 16px; padding: 13px 15px; margin-bottom: 13px;
+  box-shadow: 0 10px 22px -10px rgba(79,70,229,.6);
+}
+.meet-banner .mb-info { flex: 1; min-width: 0; }
+.meet-banner .mb-title { font-weight: 800; font-size: 15px; }
+.meet-banner .mb-sub { font-size: 12px; opacity: .9; }
+.meet-banner .mb-join { background: #fff; color: #4f46e5; font-weight: 800; font-size: 14px; padding: 8px 16px; border-radius: 999px; flex: none; }

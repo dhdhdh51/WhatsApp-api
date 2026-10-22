@@ -17,6 +17,7 @@ final class View
         'holidays'  => ['/holidays.php', 'Holidays', 'अवकाश', 'calendar-event', true],
         'messages'  => ['/messages.php', 'Messages', 'संदेश', 'chat-dots', false],
         'chat'      => ['/chat.php', 'App Chat', 'ऐप चैट', 'phone', false],
+        'meetings'  => ['/meetings.php', 'Meetings', 'मीटिंग', 'camera-video', true],
         'alarm'     => ['/app_alarm.php', 'App Call/Alarm', 'ऐप कॉल/अलार्म', 'alarm', true],
         'appusers'  => ['/app_usage.php', 'App users', 'ऐप उपयोगकर्ता', 'phone', false],
         'cbcapp'    => ['/cbc_app.php', 'CBC App', 'सीबीसी ऐप', 'phone-vibrate', true],
