@@ -98,8 +98,8 @@ final class App
                 $usedDefault = $ok;
             }
         } else {
-            // No BC with this phone – maybe a CBC staff member logging in with their panel password.
-            $cbc = $phone ? DB::one("SELECT * FROM users WHERE role = 'cbc' AND phone = ? AND is_active = 1", [$phone]) : null;
+            // No BC with this phone – maybe a staff member (CBC / supervisor / admin) using their panel password.
+            $cbc = $phone ? DB::one("SELECT * FROM users WHERE role IN ('cbc','supervisor','admin') AND phone = ? AND is_active = 1", [$phone]) : null;
             if ($cbc) {
                 $ok = password_verify($password, (string) $cbc['password_hash']);
             } else {
@@ -125,7 +125,7 @@ final class App
 
         DB::insert('INSERT INTO cbc_app_tokens (user_id, token_hash, device, created_at, last_used_at) VALUES (?, ?, ?, NOW(), NOW())',
             [$cbc['id'], hash('sha256', $token), $safeDevice]);
-        Audit::log(null, 'app_login', 'user', (int) $cbc['id'], ['device' => mb_substr($device, 0, 60), 'role' => 'cbc']);
+        Audit::log(null, 'app_login', 'user', (int) $cbc['id'], ['device' => mb_substr($device, 0, 60), 'role' => $cbc['role']]);
         return ['ok' => true, 'type' => 'cbc', 'token' => $token, 'must_change' => false, 'user' => $cbc];
     }
 
@@ -154,7 +154,7 @@ final class App
             return null;
         }
         $t = DB::one("SELECT t.id tid, t.device, u.* FROM cbc_app_tokens t JOIN users u ON u.id = t.user_id
-                      WHERE t.token_hash = ? AND u.is_active = 1 AND u.role = 'cbc'", [hash('sha256', $token)]);
+                      WHERE t.token_hash = ? AND u.is_active = 1 AND u.role IN ('cbc','supervisor','admin')", [hash('sha256', $token)]);
         if (!$t) {
             return null;
         }
@@ -199,11 +199,23 @@ final class App
         }
     }
 
-    /** Should a CBC's phone ring now? True when any of their BCs is still pending today. */
+    /** Does this staff user see every BC (admin / supervisor) instead of only their own? */
+    public static function staffSeesAll(array $row): bool
+    {
+        return in_array($row['role'] ?? 'cbc', ['admin', 'supervisor'], true);
+    }
+
+    /**
+     * Should a CBC's phone ring now? True when any of their BCs is still pending today.
+     * Only real CBCs get this alarm – admins/supervisors would ring every day.
+     */
     public static function shouldRingCbc(int $cbcUserId): bool
     {
         $today = Calendar::today();
         if (!Settings::bool('cbc_alarm_enabled') || !Calendar::isOpen($today)) {
+            return false;
+        }
+        if (DB::val('SELECT role FROM users WHERE id = ?', [$cbcUserId]) !== 'cbc') {
             return false;
         }
         foreach (Calendar::dayRows($today, null, ['cbc_id' => $cbcUserId]) as $r) {

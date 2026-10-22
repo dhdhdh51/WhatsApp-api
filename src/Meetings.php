@@ -40,19 +40,24 @@ final class Meetings
      * @param string $scope 'all' (all my BCs) or 'bc' (1:1 with $bcId)
      * @return array{id:int,url:string,mode:string}|null
      */
-    public static function startByCbc(int $cbcUserId, string $mode, string $scope, ?int $bcId): ?array
+    public static function startByCbc(int $cbcUserId, string $mode, string $scope, ?int $bcId, bool $seesAll = false): ?array
     {
         $mode = $mode === 'voice' ? 'voice' : 'video';
         $cbcName = (string) DB::val('SELECT name FROM users WHERE id = ?', [$cbcUserId]);
         if ($scope === 'bc') {
-            $bc = $bcId ? DB::one('SELECT id, name FROM bcs WHERE id = ? AND cbc_id = ? AND is_active = 1', [$bcId, $cbcUserId]) : null;
+            $bc = $bcId
+                ? ($seesAll
+                    ? DB::one('SELECT id, name FROM bcs WHERE id = ? AND is_active = 1', [$bcId])
+                    : DB::one('SELECT id, name FROM bcs WHERE id = ? AND cbc_id = ? AND is_active = 1', [$bcId, $cbcUserId]))
+                : null;
             if (!$bc) {
                 return null;
             }
             $audience = 'one_bc';
             $title = $cbcName . ' → ' . $bc['name'] . ' (' . ($mode === 'voice' ? 'voice' : 'video') . ' call)';
         } else {
-            $audience = 'cbc_bcs';
+            // a CBC invites their own BCs; an admin/supervisor invites every BC
+            $audience = $seesAll ? 'bc' : 'cbc_bcs';
             $bcId = null;
             $title = $cbcName . ' – ' . ($mode === 'voice' ? 'voice' : 'video') . ' meeting';
         }
@@ -97,10 +102,8 @@ final class Meetings
     {
         $row = DB::one(
             "SELECT id, title, room, mode, host_cbc_id FROM meetings
-             WHERE is_active = 1 AND (
-                 audience IN ('all','cbc')
-                 OR (audience IN ('cbc_bcs','one_bc') AND host_cbc_id = ?)
-             ) ORDER BY id DESC LIMIT 1",
+             WHERE is_active = 1 AND (audience IN ('all','cbc') OR host_cbc_id = ?)
+             ORDER BY id DESC LIMIT 1",
             [$cbcUserId]
         );
         return $row ? ['id' => (int) $row['id'], 'title' => $row['title'], 'url' => self::url($row['room'], $row['mode']),

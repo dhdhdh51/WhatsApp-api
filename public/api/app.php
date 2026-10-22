@@ -91,7 +91,9 @@ if (str_starts_with($action, 'call_')) {
             $mode = ($in['mode'] ?? '') === 'voice' ? 'voice' : 'video';
             if ($meType === 'cbc') {
                 $toId = (int) ($in['to_id'] ?? 0);
-                $bcRow = DB::one('SELECT id, name FROM bcs WHERE id = ? AND cbc_id = ? AND is_active = 1', [$toId, $meId]);
+                $bcRow = App::staffSeesAll($actor['row'])
+                    ? DB::one('SELECT id, name FROM bcs WHERE id = ? AND is_active = 1', [$toId])
+                    : DB::one('SELECT id, name FROM bcs WHERE id = ? AND cbc_id = ? AND is_active = 1', [$toId, $meId]);
                 if (!$bcRow) {
                     fail('Ye BC aapke under nahi hai ya active nahi.');
                 }
@@ -170,6 +172,8 @@ if (str_starts_with($action, 'call_')) {
 if ($actor['type'] === 'cbc') {
     $u = $actor['row'];
     $uid = (int) $actor['id'];
+    $seesAll = App::staffSeesAll($u);                 // admin / supervisor -> every BC
+    $bcFilter = $seesAll ? [] : ['cbc_id' => $uid];
     $today = Calendar::today();
     switch ($action) {
         case 'logout':
@@ -177,11 +181,14 @@ if ($actor['type'] === 'cbc') {
             out(['ok' => true]);
 
         case 'me':
-            out(['ok' => true, 'type' => 'cbc', 'role' => 'CBC', 'name' => $u['name'], 'phone' => $u['phone'],
-                'bc_count' => (int) DB::val('SELECT COUNT(*) FROM bcs WHERE cbc_id = ? AND is_active = 1', [$uid])]);
+            out(['ok' => true, 'type' => 'cbc', 'role' => $seesAll ? ucfirst((string) $u['role']) : 'CBC',
+                'name' => $u['name'], 'phone' => $u['phone'],
+                'bc_count' => (int) ($seesAll
+                    ? DB::val('SELECT COUNT(*) FROM bcs WHERE is_active = 1')
+                    : DB::val('SELECT COUNT(*) FROM bcs WHERE cbc_id = ? AND is_active = 1', [$uid]))]);
 
         case 'status':
-            $rows = Calendar::dayRows($today, null, ['cbc_id' => $uid]);
+            $rows = Calendar::dayRows($today, null, $bcFilter);
             $counts = ['submitted' => 0, 'pending' => 0, 'off' => 0];
             $bcs = [];
             foreach ($rows as $r) {
@@ -210,7 +217,7 @@ if ($actor['type'] === 'cbc') {
             }
             $mMode = ($in['mode'] ?? '') === 'voice' ? 'voice' : 'video';
             $mScope = ($in['scope'] ?? '') === 'bc' ? 'bc' : 'all';
-            $mRes = Meetings::startByCbc($uid, $mMode, $mScope, isset($in['bc_id']) ? (int) $in['bc_id'] : null);
+            $mRes = Meetings::startByCbc($uid, $mMode, $mScope, isset($in['bc_id']) ? (int) $in['bc_id'] : null, $seesAll);
             if (!$mRes) {
                 fail('Ye BC aapke under nahi hai ya active nahi.');
             }
