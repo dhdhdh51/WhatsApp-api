@@ -171,6 +171,59 @@ final class Meetings
         return null; // 'cbc' -> staff only
     }
 
+    /** Remember that someone opened the meeting screen (used to stop nudging them). */
+    public static function markJoined(int $meetingId, string $actor): void
+    {
+        DB::exec('INSERT IGNORE INTO meeting_joins (meeting_id, actor, joined_at) VALUES (?, ?, NOW())', [$meetingId, $actor]);
+    }
+
+    /** Active meeting id for a room name (meet.php / token flows). */
+    public static function idForRoom(string $room): int
+    {
+        return (int) DB::val('SELECT id FROM meetings WHERE room = ? ORDER BY id DESC LIMIT 1', [$room]);
+    }
+
+    /**
+     * Called every minute from the scheduler: re-ring invited BCs who have not
+     * joined a live meeting yet (every 2 min, at most 5 times per meeting).
+     */
+    public static function nudgeAbsent(): int
+    {
+        $sent = 0;
+        $rows = DB::all("SELECT * FROM meetings
+                         WHERE is_active = 1 AND nudges < 5
+                           AND created_at >= (NOW() - INTERVAL 1 HOUR)
+                           AND (last_nudge_at IS NULL OR last_nudge_at <= (NOW() - INTERVAL 2 MINUTE))");
+        foreach ($rows as $m) {
+            $params = [];
+            $w = self::bcWhere($m, $params);
+            if ($w === null) {
+                DB::exec('UPDATE meetings SET last_nudge_at = NOW(), nudges = nudges + 1 WHERE id = ?', [$m['id']]);
+                continue;
+            }
+            $params[] = (int) $m['id'];
+            $absent = DB::all("SELECT b.id, b.name FROM bcs b
+                               WHERE {$w} AND NOT EXISTS (SELECT 1 FROM meeting_joins j WHERE j.meeting_id = ? AND j.actor = CONCAT('bc-', b.id))
+                               LIMIT 300", $params);
+            $title = mb_substr('📹 ' . $m['title'], 0, 150);
+            $body = 'Meeting chal rahi hai – app kholkar "Join" dabayein. (Reminder ' . ((int) $m['nudges'] + 1) . ')';
+            foreach ($absent as $b) {
+                DB::insert('INSERT INTO app_notifications (bc_id, kind, title, body, created_at) VALUES (?, ?, ?, ?, NOW())',
+                    [(int) $b['id'], 'meeting', $title, $body]);
+                try {
+                    Fcm::pushToBc((int) $b['id'], ['id' => 0, 'kind' => 'meeting', 'title' => $title, 'body' => $body,
+                        'meeting' => '1', 'ring' => '1']);
+                } catch (\Throwable $e) {
+                    Logger::warn('meeting nudge FCM failed: ' . $e->getMessage());
+                }
+                $sent++;
+            }
+            DB::exec('UPDATE meetings SET last_nudge_at = NOW(), nudges = nudges + 1 WHERE id = ?', [$m['id']]);
+            Logger::info('Meeting nudge', ['meeting' => (int) $m['id'], 'absent' => count($absent)]);
+        }
+        return $sent;
+    }
+
     /** Notify the audience that a meeting has started (in-app notice + instant Firebase). */
     public static function notifyStart(int $id): void
     {
@@ -189,7 +242,8 @@ final class Meetings
             $fp = $params;
             foreach (DB::all("SELECT DISTINCT b.id FROM bcs b JOIN app_tokens t ON t.bc_id = b.id WHERE {$w} AND t.fcm_token IS NOT NULL LIMIT 500", $fp) as $b) {
                 try {
-                    Fcm::pushToBc((int) $b['id'], ['id' => 0, 'kind' => 'meeting', 'title' => $title, 'body' => $body]);
+                    Fcm::pushToBc((int) $b['id'], ['id' => 0, 'kind' => 'meeting', 'title' => $title, 'body' => $body,
+                        'meeting' => '1', 'ring' => '1']);
                 } catch (\Throwable $e) {
                     Logger::warn('meeting FCM(bc) failed: ' . $e->getMessage());
                 }

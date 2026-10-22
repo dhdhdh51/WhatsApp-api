@@ -14,6 +14,40 @@
 
   function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
 
+  /* ---- shared ringtone (no audio file needed) + vibration ---- */
+  var ringCtx = null, ringTimer = null;
+  function ringStart() {
+    if (ringTimer) return;
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) {
+        if (!ringCtx) ringCtx = new AC();
+        if (ringCtx.state === 'suspended') ringCtx.resume();
+        var beep = function () {
+          var t = ringCtx.currentTime;
+          [0, 0.26].forEach(function (off, i) {
+            var o = ringCtx.createOscillator(), g = ringCtx.createGain();
+            o.type = 'sine';
+            o.frequency.value = i ? 660 : 880;
+            g.gain.setValueAtTime(0.0001, t + off);
+            g.gain.exponentialRampToValueAtTime(0.3, t + off + 0.02);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + off + 0.24);
+            o.connect(g); g.connect(ringCtx.destination);
+            o.start(t + off); o.stop(t + off + 0.26);
+          });
+        };
+        beep();
+        ringTimer = setInterval(beep, 1600);
+      }
+      if (navigator.vibrate) navigator.vibrate([500, 300, 500, 300, 500]);
+    } catch (e) {}
+  }
+  function ringStop() {
+    if (ringTimer) { clearInterval(ringTimer); ringTimer = null; }
+    try { if (navigator.vibrate) navigator.vibrate(0); } catch (e) {}
+  }
+  window.BCRing = { start: ringStart, stop: ringStop };
+
   function buildUI(mode, titleText, incoming) {
     var ov = el('div', 'call-ov');
     ov.innerHTML =
@@ -99,6 +133,7 @@
   }
 
   function teardown(delay) {
+    ringStop();
     var s = S; S = null;
     setTimeout(function () {
       if (!s) return;
@@ -132,9 +167,11 @@
     S = { callId: call.call_id, role: 'callee', mode: call.mode, lastSig: 0, cand: [], pc: null, local: null, ov: null, pending: true };
     S.ov = buildUI(call.mode, call.from_name || 'Incoming', true); bind(S.ov);
     setStatus((call.mode === 'voice' ? 'Voice' : 'Video') + ' call aa rahi hai…');
+    ringStart();
   }
   function doAccept() {
     if (!S) return;
+    ringStop();
     var mode = S.mode;
     api('call_accept', { body: { call_id: S.callId } });
     api('call_config').then(function (cfg) {

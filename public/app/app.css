@@ -238,3 +238,13 @@ tr:last-child td { border-bottom: none; }
 .inv-bar { display: flex; gap: 10px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); max-width: 640px; margin: 0 auto; }
 .inv-bar .btn { flex: 1; }
 .inv-bar .btn.light { flex: 0 0 34%; }
+
+/* ---------- incoming meeting (ringing) ---------- */
+.meet-ring { position: fixed; inset: 0; z-index: 210; background: rgba(8,20,16,.75);
+  display: flex; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(4px); }
+.mr-box { background: #fff; border-radius: 22px; padding: 26px 20px; max-width: 380px; width: 100%; text-align: center; box-shadow: var(--shadow); }
+.mr-ic { font-size: 40px; animation: mr-pulse 1.4s ease-in-out infinite; }
+.mr-t { font-weight: 800; font-size: 18px; margin-top: 6px; color: var(--ink); }
+.mr-s { font-size: 14px; color: var(--muted); margin: 6px 0 16px; }
+.mr-box .btn { text-decoration: none; }
+@keyframes mr-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.18); } }

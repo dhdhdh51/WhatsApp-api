@@ -76,6 +76,12 @@ if (!$actor) {
     fail('Login expired. Dobara login karein.', 401);
 }
 
+// ------------------------------------------------------------------ is a meeting live for me? (does NOT count as joining)
+if ($action === 'meet_status') {
+    $m = $actor['type'] === 'bc' ? Meetings::forBc($actor['row']) : Meetings::forCbc((int) $actor['id']);
+    out(['ok' => true, 'meeting' => $m ? ['title' => $m['title'], 'room' => $m['room'], 'mode' => $m['mode'], 'url' => $m['url']] : null]);
+}
+
 // ------------------------------------------------------------------ group meeting join token (BC + staff)
 if ($action === 'meet_token') {
     $m = $actor['type'] === 'bc'
@@ -91,6 +97,10 @@ if ($action === 'meet_token') {
         fail('Meeting server configure nahi hai.', 500);
     }
     $isHost = $actor['type'] !== 'bc' && (!empty($m['is_host']) || App::staffSeesAll($actor['row']));
+    $mid = (int) ($m['id'] ?? Meetings::idForRoom((string) $m['room']));
+    if ($mid) {
+        Meetings::markJoined($mid, $ident); // stops the "join karein" reminders for this person
+    }
     out(['ok' => true, 'url' => Livekit::url(), 'token' => $tok, 'room' => $m['room'],
         'mode' => $m['mode'], 'title' => $m['title'], 'name' => $actor['row']['name'] ?? 'User',
         'is_host' => $isHost]);
@@ -161,7 +171,8 @@ if (str_starts_with($action, 'call_')) {
             }
             $r = Calls::invite($meType, $meId, $meName, $toType, $toId, $mode);
             try {
-                $pl = ['id' => 0, 'kind' => 'call', 'title' => '📞 ' . $meName, 'body' => ($mode === 'voice' ? 'Voice' : 'Video') . ' call', 'call_id' => (string) $r['call_id']];
+                $pl = ['id' => 0, 'kind' => 'call', 'title' => '📞 ' . $meName, 'body' => ($mode === 'voice' ? 'Voice' : 'Video') . ' call',
+                    'call_id' => (string) $r['call_id'], 'ring' => '1'];
                 if ($toType === 'bc') {
                     Fcm::pushToBc($toId, $pl);
                 } else {

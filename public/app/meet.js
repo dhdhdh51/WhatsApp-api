@@ -1,16 +1,17 @@
 /* BC Daily Report – group video/voice on our own LiveKit server.
    Used by /app/meet.html (app users) and /meet.php (panel staff).
 
-   Built for big rooms: audio for everyone, video only for the tiles on the
-   current page (LiveKit's adaptiveStream pauses the rest), active speakers
-   first, and host mute / unmute controls. */
+   Big rooms: audio for everyone, video only for the tiles on the current page
+   (adaptiveStream pauses the rest). Active speakers and raised hands sort to
+   the front. Tap a tile to zoom it. Host can mute/unmute. In-meeting chat
+   rides on the LiveKit data channel. */
 (function () {
   'use strict';
-  var root, grid, bar, pager, audioBox, statusEl, titleEl, countEl;
+  var root, grid, bar, pager, audioBox, statusEl, titleEl, countEl, chatBox, chatLog, chatIn, handsEl;
   var room = null, cfg = null, isHost = false, mode = 'video';
-  var P = {};            // identity -> { name, isLocal, videoTrack, pub, el, speaking, micOff }
-  // tiles per page – 6 fits a phone; ?per=N (1-12) for bigger screens
-  var page = 0, PER = Math.max(1, Math.min(12, parseInt((location.search.match(/[?&]per=(\d+)/) || [])[1] || '6', 10) || 6));
+  var P = {};                 // identity -> { name, isLocal, videoTrack, el, speaking, micOff, hand }
+  var page = 0, pinned = null, chatOpen = false, unread = 0;
+  var PER = Math.max(1, Math.min(12, parseInt((location.search.match(/[?&]per=(\d+)/) || [])[1] || '6', 10) || 6));
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function q(s) { return root.querySelector(s); }
@@ -19,13 +20,19 @@
     root = document.getElementById('meet') || document.body;
     root.innerHTML =
       '<div class="mt-top"><div class="mt-head"><div class="mt-title">Meeting</div><div class="mt-status">Connect ho raha hai…</div></div>' +
-      '<div class="mt-count">0</div></div>' +
+      '<div class="mt-hands"></div><div class="mt-count">0</div></div>' +
       '<div class="mt-grid"></div>' +
       '<div class="mt-pager"></div>' +
+      '<div class="mt-chat"><div class="mt-chat-log"></div>' +
+      '<div class="mt-chat-in"><input type="text" maxlength="500" placeholder="Message likhein…"><button>Bhejein</button></div></div>' +
       '<div class="mt-bar"></div>' +
       '<div class="mt-audio" aria-hidden="true"></div>';
     grid = q('.mt-grid'); bar = q('.mt-bar'); pager = q('.mt-pager');
-    audioBox = q('.mt-audio'); statusEl = q('.mt-status'); titleEl = q('.mt-title'); countEl = q('.mt-count');
+    audioBox = q('.mt-audio'); statusEl = q('.mt-status'); titleEl = q('.mt-title');
+    countEl = q('.mt-count'); handsEl = q('.mt-hands');
+    chatBox = q('.mt-chat'); chatLog = q('.mt-chat-log'); chatIn = q('.mt-chat-in input');
+    q('.mt-chat-in button').onclick = sendChat;
+    chatIn.onkeydown = function (e) { if (e.key === 'Enter') sendChat(); };
   }
   function setStatus(t) { if (statusEl) statusEl.textContent = t; }
   function fail(msg) {
@@ -42,14 +49,11 @@
     d.innerHTML = '<video autoplay playsinline muted></video>' +
       '<div class="mt-ph">' + esc((p.name || '?').charAt(0).toUpperCase()) + '</div>' +
       '<div class="mt-name"><span class="mt-mic"></span><span class="mt-nm"></span></div>' +
+      '<div class="mt-hand">✋</div>' +
       (isHost && !p.isLocal ? '<button class="mt-mod" title="Mute / unmute">🔇</button>' : '');
+    d.onclick = function () { pinned = (pinned === id) ? null : id; render(); };
     var mod = d.querySelector('.mt-mod');
-    if (mod) {
-      mod.onclick = function (e) {
-        e.stopPropagation();
-        setMuted(id, !P[id].micOff);
-      };
-    }
+    if (mod) mod.onclick = function (e) { e.stopPropagation(); setMuted(id, !P[id].micOff); };
     return d;
   }
   function updateTile(id) {
@@ -58,6 +62,8 @@
     p.el.querySelector('.mt-nm').textContent = p.name + (p.isLocal ? ' (aap)' : '');
     p.el.querySelector('.mt-mic').textContent = p.micOff ? '🔇 ' : '';
     p.el.classList.toggle('speaking', !!p.speaking);
+    p.el.classList.toggle('raised', !!p.hand);
+    p.el.classList.toggle('pinned', pinned === id);
     var v = p.el.querySelector('video');
     if (p.videoTrack) {
       if (v.dataset.att !== '1') { p.videoTrack.attach(v); v.dataset.att = '1'; }
@@ -72,19 +78,40 @@
   function order() {
     return Object.keys(P).sort(function (a, b) {
       var pa = P[a], pb = P[b];
-      if (!!pb.speaking !== !!pa.speaking) return pb.speaking ? 1 : -1;  // speakers first
-      if (pa.isLocal !== pb.isLocal) return pa.isLocal ? -1 : 1;         // then me
+      if (!!pb.speaking !== !!pa.speaking) return pb.speaking ? 1 : -1;   // speakers first
+      if (!!pb.hand !== !!pa.hand) return pb.hand ? 1 : -1;               // then raised hands
+      if (pa.isLocal !== pb.isLocal) return pa.isLocal ? -1 : 1;
       return String(pa.name).localeCompare(String(pb.name));
     });
   }
 
   function render() {
     var ids = order();
-    var pages = Math.max(1, Math.ceil(ids.length / PER));
-    if (page > pages - 1) page = pages - 1;
-    var vis = ids.slice(page * PER, page * PER + PER);
+    var vis;
+    if (pinned && P[pinned]) {
+      vis = [pinned];                                  // zoomed: just that person
+      pager.innerHTML = '<span class="mt-pglbl">Zoom – tap karke wapas</span>';
+    } else {
+      var pages = Math.max(1, Math.ceil(ids.length / PER));
+      if (page > pages - 1) page = pages - 1;
+      vis = ids.slice(page * PER, page * PER + PER);
+      pager.innerHTML = '';
+      if (pages > 1) {
+        var mk = function (txt, to, dis) {
+          var b = document.createElement('button');
+          b.className = 'mt-pg'; b.textContent = txt; b.disabled = !!dis;
+          b.onclick = function () { page = to; render(); };
+          pager.appendChild(b);
+        };
+        mk('‹ Pichhle', page - 1, page === 0);
+        var lbl = document.createElement('span');
+        lbl.className = 'mt-pglbl'; lbl.textContent = (page + 1) + ' / ' + pages;
+        pager.appendChild(lbl);
+        mk('Aage ›', page + 1, page >= pages - 1);
+      }
+    }
 
-    ids.forEach(function (id) {                    // hide tiles that are off-page
+    ids.forEach(function (id) {
       var p = P[id];
       if (vis.indexOf(id) < 0 && p.el && p.el.parentNode) {
         var v = p.el.querySelector('video');
@@ -92,40 +119,28 @@
         p.el.remove();
       }
     });
-    vis.forEach(function (id) {                    // (re)append in order
+    vis.forEach(function (id) {
       if (!P[id].el) P[id].el = makeTile(id);
       grid.appendChild(P[id].el);
       updateTile(id);
     });
 
-    var cols = vis.length <= 1 ? 1 : (vis.length <= 4 ? 2 : 3);
-    grid.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+    grid.classList.toggle('zoomed', !!pinned);
+    grid.style.gridTemplateColumns = 'repeat(' + (pinned ? 1 : (vis.length <= 1 ? 1 : (vis.length <= 4 ? 2 : 3))) + ', 1fr)';
     countEl.textContent = '👥 ' + ids.length;
-
-    pager.innerHTML = '';
-    if (pages > 1) {
-      var mk = function (txt, to, dis) {
-        var b = document.createElement('button');
-        b.className = 'mt-pg'; b.textContent = txt; b.disabled = !!dis;
-        b.onclick = function () { page = to; render(); };
-        pager.appendChild(b);
-      };
-      mk('‹ Pichhle', page - 1, page === 0);
-      var lbl = document.createElement('span');
-      lbl.className = 'mt-pglbl';
-      lbl.textContent = (page + 1) + ' / ' + pages;
-      pager.appendChild(lbl);
-      mk('Aage ›', page + 1, page >= pages - 1);
-    }
+    var hands = ids.filter(function (i) { return P[i].hand; });
+    handsEl.textContent = hands.length ? '✋ ' + hands.length : '';
+    handsEl.title = hands.map(function (i) { return P[i].name; }).join(', ');
     quality(ids.length);
   }
 
-  /** Many people on screen -> ask the server for low-res video to save data/CPU. */
+  /** Low-res video when many people are on screen; full quality for a zoomed tile. */
   function quality(total) {
     var LK = window.LivekitClient;
     if (!room || !LK || !LK.VideoQuality) return;
-    var want = total > 4 ? LK.VideoQuality.LOW : (total > 2 ? LK.VideoQuality.MEDIUM : LK.VideoQuality.HIGH);
     room.remoteParticipants.forEach(function (rp) {
+      var want = (pinned === rp.identity) ? LK.VideoQuality.HIGH
+        : (total > 4 ? LK.VideoQuality.LOW : (total > 2 ? LK.VideoQuality.MEDIUM : LK.VideoQuality.HIGH));
       rp.videoTrackPublications.forEach(function (pub) {
         try { if (pub.isSubscribed) pub.setVideoQuality(want); } catch (e) {}
       });
@@ -133,7 +148,7 @@
   }
 
   function upsert(identity, name, isLocal) {
-    if (!P[identity]) P[identity] = { name: name || identity, isLocal: !!isLocal, videoTrack: null, el: null, speaking: false, micOff: false };
+    if (!P[identity]) P[identity] = { name: name || identity, isLocal: !!isLocal, videoTrack: null, el: null, speaking: false, micOff: false, hand: false };
     else if (name) P[identity].name = name;
     return P[identity];
   }
@@ -142,8 +157,51 @@
     if (!p) return;
     if (p.el && p.el.parentNode) p.el.remove();
     if (p.audioEl) p.audioEl.remove();
+    if (pinned === identity) pinned = null;
     delete P[identity];
   }
+
+  // ---------------------------------------------------------------- chat (data channel)
+  function addChat(name, text, mine) {
+    var d = document.createElement('div');
+    d.className = 'mt-msg' + (mine ? ' mine' : '');
+    d.innerHTML = '<b>' + esc(name) + '</b> ' + esc(text);
+    chatLog.appendChild(d);
+    chatLog.scrollTop = chatLog.scrollHeight;
+    if (!chatOpen && !mine) { unread++; paintChatBtn(); }
+  }
+  function sendChat() {
+    var t = (chatIn.value || '').trim();
+    if (!t || !room) return;
+    chatIn.value = '';
+    try {
+      var payload = new TextEncoder().encode(JSON.stringify({ t: 'chat', n: cfg.name || 'Main', m: t }));
+      room.localParticipant.publishData(payload, { reliable: true });
+    } catch (e) {}
+    addChat((cfg.name || 'Main') + ' (aap)', t, true);
+  }
+  var chatBtn = null;
+  function paintChatBtn() { if (chatBtn) chatBtn.innerHTML = '💬' + (unread ? '<i>' + unread + '</i>' : ''); }
+  function toggleChat() {
+    chatOpen = !chatOpen;
+    chatBox.classList.toggle('open', chatOpen);
+    if (chatOpen) { unread = 0; paintChatBtn(); chatIn.focus(); }
+  }
+
+  // ---------------------------------------------------------------- hand raise
+  function toggleHand() {
+    if (!room) return;
+    var me = P['me'];
+    me.hand = !me.hand;
+    try { room.localParticipant.setAttributes({ hand: me.hand ? '1' : '' }); } catch (e) {}
+    try {
+      room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ t: 'hand', up: me.hand })), { reliable: true });
+    } catch (e) {}
+    if (handBtn) handBtn.style.opacity = me.hand ? 1 : .55;
+    updateTile('me');
+    render();
+  }
+  var handBtn = null;
 
   // ---------------------------------------------------------------- host actions
   function setMuted(identity, muted) {
@@ -160,7 +218,6 @@
       setTimeout(function () { setStatus('Connected'); }, 2500);
     });
   }
-  /** Host actions go to the app API (bearer) or to meet.php (panel session). */
   function api(action, body) {
     var h = { 'Content-Type': 'application/json', Accept: 'application/json' };
     var url = (cfg && cfg.mute_url) ? cfg.mute_url : '/api/app.php?a=' + action;
@@ -207,7 +264,7 @@
   function join() {
     var LK = window.LivekitClient;
     room = new LK.Room({
-      adaptiveStream: true,   // pauses video of tiles that are not on screen
+      adaptiveStream: true,
       dynacast: true,
       audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       videoCaptureDefaults: { resolution: LK.VideoPresets && LK.VideoPresets.h360 ? LK.VideoPresets.h360.resolution : undefined },
@@ -216,9 +273,8 @@
 
     room.on(LK.RoomEvent.TrackSubscribed, function (track, pub, rp) {
       var p = upsert(rp.identity, rp.name || rp.identity, false);
-      if (track.kind === 'video') { p.videoTrack = track; p.pub = pub; }
+      if (track.kind === 'video') { p.videoTrack = track; }
       else {
-        // audio always plays, independent of which page is shown
         var a = document.createElement('audio');
         a.autoplay = true;
         track.attach(a);
@@ -247,6 +303,20 @@
       sp.forEach(function (s) { on[s.identity] = true; });
       Object.keys(P).forEach(function (id) { P[id].speaking = !!on[id]; });
       render();
+    });
+    if (LK.RoomEvent.ParticipantAttributesChanged) {
+      room.on(LK.RoomEvent.ParticipantAttributesChanged, function (changed, rp) {
+        var p = P[rp.identity];
+        if (!p) return;
+        if (changed && typeof changed.hand !== 'undefined') { p.hand = changed.hand === '1'; render(); }
+      });
+    }
+    room.on(LK.RoomEvent.DataReceived, function (payload, rp) {
+      var msg;
+      try { msg = JSON.parse(new TextDecoder().decode(payload)); } catch (e) { return; }
+      if (!msg) return;
+      if (msg.t === 'chat') addChat(msg.n || (rp && rp.name) || 'Koi', msg.m || '', false);
+      else if (msg.t === 'hand' && rp && P[rp.identity]) { P[rp.identity].hand = !!msg.up; render(); }
     });
     room.on(LK.RoomEvent.Disconnected, function () { setStatus('Meeting khatam'); setTimeout(function () { history.back(); }, 1200); });
 
@@ -280,8 +350,11 @@
           cb.style.opacity = camOn ? 1 : .45;
         });
       }
+      handBtn = btn('✋', toggleHand);
+      handBtn.style.opacity = .55;
+      chatBtn = btn('💬', toggleChat, 'chat');
       if (isHost) btn('🔇 Sabko mute', muteAll, 'wide');
-      btn('📴 Leave', function () { room.disconnect(); }, 'red');
+      btn('📴', function () { room.disconnect(); }, 'red');
       render();
     }).catch(function (e) {
       fail('Join nahi ho payi: ' + (e && e.message ? e.message : 'camera/mic ya network problem'));

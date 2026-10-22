@@ -18,6 +18,13 @@ final class Scheduler
         $now = date('H:i');
         Queue::housekeeping();
 
+        // re-ring people who were invited to a live meeting but have not joined yet
+        try {
+            Meetings::nudgeAbsent();
+        } catch (\Throwable $e) {
+            Logger::warn('meeting nudge failed: ' . $e->getMessage());
+        }
+
         // ---- form + reminders
         $slots = [['job' => 'form', 'time' => Settings::padTime(Settings::get('form_time') ?: '18:00'), 'tpl' => 'form']];
         $rem = Settings::reminderTimes();

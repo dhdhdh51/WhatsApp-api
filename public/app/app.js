@@ -80,7 +80,7 @@
   function cbcEndMeeting() {
     api('end_meeting', { body: {} }).then(function () { toast('Meeting end ho gayi'); renderCbc('status'); });
   }
-  var callWatch = null;
+  var callWatch = null, meetWatch = null, meetSeen = null, meetTick = 0;
   function startCallWatch() {
     if (callWatch) return;
     callWatch = setInterval(function () {
@@ -89,7 +89,37 @@
       api('call_incoming').then(function (r) {
         if (r && r.ok && r.call && window.BCall && !window.BCall.active()) window.BCall.incoming(r.call);
       });
+      // every ~5th tick (20s): is a meeting live? ring once per meeting
+      if (++meetTick % 5 === 0) checkMeeting();
     }, 4000);
+    checkMeeting();
+  }
+  function checkMeeting() {
+    if (document.querySelector('.meet-ring')) return;
+    if (window.BCall && window.BCall.active()) return;
+    api('meet_status').then(function (r) {
+      var m = r && r.ok ? r.meeting : null;
+      if (!m || !m.room) { meetSeen = null; return; }
+      if (meetSeen === m.room) return;        // already offered this one
+      meetSeen = m.room;
+      ringMeeting(m);
+    });
+  }
+  /** Full screen "meeting shuru hui" prompt with ringtone. */
+  function ringMeeting(m) {
+    var d = document.createElement('div');
+    d.className = 'meet-ring';
+    d.innerHTML = '<div class="mr-box"><div class="mr-ic">' + (m.mode === 'voice' ? '🎙️' : '📹') + '</div>' +
+      '<div class="mr-t">' + esc(m.title || 'Meeting') + '</div>' +
+      '<div class="mr-s">' + (m.mode === 'voice' ? 'Voice' : 'Video') + ' meeting shuru ho gayi hai – judein</div>' +
+      '<a class="btn" id="mrJoin" target="_blank" rel="noopener" href="' + esc(m.url) + '">Join karein</a>' +
+      '<button class="btn light" id="mrLater">Baad mein</button></div>';
+    document.body.appendChild(d);
+    if (window.BCRing) window.BCRing.start();
+    var close = function () { if (window.BCRing) window.BCRing.stop(); d.remove(); };
+    document.getElementById('mrJoin').onclick = function () { close(); };
+    document.getElementById('mrLater').onclick = close;
+    setTimeout(function () { if (window.BCRing) window.BCRing.stop(); }, 30000);
   }
 
   function api(action, opts) {
