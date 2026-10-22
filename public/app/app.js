@@ -295,14 +295,17 @@
     var mine = parseInt(m[3], 10);
     fetch('/downloads/version.json?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
       if (!v || !v.code || mine >= v.code) return;
+      var note = v.note
+        ? esc(v.note)
+        : 'Download hone par file kholkar <b>Install / Update</b> dabayein. Aapka login aur data waise hi rahega.';
       var d = document.createElement('div');
       d.className = 'upd';
       d.innerHTML = '<div class="updbox"><div class="update-mark">UP</div><h2>Naya update aaya hai</h2>' +
         '<p>Aapke phone mein app ka purana version (1.0.' + mine + ') hai. Naya version <b>' + esc(v.name) + '</b> install karein – ' +
         'call, alarm aur turant notification ke liye zaroori hai.</p>' +
-        '<a class="btn" id="updgo" href="https://bharatseo.site/bc-app.html">Update karein</a>' +
+        '<a class="btn" id="updgo" href="/app-download.php">Update karein</a>' +
         '<button class="btn light" id="updlater">Baad mein</button>' +
-        '<p class="muted" style="margin-top:10px">Download hone par file kholkar <b>Install / Update</b> dabayein. Aapka login aur data waise hi rahega.</p></div>';
+        '<p class="muted" style="margin-top:10px">' + note + '</p></div>';
       document.body.appendChild(d);
       document.getElementById('updlater').onclick = function () { d.remove(); };
     }).catch(function () {});
