@@ -53,6 +53,33 @@ final class App
         return $id;
     }
 
+    /**
+     * One-line app status for the panel, from the row's token/activity counters.
+     * $r needs: devices, fcm, app_first_seen, app_last_seen
+     *
+     * @return array{0:string,1:string} [label, bootstrap colour]
+     */
+    public static function appStatus(array $r): array
+    {
+        $devices = (int) ($r['devices'] ?? 0);
+        $fcm = (int) ($r['fcm'] ?? 0);
+        $first = $r['app_first_seen'] ?? null;
+        $last = $r['app_last_seen'] ?? null;
+        $stale = $last ? (strtotime((string) $last) < time() - 3 * 86400) : true;
+
+        if ($devices > 0) {
+            // push token gone + quiet for days usually means the app was removed
+            if ($fcm === 0 && $stale) {
+                return ['Logged in (app hataya?)', 'warning'];
+            }
+            return [$stale ? 'Logged in (purana)' : 'Logged in', 'success'];
+        }
+        if ($first) {
+            return ['Logout / app hataya', 'danger'];
+        }
+        return ['Install nahi kiya', 'secondary'];
+    }
+
     /** Is this BC actively using the app (opened it in the last 3 days)? */
     public static function isActiveUser(int $bcId): bool
     {
@@ -65,6 +92,17 @@ final class App
     public static function versionFromDevice(string $device): ?string
     {
         return preg_match('/BCReportApp\/([0-9]+(?:\.[0-9]+){1,2})/i', $device, $m) ? $m[1] : null;
+    }
+
+    /**
+     * Version of the app making *this* request. The APK appends "BCReportApp/<name>" to the end of
+     * the UA, so a truncated stored device string usually loses it - the live HTTP header never does.
+     * Falling back to the stored string keeps older rows working.
+     */
+    public static function liveVersion(?string $storedDevice = null): ?string
+    {
+        $ua = (string) ($_SERVER['HTTP_USER_AGENT'] ?? '');
+        return self::versionFromDevice($ua) ?? ($storedDevice !== null ? self::versionFromDevice($storedDevice) : null);
     }
 
     /**
@@ -111,10 +149,10 @@ final class App
             return ['ok' => false, 'error' => 'Mobile number ya password galat hai.'];
         }
         $token = bin2hex(random_bytes(32));
-        $safeDevice = mb_substr($device, 0, 120);
+        $safeDevice = mb_substr($device, 0, 255);
+        $version = self::liveVersion($device);
 
         if ($bc) {
-            $version = self::versionFromDevice($device);
             DB::insert('INSERT INTO app_tokens (bc_id, token_hash, device, created_at, last_used_at) VALUES (?, ?, ?, NOW(), NOW())',
                 [$bc['id'], hash('sha256', $token), $safeDevice]);
             DB::exec('UPDATE bcs SET app_first_seen = COALESCE(app_first_seen, NOW()), app_last_seen = NOW(), app_version = COALESCE(?, app_version) WHERE id = ?',
@@ -125,6 +163,8 @@ final class App
 
         DB::insert('INSERT INTO cbc_app_tokens (user_id, token_hash, device, created_at, last_used_at) VALUES (?, ?, ?, NOW(), NOW())',
             [$cbc['id'], hash('sha256', $token), $safeDevice]);
+        DB::exec('UPDATE users SET app_first_seen = COALESCE(app_first_seen, NOW()), app_last_seen = NOW(), app_version = COALESCE(?, app_version) WHERE id = ?',
+            [$version, $cbc['id']]);
         Audit::log(null, 'app_login', 'user', (int) $cbc['id'], ['device' => mb_substr($device, 0, 60), 'role' => $cbc['role']]);
         return ['ok' => true, 'type' => 'cbc', 'token' => $token, 'must_change' => false, 'user' => $cbc];
     }
@@ -159,6 +199,8 @@ final class App
             return null;
         }
         DB::exec('UPDATE cbc_app_tokens SET last_used_at = NOW() WHERE id = ?', [$t['tid']]);
+        DB::exec('UPDATE users SET app_first_seen = COALESCE(app_first_seen, NOW()), app_last_seen = NOW(), app_version = COALESCE(?, app_version) WHERE id = ?',
+            [self::liveVersion((string) $t['device']), $t['id']]);
         return $t;
     }
 
@@ -239,7 +281,7 @@ final class App
         }
         DB::exec('UPDATE app_tokens SET last_used_at = NOW() WHERE id = ?', [$t['tid']]);
         DB::exec('UPDATE bcs SET app_first_seen = COALESCE(app_first_seen, NOW()), app_last_seen = NOW(), app_version = COALESCE(?, app_version) WHERE id = ?',
-            [self::versionFromDevice((string) $t['device']), $t['id']]);
+            [self::liveVersion((string) $t['device']), $t['id']]);
         return $t;
     }
 

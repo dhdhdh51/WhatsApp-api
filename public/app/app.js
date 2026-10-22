@@ -160,7 +160,7 @@
     var go = document.getElementById('go');
     go.onclick = function () {
       go.disabled = true;
-      api('login', { body: { phone: document.getElementById('ph').value, password: document.getElementById('pw').value, device: navigator.userAgent.slice(0, 100) } })
+      api('login', { body: { phone: document.getElementById('ph').value, password: document.getElementById('pw').value, device: navigator.userAgent.slice(0, 255) } })
         .then(function (j) {
           go.disabled = false;
           if (!j.ok) { renderLogin(j.error); return; }
