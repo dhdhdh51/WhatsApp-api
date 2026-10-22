@@ -32,10 +32,15 @@ jobs:
           KS_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           if [ -n "$KS_B64" ]; then
-            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            # tolerate wrapped/whitespaced secret values from copy-paste
+            printf '%s' "$KS_B64" | tr -d '[:space:]' | base64 -d > "$RUNNER_TEMP/release.jks" || {
+              echo "::error::ANDROID_KEYSTORE_BASE64 is not valid base64 – re-copy release.jks.base64.txt as one line."; exit 1; }
+            if ! keytool -list -keystore "$RUNNER_TEMP/release.jks" -storepass "$KS_PW" >/dev/null 2>&1; then
+              echo "::error::Keystore decoded but cannot be opened – check ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD."; exit 1
+            fi
             echo "KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
             echo "KEYSTORE_PASSWORD=$KS_PW" >> "$GITHUB_ENV"
-            echo "Signing with release key"
+            echo "Signing with release key ($(stat -c%s "$RUNNER_TEMP/release.jks") bytes)"
             echo "SIGNED=1" >> "$GITHUB_ENV"
           else
             echo "::warning::No ANDROID_KEYSTORE_BASE64 secret – APK is signed with a temporary debug key (updates will need uninstall)."
