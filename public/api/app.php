@@ -10,7 +10,9 @@ require __DIR__ . '/../../src/bootstrap.php';
 
 use App\App;
 use App\Calendar;
+use App\Calls;
 use App\DB;
+use App\Fcm;
 use App\Meetings;
 use App\ReportParser;
 use App\Reports;
@@ -71,6 +73,97 @@ $token = preg_match('/^Bearer\s+(\S+)$/i', $auth, $m) ? $m[1] : (string) ($_GET[
 $actor = App::actorFromToken($token);
 if (!$actor) {
     fail('Login expired. Dobara login karein.', 401);
+}
+
+// ------------------------------------------------------------------ 1:1 calls (BC + CBC)
+if (str_starts_with($action, 'call_')) {
+    $meType = $actor['type'];
+    $meId = (int) $actor['id'];
+    $meName = (string) ($actor['row']['name'] ?? 'User');
+    switch ($action) {
+        case 'call_config':
+            out(['ok' => true, 'ice' => Calls::iceServers()]);
+
+        case 'call_invite':
+            if ($method !== 'POST') {
+                fail('POST required', 405);
+            }
+            $mode = ($in['mode'] ?? '') === 'voice' ? 'voice' : 'video';
+            if ($meType === 'cbc') {
+                $toId = (int) ($in['to_id'] ?? 0);
+                $bcRow = DB::one('SELECT id, name FROM bcs WHERE id = ? AND cbc_id = ? AND is_active = 1', [$toId, $meId]);
+                if (!$bcRow) {
+                    fail('Ye BC aapke under nahi hai ya active nahi.');
+                }
+                $toType = 'bc';
+            } else {
+                $toId = (int) ($actor['row']['cbc_id'] ?? 0);
+                if (!$toId) {
+                    fail('Aapka koi CBC assign nahi hai.');
+                }
+                $toType = 'cbc';
+            }
+            $r = Calls::invite($meType, $meId, $meName, $toType, $toId, $mode);
+            try {
+                $pl = ['id' => 0, 'kind' => 'call', 'title' => '📞 ' . $meName, 'body' => ($mode === 'voice' ? 'Voice' : 'Video') . ' call', 'call_id' => (string) $r['call_id']];
+                if ($toType === 'bc') {
+                    Fcm::pushToBc($toId, $pl);
+                } else {
+                    Fcm::pushToCbc($toId, $pl);
+                }
+            } catch (\Throwable $e) {
+            }
+            out(['ok' => true, 'call_id' => $r['call_id'], 'mode' => $r['mode'], 'ice' => Calls::iceServers()]);
+
+        case 'call_incoming':
+            out(['ok' => true, 'call' => Calls::incomingFor($meType, $meId)]);
+
+        case 'call_state':
+            $cid = (int) ($_GET['call_id'] ?? ($in['call_id'] ?? 0));
+            $after = (int) ($_GET['after'] ?? 0);
+            $c = Calls::get($cid);
+            if (!$c) {
+                fail('Call not found', 404);
+            }
+            $role = Calls::role($c, $meType, $meId);
+            if (!$role) {
+                fail('Not your call', 403);
+            }
+            out(['ok' => true, 'status' => $c['status'], 'mode' => $c['mode'], 'ice' => Calls::iceServers(), 'signals' => Calls::signalsSince($cid, $after, $role)]);
+
+        case 'call_signal':
+            if ($method !== 'POST') {
+                fail('POST required', 405);
+            }
+            $cid = (int) ($in['call_id'] ?? 0);
+            $c = Calls::get($cid);
+            if (!$c) {
+                fail('Call not found', 404);
+            }
+            $role = Calls::role($c, $meType, $meId);
+            if (!$role) {
+                fail('Not your call', 403);
+            }
+            Calls::addSignal($cid, $role, (string) ($in['data'] ?? ''));
+            out(['ok' => true]);
+
+        case 'call_accept':
+        case 'call_reject':
+        case 'call_end':
+            if ($method !== 'POST') {
+                fail('POST required', 405);
+            }
+            $cid = (int) ($in['call_id'] ?? 0);
+            $c = Calls::get($cid);
+            if (!$c || !Calls::role($c, $meType, $meId)) {
+                fail('Not your call', 403);
+            }
+            Calls::setStatus($cid, $action === 'call_accept' ? 'accepted' : ($action === 'call_reject' ? 'rejected' : 'ended'));
+            out(['ok' => true]);
+
+        default:
+            fail('Unknown call action', 404);
+    }
 }
 
 // ------------------------------------------------------------------ CBC (staff) app

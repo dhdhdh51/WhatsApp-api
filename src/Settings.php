@@ -47,6 +47,7 @@ final class Settings
         'cbc_alarm_version'          => '1',
         // Video meetings (Jitsi). Change to a self-hosted Jitsi base to leave the public server.
         'meeting_base_url'           => 'https://meet.jit.si/',
+        'webrtc_ice'                 => '', // JSON ICE servers (STUN/TURN) for in-app calls; set in DB (has TURN secret)
         'app_skip_whatsapp'          => '0',
         'batch_size'                 => '50',
         'batch_pause_min'            => '60',

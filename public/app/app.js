@@ -33,6 +33,17 @@
   function cbcEndMeeting() {
     api('end_meeting', { body: {} }).then(function () { toast('Meeting end ho gayi'); renderCbc('status'); });
   }
+  var callWatch = null;
+  function startCallWatch() {
+    if (callWatch) return;
+    callWatch = setInterval(function () {
+      if (!token()) { clearInterval(callWatch); callWatch = null; return; }
+      if (window.BCall && window.BCall.active()) return;
+      api('call_incoming').then(function (r) {
+        if (r && r.ok && r.call && window.BCall && !window.BCall.active()) window.BCall.incoming(r.call);
+      });
+    }, 4000);
+  }
 
   function api(action, opts) {
     opts = opts || {};
@@ -77,6 +88,7 @@
           go.disabled = false;
           if (!j.ok) { renderLogin(j.error); return; }
           saveSession(j.token, j.last_notification);
+          startCallWatch();
           if (j.type === 'cbc') { renderCbc('status'); return; }
           if (j.must_change) renderPassword(true); else show('home');
         });
@@ -263,9 +275,15 @@
       if (!d.ok) return;
       $app.querySelector('.page').innerHTML = '<div class="card"><h2>' + esc(d.name) + '</h2>' +
         '<p class="muted">BC ID: ' + esc(d.bc_code) + '<br>Mobile: ' + esc(d.phone) + (d.branch ? '<br>Branch: ' + esc(d.branch) : '') + (d.cbc ? '<br>CBC: ' + esc(d.cbc) : '') + '</p></div>' +
+        (d.cbc ? '<div class="card"><h2>📞 CBC se baat karein</h2><p class="muted">' + esc(d.cbc) + '</p><button class="btn" id="cv">📹 Video call</button><button class="btn light" id="cvo">🎙️ Voice call</button></div>' : '') +
         '<div class="card"><p class="muted">Har 15 minute mein app nayi suchna check karta hai (internet chahiye).</p>' +
         '<button class="btn light" id="pw">Password badlein</button></div>';
       document.getElementById('pw').onclick = function () { renderPassword(false); };
+      if (d.cbc) {
+        var cv = document.getElementById('cv'), cvo = document.getElementById('cvo');
+        if (cv) cv.onclick = function () { if (window.BCall) window.BCall.start('cbc', 0, 'video', d.cbc); };
+        if (cvo) cvo.onclick = function () { if (window.BCall) window.BCall.start('cbc', 0, 'voice', d.cbc); };
+      }
     });
   }
 
@@ -333,9 +351,11 @@
       if (!d.bcs.length) h += '<p class="muted">Aapke paas koi active BC nahi hai.</p>';
       d.bcs.forEach(function (b) {
         var ph = String(b.phone || '').replace(/\D/g, '');
-        var act = '<button class="rbtn meet" data-meet="' + (b.id || 0) + '">📹 Video call</button>';
+        var nm = esc(b.name);
+        var act = '<button class="rbtn meet" data-call="' + (b.id || 0) + '" data-mode="video" data-nm="' + nm + '">📹 Video</button>' +
+          '<button class="rbtn meetv" data-call="' + (b.id || 0) + '" data-mode="voice" data-nm="' + nm + '">🎙️ Voice</button>';
         if (b.status === 'pending' && ph) {
-          act += '<a class="rbtn call" href="tel:+91' + esc(ph) + '">📞 Call</a>' +
+          act += '<a class="rbtn call" href="tel:+91' + esc(ph) + '">📞 Phone</a>' +
             '<a class="rbtn wa" target="_blank" rel="noopener" href="https://wa.me/91' + esc(ph) + '">WhatsApp</a>';
         }
         var sub2 = [b.branch, b.block].filter(Boolean).join(' · ');
@@ -350,7 +370,7 @@
       var jb = pg.querySelector('[data-join]'); if (jb) jb.onclick = function () { openExt(d.meeting.url); };
       var eb = pg.querySelector('[data-end]'); if (eb) eb.onclick = function () { if (confirm('Meeting end karein?')) cbcEndMeeting(); };
       Array.prototype.forEach.call(pg.querySelectorAll('[data-start]'), function (x) { x.onclick = function () { cbcStartMeeting(x.getAttribute('data-start'), 'all', 0); }; });
-      Array.prototype.forEach.call(pg.querySelectorAll('[data-meet]'), function (x) { x.onclick = function () { cbcStartMeeting('video', 'bc', parseInt(x.getAttribute('data-meet'), 10)); }; });
+      Array.prototype.forEach.call(pg.querySelectorAll('[data-call]'), function (x) { x.onclick = function () { if (window.BCall) window.BCall.start('bc', parseInt(x.getAttribute('data-call'), 10), x.getAttribute('data-mode'), x.getAttribute('data-nm')); }; });
     });
   }
   function renderCbcMore() {
@@ -367,6 +387,7 @@
   api('me').then(function (d) {
     if (!d.ok) return;
     if (native && native.setSession) native.setSession(token(), location.origin, '');
+    startCallWatch();
     if (d.type === 'cbc') { renderCbc('status'); return; }
     if (d.must_change) renderPassword(true); else show(location.hash === '#chat' ? 'chat' : location.hash === '#notices' ? 'notices' : 'home');
   });
