@@ -13,6 +13,7 @@ use App\Calendar;
 use App\Calls;
 use App\DB;
 use App\Fcm;
+use App\Livekit;
 use App\Meetings;
 use App\ReportParser;
 use App\Reports;
@@ -73,6 +74,22 @@ $token = preg_match('/^Bearer\s+(\S+)$/i', $auth, $m) ? $m[1] : (string) ($_GET[
 $actor = App::actorFromToken($token);
 if (!$actor) {
     fail('Login expired. Dobara login karein.', 401);
+}
+
+// ------------------------------------------------------------------ group meeting join token (BC + staff)
+if ($action === 'meet_token') {
+    $m = $actor['type'] === 'bc'
+        ? Meetings::forBc($actor['row'])
+        : Meetings::forCbc((int) $actor['id']);
+    if (!$m || empty($m['room'])) {
+        fail('Abhi koi meeting live nahi hai.');
+    }
+    $tok = Livekit::token($m['room'], $actor['type'] . '-' . $actor['id'], (string) ($actor['row']['name'] ?? 'User'));
+    if (!$tok) {
+        fail('Meeting server configure nahi hai.', 500);
+    }
+    out(['ok' => true, 'url' => Livekit::url(), 'token' => $tok, 'room' => $m['room'],
+        'mode' => $m['mode'], 'title' => $m['title'], 'name' => $actor['row']['name'] ?? 'User']);
 }
 
 // ------------------------------------------------------------------ 1:1 calls (BC + CBC)

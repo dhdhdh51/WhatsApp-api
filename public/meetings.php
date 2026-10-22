@@ -76,7 +76,9 @@ View::header('Meetings / मीटिंग', 'meetings');
   <div class="col-lg-7">
     <div class="card mb-3"><div class="card-header"><?= L('Live meetings', 'चल रही मीटिंग') ?> (<?= count($active) ?>)</div>
       <div class="list-group list-group-flush">
-      <?php foreach ($active as $m): $url = Meetings::url($m['room'], $m['mode'] ?? 'video'); ?>
+      <?php foreach ($active as $m):
+          $url = Meetings::panelUrl((int) $m['id'], (string) $m['room'], $m['mode'] ?? 'video');
+          $url = str_starts_with($url, 'http') ? $url : rtrim((string) App\Env::get('APP_URL', ''), '/') . $url; ?>
         <div class="list-group-item">
           <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
             <div><div class="fw-semibold"><i class="bi bi-broadcast text-success"></i> <?= e($m['title']) ?></div>

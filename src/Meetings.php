@@ -14,13 +14,24 @@ final class Meetings
         return rtrim(Settings::get('meeting_base_url') ?: 'https://meet.jit.si/', '/') . '/';
     }
 
+    /** Join URL for app users – our own LiveKit page when the SFU is configured. */
     public static function url(string $room, string $mode = 'video'): string
     {
-        $u = self::base() . rawurlencode($room);
+        if (Livekit::enabled()) {
+            return rtrim((string) Env::get('APP_URL', ''), '/') . '/app/meet.html?r=' . rawurlencode($room)
+                . '&m=' . ($mode === 'voice' ? 'voice' : 'video');
+        }
+        $u = self::base() . rawurlencode($room); // fallback: external service
         if ($mode === 'voice') {
             $u .= '#config.startAudioOnly=true&config.startWithVideoMuted=true';
         }
         return $u;
+    }
+
+    /** Join URL for staff already logged into the web panel (session auth). */
+    public static function panelUrl(int $meetingId, string $room, string $mode = 'video'): string
+    {
+        return Livekit::enabled() ? '/meet.php?id=' . $meetingId : self::url($room, $mode);
     }
 
     /** Admin-created meeting. */
@@ -120,7 +131,7 @@ final class Meetings
              ) ORDER BY id DESC LIMIT 1",
             [(int) ($bc['branch_id'] ?? 0), (int) ($bc['cbc_id'] ?? 0), (int) ($bc['id'] ?? 0), (int) ($bc['id'] ?? 0)]
         );
-        return $row ? ['title' => $row['title'], 'url' => self::url($row['room'], $row['mode']), 'mode' => $row['mode']] : null;
+        return $row ? ['title' => $row['title'], 'room' => $row['room'], 'url' => self::url($row['room'], $row['mode']), 'mode' => $row['mode']] : null;
     }
 
     /** Latest active meeting a CBC can join/host, or null. */
@@ -132,7 +143,8 @@ final class Meetings
              ORDER BY id DESC LIMIT 1",
             [$cbcUserId]
         );
-        return $row ? ['id' => (int) $row['id'], 'title' => $row['title'], 'url' => self::url($row['room'], $row['mode']),
+        return $row ? ['id' => (int) $row['id'], 'title' => $row['title'], 'room' => $row['room'],
+            'url' => self::url($row['room'], $row['mode']),
             'mode' => $row['mode'], 'is_host' => ((int) $row['host_cbc_id'] === $cbcUserId)] : null;
     }
 

@@ -1,0 +1,35 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap');
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
+  font-family: 'Inter', 'Noto Sans Devanagari', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+#meet { position: fixed; inset: 0; display: flex; flex-direction: column; }
+
+.mt-top { display: flex; align-items: center; gap: 12px; padding: calc(14px + env(safe-area-inset-top)) 16px 12px;
+  background: linear-gradient(#000c, transparent); }
+.mt-title { font-weight: 800; font-size: 17px; }
+.mt-status { font-size: 12.5px; opacity: .8; margin-top: 2px; }
+.mt-count { margin-left: auto; background: rgba(255,255,255,.16); border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 700; white-space: nowrap; }
+
+.mt-grid { flex: 1; display: grid; gap: 8px; padding: 8px; overflow-y: auto; align-content: start; }
+.mt-tile { position: relative; background: #16241f; border-radius: 16px; overflow: hidden; aspect-ratio: 3/4; min-height: 130px; }
+.mt-tile video { width: 100%; height: 100%; object-fit: cover; display: none; background: #000; }
+.mt-tile.has-video video { display: block; }
+.mt-tile.has-video .mt-ph { display: none; }
+.mt-ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 34px; font-weight: 800; color: #fff; background: linear-gradient(135deg,#16a34a,#0d9488); }
+.mt-name { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 2; font-size: 12px; font-weight: 600;
+  background: rgba(0,0,0,.5); padding: 4px 8px; border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.mt-bar { display: flex; gap: 14px; justify-content: center; padding: 14px 16px calc(20px + env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, #000c); }
+.mt-btn { border: 0; border-radius: 999px; min-width: 58px; height: 58px; font-size: 21px; background: rgba(255,255,255,.18); color: #fff; font-weight: 700; }
+.mt-btn.red { background: #e5484d; width: auto; padding: 0 22px; font-size: 16px; }
+
+.mt-err { margin: auto; text-align: center; padding: 26px; max-width: 420px; }
+.mt-err p { font-size: 16px; line-height: 1.5; margin-bottom: 18px; }
+
+@media (min-width: 900px) {
+  .mt-tile { aspect-ratio: 16/10; }
+  .mt-grid { padding: 14px; gap: 12px; }
+}
