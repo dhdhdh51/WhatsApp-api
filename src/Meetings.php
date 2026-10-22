@@ -40,7 +40,10 @@ final class Meetings
      * @param string $scope 'all' (all my BCs) or 'bc' (1:1 with $bcId)
      * @return array{id:int,url:string,mode:string}|null
      */
-    public static function startByCbc(int $cbcUserId, string $mode, string $scope, ?int $bcId, bool $seesAll = false): ?array
+    /**
+     * @param list<int> $bcIds when $scope is 'all': invite only these BCs (empty = every BC in reach)
+     */
+    public static function startByCbc(int $cbcUserId, string $mode, string $scope, ?int $bcId, bool $seesAll = false, array $bcIds = []): ?array
     {
         $mode = $mode === 'voice' ? 'voice' : 'video';
         $cbcName = (string) DB::val('SELECT name FROM users WHERE id = ?', [$cbcUserId]);
@@ -60,6 +63,22 @@ final class Meetings
             $audience = $seesAll ? 'bc' : 'cbc_bcs';
             $bcId = null;
             $title = $cbcName . ' – ' . ($mode === 'voice' ? 'voice' : 'video') . ' meeting';
+            if ($bcIds) { // only the BCs the host ticked (and that are really in reach)
+                $p = [];
+                $in = DB::in(array_map('intval', $bcIds), $p);
+                $scopeSql = $seesAll ? '' : ' AND cbc_id = ?';
+                if (!$seesAll) {
+                    $p[] = $cbcUserId;
+                }
+                $validIds = array_map('intval', array_column(
+                    DB::all("SELECT id FROM bcs WHERE id IN ({$in}) AND is_active = 1{$scopeSql}", $p), 'id'
+                ));
+                if (!$validIds) {
+                    return null;
+                }
+                $audience = 'selected';
+                $title = $cbcName . ' – ' . ($mode === 'voice' ? 'voice' : 'video') . ' meeting (' . count($validIds) . ' BC)';
+            }
         }
         self::endByCbc($cbcUserId); // one live meeting per CBC at a time
         $room = 'BCReport-' . bin2hex(random_bytes(6));
@@ -67,8 +86,14 @@ final class Meetings
             'INSERT INTO meetings (title, room, audience, mode, created_by, host_cbc_id, target_bc_id, is_active, created_at) VALUES (?, ?, ?, ?, NULL, ?, ?, 1, NOW())',
             [mb_substr($title, 0, 160), $room, $audience, $mode, $cbcUserId, $bcId]
         );
+        if ($audience === 'selected') {
+            foreach ($validIds as $vid) {
+                DB::exec('INSERT IGNORE INTO meeting_invites (meeting_id, bc_id) VALUES (?, ?)', [$id, $vid]);
+            }
+        }
         self::notifyStart($id);
-        return ['id' => $id, 'url' => self::url($room, $mode), 'mode' => $mode];
+        return ['id' => $id, 'url' => self::url($room, $mode), 'mode' => $mode,
+            'invited' => $audience === 'selected' ? count($validIds) : null];
     }
 
     public static function end(int $id): void
@@ -91,8 +116,9 @@ final class Meetings
                  OR (audience = 'branch'   AND branch_id   = ?)
                  OR (audience = 'cbc_bcs'  AND host_cbc_id = ?)
                  OR (audience = 'one_bc'   AND target_bc_id = ?)
+                 OR (audience = 'selected' AND EXISTS (SELECT 1 FROM meeting_invites mi WHERE mi.meeting_id = meetings.id AND mi.bc_id = ?))
              ) ORDER BY id DESC LIMIT 1",
-            [(int) ($bc['branch_id'] ?? 0), (int) ($bc['cbc_id'] ?? 0), (int) ($bc['id'] ?? 0)]
+            [(int) ($bc['branch_id'] ?? 0), (int) ($bc['cbc_id'] ?? 0), (int) ($bc['id'] ?? 0), (int) ($bc['id'] ?? 0)]
         );
         return $row ? ['title' => $row['title'], 'url' => self::url($row['room'], $row['mode']), 'mode' => $row['mode']] : null;
     }
@@ -126,6 +152,9 @@ final class Meetings
             case 'one_bc':
                 $params[] = (int) $m['target_bc_id'];
                 return 'b.is_active = 1 AND b.id = ?';
+            case 'selected':
+                $params[] = (int) $m['id'];
+                return 'b.is_active = 1 AND EXISTS (SELECT 1 FROM meeting_invites mi WHERE mi.meeting_id = ? AND mi.bc_id = b.id)';
         }
         return null; // 'cbc' -> staff only
     }

@@ -22,12 +22,59 @@
     var a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener';
     document.body.appendChild(a); a.click(); a.remove();
   }
-  function cbcStartMeeting(mode, scope, bcId) {
+  function cbcStartMeeting(mode, scope, bcId, bcIds) {
     toast('Meeting shuru ho rahi hai…');
-    api('start_meeting', { body: { mode: mode, scope: scope, bc_id: bcId || 0 } }).then(function (j) {
+    api('start_meeting', { body: { mode: mode, scope: scope, bc_id: bcId || 0, bc_ids: bcIds || [] } }).then(function (j) {
       if (!j.ok) { toast(j.error || 'Error'); return; }
+      toast(j.invited ? (j.invited + ' BC ko bulaya gaya') : 'Meeting shuru');
       openExt(j.url);
-      setTimeout(function () { renderCbc('status'); }, 1000);
+      setTimeout(function () { renderCbc('status'); }, 1200);
+    });
+  }
+
+  /** Pick which BCs to invite, then start the meeting. */
+  function renderInvite(mode) {
+    stopChat();
+    state.tab = ''; state.cbcTab = 'status';
+    $app.innerHTML = top('Kise bulayein?', (mode === 'voice' ? 'Voice' : 'Video') + ' meeting') +
+      '<div class="page"><div class="card muted">Load ho raha hai…</div></div>';
+    api('status').then(function (d) {
+      if (!d.ok) { $app.querySelector('.page').innerHTML = '<div class="err">' + esc(d.error || 'Error') + '</div>'; return; }
+      var list = d.bcs || [];
+      var h = '<div class="card"><div class="inv-head"><span><b id="invCount">' + list.length + '</b> BC chune gaye</span>' +
+        '<button class="inv-toggle" id="invAll">Sabhi hatayein</button></div>';
+      if (!list.length) h += '<p class="muted">Aapke paas koi active BC nahi hai.</p>';
+      list.forEach(function (b) {
+        h += '<label class="inv-row"><input type="checkbox" class="inv-cb" value="' + (b.id || 0) + '" checked>' +
+          '<span class="inv-name">' + esc(b.name) + ' <span class="muted">' + esc(b.bc_code || '') + '</span>' +
+          (b.branch ? '<br><span class="muted sm">' + esc(b.branch) + '</span>' : '') + '</span>' + statusChip(b.status) + '</label>';
+      });
+      h += '</div>';
+      $app.querySelector('.page').innerHTML = h;
+      var pg = $app.querySelector('.page');
+      pg.classList.add('chatpage');
+      var dock = document.createElement('div');
+      dock.className = 'dock';
+      dock.innerHTML = '<div class="inv-bar"><button class="btn light" id="invBack" style="margin:0">Wapas</button>' +
+        '<button class="btn" id="invGo" style="margin:0">' + (mode === 'voice' ? '🎙️' : '📹') + ' Meeting shuru</button></div>';
+      $app.appendChild(dock);
+
+      function ids() { return Array.prototype.slice.call(pg.querySelectorAll('.inv-cb')).filter(function (c) { return c.checked; }).map(function (c) { return parseInt(c.value, 10); }); }
+      function sync() { document.getElementById('invCount').textContent = ids().length; }
+      Array.prototype.forEach.call(pg.querySelectorAll('.inv-cb'), function (c) { c.onchange = sync; });
+      document.getElementById('invAll').onclick = function () {
+        var anyOn = ids().length > 0;
+        Array.prototype.forEach.call(pg.querySelectorAll('.inv-cb'), function (c) { c.checked = !anyOn; });
+        this.textContent = anyOn ? 'Sabhi chunein' : 'Sabhi hatayein';
+        sync();
+      };
+      document.getElementById('invBack').onclick = function () { dock.remove(); renderCbc('status'); };
+      document.getElementById('invGo').onclick = function () {
+        var sel = ids();
+        if (!sel.length) { toast('Kam se kam ek BC chunein'); return; }
+        dock.remove();
+        cbcStartMeeting(mode, 'all', 0, sel.length === (d.bcs || []).length ? [] : sel);
+      };
     });
   }
   function cbcEndMeeting() {
@@ -340,7 +387,7 @@
           '<div class="host-btns"><button class="btn" data-join="1">Join</button><button class="btn red" data-end="1">End meeting</button></div></div>';
       } else {
         h += meetBanner(d.meeting);
-        h += '<div class="host-card"><div class="host-title">📹 Meeting shuru karein (saare BC)</div>' +
+        h += '<div class="host-card"><div class="host-title">📹 Meeting – apne BC chunkar bulayein</div>' +
           '<div class="host-btns"><button class="btn" data-start="video">📹 Video</button><button class="btn light" data-start="voice">🎙️ Voice</button></div></div>';
       }
       h += '<div class="cbc-sum">' +
@@ -372,7 +419,7 @@
       var pg = $app.querySelector('.page');
       var jb = pg.querySelector('[data-join]'); if (jb) jb.onclick = function () { openExt(d.meeting.url); };
       var eb = pg.querySelector('[data-end]'); if (eb) eb.onclick = function () { if (confirm('Meeting end karein?')) cbcEndMeeting(); };
-      Array.prototype.forEach.call(pg.querySelectorAll('[data-start]'), function (x) { x.onclick = function () { cbcStartMeeting(x.getAttribute('data-start'), 'all', 0); }; });
+      Array.prototype.forEach.call(pg.querySelectorAll('[data-start]'), function (x) { x.onclick = function () { renderInvite(x.getAttribute('data-start')); }; });
       Array.prototype.forEach.call(pg.querySelectorAll('[data-call]'), function (x) { x.onclick = function () { if (window.BCall) window.BCall.start('bc', parseInt(x.getAttribute('data-call'), 10), x.getAttribute('data-mode'), x.getAttribute('data-nm')); }; });
     });
   }

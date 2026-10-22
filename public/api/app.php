@@ -217,7 +217,8 @@ if ($actor['type'] === 'cbc') {
             }
             $mMode = ($in['mode'] ?? '') === 'voice' ? 'voice' : 'video';
             $mScope = ($in['scope'] ?? '') === 'bc' ? 'bc' : 'all';
-            $mRes = Meetings::startByCbc($uid, $mMode, $mScope, isset($in['bc_id']) ? (int) $in['bc_id'] : null, $seesAll);
+            $mIds = is_array($in['bc_ids'] ?? null) ? array_slice(array_map('intval', $in['bc_ids']), 0, 300) : [];
+            $mRes = Meetings::startByCbc($uid, $mMode, $mScope, isset($in['bc_id']) ? (int) $in['bc_id'] : null, $seesAll, $mIds);
             if (!$mRes) {
                 fail('Ye BC aapke under nahi hai ya active nahi.');
             }

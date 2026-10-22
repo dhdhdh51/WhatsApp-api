@@ -227,3 +227,14 @@ tr:last-child td { border-bottom: none; }
 .cbtn.green { background: #16a34a; width: auto; padding: 0 22px; font-size: 16px; font-weight: 700; }
 .cbtn.red { background: #e5484d; width: auto; padding: 0 22px; font-size: 16px; font-weight: 700; }
 .rbtn.meetv { background: #ede9fe; color: #5b21b6; border: 1px solid #ddd6fe; }
+
+/* ---------- Meeting invite picker ---------- */
+.inv-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--line); margin-bottom: 4px; font-size: 14px; }
+.inv-toggle { border: 1px solid #d7ecdf; background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; font-size: 13px; padding: 8px 14px; border-radius: 999px; }
+.inv-row { display: flex; align-items: center; gap: 11px; padding: 11px 2px; border-bottom: 1px solid #f1f5f3; }
+.inv-row:last-child { border-bottom: 0; }
+.inv-row input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); flex: none; margin: 0; }
+.inv-name { flex: 1; min-width: 0; font-weight: 600; font-size: 14.5px; }
+.inv-bar { display: flex; gap: 10px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); max-width: 640px; margin: 0 auto; }
+.inv-bar .btn { flex: 1; }
+.inv-bar .btn.light { flex: 0 0 34%; }
