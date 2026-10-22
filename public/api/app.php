@@ -100,7 +100,7 @@ if ($actor['type'] === 'cbc') {
                 } else {
                     $counts['off']++;
                 }
-                $bcs[] = ['name' => $r['name'], 'bc_code' => $r['bc_code'], 'phone' => $r['phone'],
+                $bcs[] = ['id' => (int) $r['id'], 'name' => $r['name'], 'bc_code' => $r['bc_code'], 'phone' => $r['phone'],
                     'status' => $st, 'branch' => $r['branch_name'], 'block' => $r['block']];
             }
             usort($bcs, static function ($a, $b) {
@@ -109,7 +109,23 @@ if ($actor['type'] === 'cbc') {
             });
             out(['ok' => true, 'date_text' => date('d-m-Y'), 'open' => Calendar::isOpen($today),
                 'cutoff' => fmt_time12(Settings::padTime(Settings::get('cutoff_time') ?: '23:59')),
-                'counts' => $counts + ['total' => count($rows)], 'bcs' => $bcs, 'meeting' => Meetings::forCbc()]);
+                'counts' => $counts + ['total' => count($rows)], 'bcs' => $bcs, 'meeting' => Meetings::forCbc($uid)]);
+
+        case 'start_meeting':
+            if ($method !== 'POST') {
+                fail('POST required', 405);
+            }
+            $mMode = ($in['mode'] ?? '') === 'voice' ? 'voice' : 'video';
+            $mScope = ($in['scope'] ?? '') === 'bc' ? 'bc' : 'all';
+            $mRes = Meetings::startByCbc($uid, $mMode, $mScope, isset($in['bc_id']) ? (int) $in['bc_id'] : null);
+            if (!$mRes) {
+                fail('Ye BC aapke under nahi hai ya active nahi.');
+            }
+            out(['ok' => true] + $mRes);
+
+        case 'end_meeting':
+            Meetings::endByCbc($uid);
+            out(['ok' => true]);
 
         case 'alarm_check':
             out(['ok' => true, 'ring' => App::shouldRingCbc($uid), 'config' => App::alarmConfigCbc()]);

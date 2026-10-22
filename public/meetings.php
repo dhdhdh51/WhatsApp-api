@@ -27,7 +27,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('danger', 'Select a branch');
             redirect('/meetings.php');
         }
-        $id = Meetings::create($title, $audience, $branchId, (int) $user['id']);
+        $mode = p('mode') === 'voice' ? 'voice' : 'video';
+        $id = Meetings::create($title, $audience, $mode, $branchId, (int) $user['id']);
         Meetings::notifyStart($id);
         Audit::log((int) $user['id'], 'meeting_start', 'meeting', $id, ['title' => $title, 'audience' => $audience, 'branch_id' => $branchId]);
         flash('success', 'Meeting shuru ho gayi – audience ko notification bhej diya. Aap bhi "Join" se judein.');
@@ -61,6 +62,8 @@ View::header('Meetings / मीटिंग', 'meetings');
             <option value="bc">All BCs</option>
             <option value="branch">One branch's BCs</option>
           </select></div>
+        <div class="col-12"><label class="form-label small"><?= L('Type', 'प्रकार') ?></label>
+          <select name="mode" class="form-select form-select-sm"><option value="video">📹 Video meeting</option><option value="voice">🎙️ Voice only</option></select></div>
         <div class="col-5" id="branchWrap" style="display:none"><label class="form-label small"><?= L('Branch', 'शाखा') ?></label>
           <select name="branch_id" class="form-select form-select-sm"><option value="">—</option>
             <?php foreach ($branches as $b): ?><option value="<?= (int) $b['id'] ?>"><?= e($b['name']) ?><?= $b['area'] ? ' (' . e($b['area']) . ')' : '' ?></option><?php endforeach; ?>
@@ -73,7 +76,7 @@ View::header('Meetings / मीटिंग', 'meetings');
   <div class="col-lg-7">
     <div class="card mb-3"><div class="card-header"><?= L('Live meetings', 'चल रही मीटिंग') ?> (<?= count($active) ?>)</div>
       <div class="list-group list-group-flush">
-      <?php foreach ($active as $m): $url = Meetings::url($m['room']); ?>
+      <?php foreach ($active as $m): $url = Meetings::url($m['room'], $m['mode'] ?? 'video'); ?>
         <div class="list-group-item">
           <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
             <div><div class="fw-semibold"><i class="bi bi-broadcast text-success"></i> <?= e($m['title']) ?></div>

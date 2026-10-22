@@ -13,9 +13,25 @@
   function toast(t) { var el = document.getElementById('toast'); el.textContent = t; el.className = 'toast show'; setTimeout(function () { el.className = 'toast'; }, 2600); }
   function meetBanner(m) {
     if (!m || !m.url) return '';
+    var icon = m.mode === 'voice' ? '🎙️' : '📹';
     return '<a class="meet-banner" target="_blank" rel="noopener" href="' + esc(m.url) + '">' +
-      '<div class="mb-info"><div class="mb-title">📹 ' + esc(m.title || 'Video meeting') + '</div>' +
-      '<div class="mb-sub">Video meeting live hai – tap karke judein</div></div><span class="mb-join">Join</span></a>';
+      '<div class="mb-info"><div class="mb-title">' + icon + ' ' + esc(m.title || 'Meeting') + '</div>' +
+      '<div class="mb-sub">' + (m.mode === 'voice' ? 'Voice' : 'Video') + ' meeting live hai – tap karke judein</div></div><span class="mb-join">Join</span></a>';
+  }
+  function openExt(url) {
+    var a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+  function cbcStartMeeting(mode, scope, bcId) {
+    toast('Meeting shuru ho rahi hai…');
+    api('start_meeting', { body: { mode: mode, scope: scope, bc_id: bcId || 0 } }).then(function (j) {
+      if (!j.ok) { toast(j.error || 'Error'); return; }
+      openExt(j.url);
+      setTimeout(function () { renderCbc('status'); }, 1000);
+    });
+  }
+  function cbcEndMeeting() {
+    api('end_meeting', { body: {} }).then(function () { toast('Meeting end ho gayi'); renderCbc('status'); });
   }
 
   function api(action, opts) {
@@ -298,7 +314,14 @@
     api('status').then(function (d) {
       if (!d.ok) { $app.querySelector('.page').innerHTML = '<div class="err">' + esc(d.error || 'Error') + '</div>'; return; }
       var c = d.counts, h = '';
-      h += meetBanner(d.meeting);
+      if (d.meeting && d.meeting.is_host) {
+        h += '<div class="host-card"><div class="host-live">🟢 Aapki ' + (d.meeting.mode === 'voice' ? 'voice' : 'video') + ' meeting live hai</div>' +
+          '<div class="host-btns"><button class="btn" data-join="1">Join</button><button class="btn red" data-end="1">End meeting</button></div></div>';
+      } else {
+        h += meetBanner(d.meeting);
+        h += '<div class="host-card"><div class="host-title">📹 Meeting shuru karein (saare BC)</div>' +
+          '<div class="host-btns"><button class="btn" data-start="video">📹 Video</button><button class="btn light" data-start="voice">🎙️ Voice</button></div></div>';
+      }
       h += '<div class="cbc-sum">' +
         '<div class="cbc-stat r"><b>' + c.pending + '</b><span>Baaki</span></div>' +
         '<div class="cbc-stat g"><b>' + c.submitted + '</b><span>Jama</span></div>' +
@@ -310,17 +333,24 @@
       if (!d.bcs.length) h += '<p class="muted">Aapke paas koi active BC nahi hai.</p>';
       d.bcs.forEach(function (b) {
         var ph = String(b.phone || '').replace(/\D/g, '');
-        var act = (b.status === 'pending' && ph) ?
-          '<a class="rbtn call" href="tel:+91' + esc(ph) + '">📞 Call</a>' +
-          '<a class="rbtn wa" target="_blank" rel="noopener" href="https://wa.me/91' + esc(ph) + '">WhatsApp</a>' : '';
+        var act = '<button class="rbtn meet" data-meet="' + (b.id || 0) + '">📹 Video call</button>';
+        if (b.status === 'pending' && ph) {
+          act += '<a class="rbtn call" href="tel:+91' + esc(ph) + '">📞 Call</a>' +
+            '<a class="rbtn wa" target="_blank" rel="noopener" href="https://wa.me/91' + esc(ph) + '">WhatsApp</a>';
+        }
         var sub2 = [b.branch, b.block].filter(Boolean).join(' · ');
         h += '<div class="cbc-row"><div class="cbc-head"><div class="cbc-name">' + esc(b.name) +
           ' <span class="muted">' + esc(b.bc_code || '') + '</span></div>' + statusChip(b.status) + '</div>' +
           (sub2 ? '<div class="muted sm">' + esc(sub2) + '</div>' : '') +
-          (act ? '<div class="cbc-act">' + act + '</div>' : '') + '</div>';
+          '<div class="cbc-act">' + act + '</div></div>';
       });
       h += '</div>';
       $app.querySelector('.page').innerHTML = h;
+      var pg = $app.querySelector('.page');
+      var jb = pg.querySelector('[data-join]'); if (jb) jb.onclick = function () { openExt(d.meeting.url); };
+      var eb = pg.querySelector('[data-end]'); if (eb) eb.onclick = function () { if (confirm('Meeting end karein?')) cbcEndMeeting(); };
+      Array.prototype.forEach.call(pg.querySelectorAll('[data-start]'), function (x) { x.onclick = function () { cbcStartMeeting(x.getAttribute('data-start'), 'all', 0); }; });
+      Array.prototype.forEach.call(pg.querySelectorAll('[data-meet]'), function (x) { x.onclick = function () { cbcStartMeeting('video', 'bc', parseInt(x.getAttribute('data-meet'), 10)); }; });
     });
   }
   function renderCbcMore() {
