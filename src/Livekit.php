@@ -51,9 +51,98 @@ final class Livekit
                 'canPublishData' => true,
             ],
         ];
+        return self::sign($payload);
+    }
+
+    /** Short-lived admin token for the server-side RoomService API. */
+    private static function adminToken(string $room): ?string
+    {
+        if (!self::enabled()) {
+            return null;
+        }
+        $now = time();
+        return self::sign([
+            'iss' => Settings::get('livekit_key'),
+            'sub' => 'server',
+            'nbf' => $now - 10,
+            'exp' => $now + 120,
+            'video' => ['room' => $room, 'roomAdmin' => true],
+        ]);
+    }
+
+    private static function sign(array $payload): string
+    {
+        $secret = Settings::get('livekit_secret');
         $head = self::b64(json_encode(['alg' => 'HS256', 'typ' => 'JWT'], JSON_UNESCAPED_SLASHES));
         $body = self::b64(json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
         $sig = self::b64(hash_hmac('sha256', "{$head}.{$body}", $secret, true));
         return "{$head}.{$body}.{$sig}";
+    }
+
+    /** Call the local LiveKit RoomService (Twirp). Returns decoded JSON or null. */
+    private static function rpc(string $method, string $room, array $body): ?array
+    {
+        $tok = self::adminToken($room);
+        if (!$tok) {
+            return null;
+        }
+        $ch = curl_init('http://127.0.0.1:7880/twirp/livekit.RoomService/' . $method);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE),
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . $tok],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_TIMEOUT => 6,
+        ]);
+        $raw = curl_exec($ch);
+        $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($code !== 200) {
+            Logger::warn('LiveKit RPC failed', ['method' => $method, 'http' => $code, 'body' => mb_substr((string) $raw, 0, 200)]);
+            return null;
+        }
+        $j = json_decode((string) $raw, true);
+        return is_array($j) ? $j : [];
+    }
+
+    /** @return list<array{identity:string,name:string,muted:bool}> */
+    public static function participants(string $room): array
+    {
+        $r = self::rpc('ListParticipants', $room, ['room' => $room]);
+        $out = [];
+        foreach ($r['participants'] ?? [] as $p) {
+            $muted = true;
+            foreach ($p['tracks'] ?? [] as $t) {
+                if (($t['type'] ?? '') === 'AUDIO') {
+                    $muted = !empty($t['muted']);
+                }
+            }
+            $out[] = ['identity' => (string) ($p['identity'] ?? ''), 'name' => (string) ($p['name'] ?? ''), 'muted' => $muted];
+        }
+        return $out;
+    }
+
+    /** Host action: mute / unmute one participant's microphone. */
+    public static function setMuted(string $room, string $identity, bool $muted): bool
+    {
+        $r = self::rpc('ListParticipants', $room, ['room' => $room]);
+        foreach ($r['participants'] ?? [] as $p) {
+            if ((string) ($p['identity'] ?? '') !== $identity) {
+                continue;
+            }
+            $ok = false;
+            foreach ($p['tracks'] ?? [] as $t) {
+                if (($t['type'] ?? '') !== 'AUDIO' || empty($t['sid'])) {
+                    continue;
+                }
+                $res = self::rpc('MutePublishedTrack', $room, [
+                    'room' => $room, 'identity' => $identity, 'track_sid' => $t['sid'], 'muted' => $muted,
+                ]);
+                $ok = $ok || $res !== null;
+            }
+            return $ok;
+        }
+        return false;
     }
 }

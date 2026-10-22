@@ -84,12 +84,49 @@ if ($action === 'meet_token') {
     if (!$m || empty($m['room'])) {
         fail('Abhi koi meeting live nahi hai.');
     }
-    $tok = Livekit::token($m['room'], $actor['type'] . '-' . $actor['id'], (string) ($actor['row']['name'] ?? 'User'));
+    // same identity as the panel (user-N) so one person never joins twice and echoes
+    $ident = ($actor['type'] === 'bc' ? 'bc-' : 'user-') . (int) $actor['id'];
+    $tok = Livekit::token($m['room'], $ident, (string) ($actor['row']['name'] ?? 'User'));
     if (!$tok) {
         fail('Meeting server configure nahi hai.', 500);
     }
+    $isHost = $actor['type'] !== 'bc' && (!empty($m['is_host']) || App::staffSeesAll($actor['row']));
     out(['ok' => true, 'url' => Livekit::url(), 'token' => $tok, 'room' => $m['room'],
-        'mode' => $m['mode'], 'title' => $m['title'], 'name' => $actor['row']['name'] ?? 'User']);
+        'mode' => $m['mode'], 'title' => $m['title'], 'name' => $actor['row']['name'] ?? 'User',
+        'is_host' => $isHost]);
+}
+
+// ------------------------------------------------------------------ host moderation: mute / unmute
+if ($action === 'meet_mute') {
+    if ($method !== 'POST') {
+        fail('POST required', 405);
+    }
+    if ($actor['type'] === 'bc') {
+        fail('Sirf host mute kar sakta hai.', 403);
+    }
+    $m = Meetings::forCbc((int) $actor['id']);
+    if (!$m || empty($m['room'])) {
+        fail('Koi meeting live nahi hai.');
+    }
+    if (empty($m['is_host']) && !App::staffSeesAll($actor['row'])) {
+        fail('Sirf host mute kar sakta hai.', 403);
+    }
+    $muted = !empty($in['muted']);
+    $who = trim((string) ($in['identity'] ?? ''));
+    if ($who === '*') { // mute everyone except me
+        $me = 'user-' . (int) $actor['id'];
+        $n = 0;
+        foreach (Livekit::participants((string) $m['room']) as $p) {
+            if ($p['identity'] !== $me && Livekit::setMuted((string) $m['room'], $p['identity'], $muted)) {
+                $n++;
+            }
+        }
+        out(['ok' => true, 'changed' => $n]);
+    }
+    if ($who === '') {
+        fail('identity chahiye');
+    }
+    out(['ok' => Livekit::setMuted((string) $m['room'], $who, $muted)]);
 }
 
 // ------------------------------------------------------------------ 1:1 calls (BC + CBC)
