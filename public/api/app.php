@@ -106,10 +106,19 @@ if ($action === 'meet_token') {
     if ($mid) {
         Meetings::markJoined($mid, $ident); // stops the "join karein" reminders for this person
     }
+    $mRow = Meetings::byId($mid) ?: [];
+    $hostU = DB::one('SELECT name, role FROM users WHERE id = ?', [(int) (($mRow['created_by'] ?? 0) ?: ($mRow['host_cbc_id'] ?? 0))]);
     out(['ok' => true, 'url' => Livekit::url(), 'token' => $tok, 'room' => $m['room'],
         'mode' => $m['mode'], 'title' => $m['title'], 'name' => $actor['row']['name'] ?? 'User',
-        'meeting_id' => $mid, 'is_broadcast' => $isBroadcast, 'can_publish' => $canPublish,
-        'is_host' => $isHost]);
+        'meeting_id' => $mid, 'is_broadcast' => $isBroadcast, 'can_publish' => $canPublish, 'is_host' => $isHost,
+        'brand' => 'BC Monitoring App', 'bank' => 'Central Bank of India',
+        'subtitle' => 'APY, PMJJBY, PMSBY एवं PMJDY की प्रगति समीक्षा',
+        'host_name' => $hostU['name'] ?? 'Host', 'host_role' => $hostU ? \App\Auth::roleLabel((string) $hostU['role']) : '']);
+}
+
+// ------------------------------------------------------------------ scheme progress (broadcast panel)
+if ($action === 'meet_summary') {
+    out(['ok' => true, 'rows' => Meetings::schemeSummary()]);
 }
 
 // ------------------------------------------------------------------ host moderation: mute / unmute

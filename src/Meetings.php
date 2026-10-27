@@ -395,4 +395,25 @@ final class Meetings
             ];
         }, $rows);
     }
+
+    /** Org-wide per-scheme target vs achievement for the current month (broadcast "आज की प्रस्तुति" panel). */
+    public static function schemeSummary(): array
+    {
+        $month = date('Y-m-01');
+        $today = Calendar::today();
+        $schemes = array_values(array_diff(ReportParser::SCHEMES, ReportParser::OFFLINE)); // apy, pmjjby, pmsby, pmjdy
+        $labels = ReportParser::LABELS;
+        $tgtCols = implode(', ', array_map(static fn ($k) => "COALESCE(SUM({$k}_target),0) {$k}", $schemes));
+        $doneCols = implode(', ', array_map(static fn ($k) => "COALESCE(SUM({$k}),0) {$k}", $schemes));
+        $tgt = DB::one("SELECT {$tgtCols} FROM targets WHERE month = ?", [$month]) ?: [];
+        $done = DB::one("SELECT {$doneCols} FROM reports WHERE report_date >= ? AND report_date <= ?", [$month, $today]) ?: [];
+        $rows = [];
+        foreach ($schemes as $k) {
+            $t = (int) ($tgt[$k] ?? 0);
+            $d = (int) ($done[$k] ?? 0);
+            $rows[] = ['key' => $k, 'label' => $labels[$k] ?? strtoupper((string) $k), 'target' => $t, 'done' => $d,
+                'pct' => $t > 0 ? (int) round($d * 100 / $t) : 0, 'remaining' => max(0, $t - $d)];
+        }
+        return $rows;
+    }
 }

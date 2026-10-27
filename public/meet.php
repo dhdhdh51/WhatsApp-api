@@ -95,6 +95,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && q('mute') !== '') {
     exit;
 }
 
+// ---- scheme progress summary (broadcast "आज की प्रस्तुति" panel) ----
+if (q('summary') !== '') {
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['ok' => true, 'rows' => Meetings::schemeSummary()], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 // broadcast audience is view-only unless you moderate or were promoted to speak
 $canPublish = !$isBroadcast || $canModerate || Meetings::isSpeaker($id, $meActor);
 $token = Livekit::token((string) $m['room'], $meActor, (string) $user['name'], $canPublish);
@@ -102,6 +109,7 @@ if (!$token) {
     flash('danger', 'Meeting server configure nahi hai (livekit settings)');
     redirect('/meetings.php');
 }
+$hostU = DB::one('SELECT name, role FROM users WHERE id = ?', [(int) (($m['created_by'] ?? 0) ?: ($m['host_cbc_id'] ?? 0))]);
 $cfg = [
     'ok' => true,
     'url' => Livekit::url(),
@@ -115,9 +123,15 @@ $cfg = [
     'can_publish' => $canPublish,
     // panel admins/supervisors moderate; a CBC only in their own meeting
     'is_host' => $canModerate,
+    'brand' => 'BC Monitoring App',
+    'bank' => 'Central Bank of India',
+    'subtitle' => 'APY, PMJJBY, PMSBY एवं PMJDY की प्रगति समीक्षा',
+    'host_name' => $hostU['name'] ?? 'Host',
+    'host_role' => $hostU ? Auth::roleLabel((string) $hostU['role']) : '',
     'mute_url' => '/meet.php?id=' . $id . '&mute=1',
     'chat_url' => '/meet.php?id=' . $id . '&chat=1',
     'promote_url' => $canModerate ? '/meet.php?id=' . $id . '&speak=1' : null,
+    'summary_url' => '/meet.php?id=' . $id . '&summary=1',
     'csrf' => App\Csrf::token(),
 ];
 header('Cache-Control: no-store');
@@ -127,12 +141,12 @@ header('Cache-Control: no-store');
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title><?= e($m['title']) ?> · <?= $isBroadcast ? 'Broadcast' : 'Meeting' ?></title>
-<link rel="stylesheet" href="/app/meet.css?v=4">
+<link rel="stylesheet" href="/app/meet.css?v=5">
 </head>
 <body>
 <div id="meet"></div>
 <script>window.MEET_CONFIG = <?= json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;</script>
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
-<script src="/app/meet.js?v=4"></script>
+<script src="/app/meet.js?v=5"></script>
 </body>
 </html>
