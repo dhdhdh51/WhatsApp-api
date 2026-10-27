@@ -37,7 +37,7 @@ final class Meetings
     /** Admin-created meeting. */
     public static function create(string $title, string $audience, string $mode, ?int $branchId, ?int $by): int
     {
-        $audience = in_array($audience, ['all', 'bc', 'cbc', 'branch'], true) ? $audience : 'all';
+        $audience = in_array($audience, ['all', 'bc', 'cbc', 'branch', 'broadcast'], true) ? $audience : 'all';
         $mode = $mode === 'voice' ? 'voice' : 'video';
         $room = 'BCReport-' . bin2hex(random_bytes(6));
         return DB::insert(
@@ -121,9 +121,9 @@ final class Meetings
     public static function forBc(array $bc): ?array
     {
         $row = DB::one(
-            "SELECT title, room, mode FROM meetings
+            "SELECT id, title, room, mode, audience FROM meetings
              WHERE is_active = 1 AND (
-                 audience IN ('all','bc')
+                 audience IN ('all','bc','broadcast')
                  OR (audience = 'branch'   AND branch_id   = ?)
                  OR (audience = 'cbc_bcs'  AND host_cbc_id = ?)
                  OR (audience = 'one_bc'   AND target_bc_id = ?)
@@ -131,21 +131,24 @@ final class Meetings
              ) ORDER BY id DESC LIMIT 1",
             [(int) ($bc['branch_id'] ?? 0), (int) ($bc['cbc_id'] ?? 0), (int) ($bc['id'] ?? 0), (int) ($bc['id'] ?? 0)]
         );
-        return $row ? ['title' => $row['title'], 'room' => $row['room'], 'url' => self::url($row['room'], $row['mode']), 'mode' => $row['mode']] : null;
+        return $row ? ['id' => (int) $row['id'], 'title' => $row['title'], 'room' => $row['room'],
+            'url' => self::url($row['room'], $row['mode']), 'mode' => $row['mode'],
+            'is_broadcast' => $row['audience'] === 'broadcast'] : null;
     }
 
     /** Latest active meeting a CBC can join/host, or null. */
     public static function forCbc(int $cbcUserId): ?array
     {
         $row = DB::one(
-            "SELECT id, title, room, mode, host_cbc_id FROM meetings
-             WHERE is_active = 1 AND (audience IN ('all','cbc') OR host_cbc_id = ?)
+            "SELECT id, title, room, mode, audience, host_cbc_id FROM meetings
+             WHERE is_active = 1 AND (audience IN ('all','cbc','broadcast') OR host_cbc_id = ?)
              ORDER BY id DESC LIMIT 1",
             [$cbcUserId]
         );
         return $row ? ['id' => (int) $row['id'], 'title' => $row['title'], 'room' => $row['room'],
             'url' => self::url($row['room'], $row['mode']),
-            'mode' => $row['mode'], 'is_host' => ((int) $row['host_cbc_id'] === $cbcUserId)] : null;
+            'mode' => $row['mode'], 'is_broadcast' => $row['audience'] === 'broadcast',
+            'is_host' => ((int) $row['host_cbc_id'] === $cbcUserId)] : null;
     }
 
     /** BC WHERE clause (uses alias b on the bcs table) for a meeting's audience; null = no BCs. */
@@ -154,6 +157,7 @@ final class Meetings
         switch ($m['audience']) {
             case 'all':
             case 'bc':
+            case 'broadcast':   // broadcast reaches every active BC
                 return 'b.is_active = 1';
             case 'branch':
                 $params[] = (int) $m['branch_id'];
@@ -231,8 +235,11 @@ final class Meetings
         if (!$m) {
             return;
         }
-        $title = mb_substr('📹 ' . $m['title'], 0, 150);
-        $body = ($m['mode'] === 'voice' ? 'Voice' : 'Video') . ' meeting shuru ho gayi hai. App kholkar "Join" dabayein.';
+        $isBroadcast = ($m['audience'] ?? '') === 'broadcast';
+        $title = mb_substr(($isBroadcast ? '📢 ' : '📹 ') . $m['title'], 0, 150);
+        $body = $isBroadcast
+            ? 'LIVE broadcast shuru ho gaya hai. App kholkar "Join" dabayein.'
+            : (($m['mode'] === 'voice' ? 'Voice' : 'Video') . ' meeting shuru ho gayi hai. App kholkar "Join" dabayein.');
 
         $params = [];
         $w = self::bcWhere($m, $params);
@@ -249,14 +256,143 @@ final class Meetings
                 }
             }
         }
-        if (in_array($m['audience'], ['all', 'cbc'], true)) {
-            foreach (DB::all("SELECT id FROM users WHERE role = 'cbc' AND is_active = 1") as $u) {
+        // Staff ring: a broadcast rings EVERY active staff member (admin/supervisor/manager/cbc);
+        // a normal 'all'/'cbc' meeting rings only CBC supervisors, as before.
+        $staffSql = $isBroadcast
+            ? 'SELECT id FROM users WHERE is_active = 1'
+            : (in_array($m['audience'], ['all', 'cbc'], true) ? "SELECT id FROM users WHERE role = 'cbc' AND is_active = 1" : null);
+        if ($staffSql !== null) {
+            foreach (DB::all($staffSql) as $u) {
                 try {
-                    Fcm::pushToCbc((int) $u['id'], ['id' => 0, 'kind' => 'meeting', 'title' => $title, 'body' => $body]);
+                    Fcm::pushToCbc((int) $u['id'], ['id' => 0, 'kind' => 'meeting', 'title' => $title, 'body' => $body,
+                        'meeting' => '1', 'ring' => '1']);
                 } catch (\Throwable $e) {
-                    Logger::warn('meeting FCM(cbc) failed: ' . $e->getMessage());
+                    Logger::warn('meeting FCM(staff) failed: ' . $e->getMessage());
                 }
             }
         }
+    }
+
+    // ------------------------------------------------------------------ broadcast helpers
+
+    public static function isBroadcast(array $m): bool
+    {
+        return ($m['audience'] ?? '') === 'broadcast';
+    }
+
+    public static function byId(int $id): ?array
+    {
+        return $id ? DB::one('SELECT * FROM meetings WHERE id = ?', [$id]) : null;
+    }
+
+    public static function byRoom(string $room): ?array
+    {
+        return $room !== '' ? DB::one('SELECT * FROM meetings WHERE room = ? ORDER BY id DESC LIMIT 1', [$room]) : null;
+    }
+
+    /** May this actor join / read the chat of this meeting? Server-side audience enforcement. */
+    public static function canAccess(array $m, string $type, int $id, array $row): bool
+    {
+        if ((int) ($m['is_active'] ?? 0) !== 1) {
+            return false;
+        }
+        $aud = (string) ($m['audience'] ?? '');
+        if ($type === 'bc') {
+            switch ($aud) {
+                case 'all':
+                case 'bc':
+                case 'broadcast':
+                    return true;
+                case 'branch':
+                    return (int) ($row['branch_id'] ?? 0) === (int) $m['branch_id'];
+                case 'cbc_bcs':
+                    return (int) ($row['cbc_id'] ?? 0) === (int) $m['host_cbc_id'];
+                case 'one_bc':
+                    return (int) ($row['id'] ?? 0) === (int) $m['target_bc_id'];
+                case 'selected':
+                    return (bool) DB::val('SELECT 1 FROM meeting_invites WHERE meeting_id = ? AND bc_id = ?', [(int) $m['id'], (int) ($row['id'] ?? 0)]);
+                default:
+                    return false; // 'cbc' => staff only
+            }
+        }
+        if (App::staffSeesAll($row)) {
+            return true;
+        }
+        return in_array($aud, ['all', 'cbc', 'broadcast'], true) || (int) ($m['host_cbc_id'] ?? 0) === $id;
+    }
+
+    /**
+     * May this actor publish audio/video in this meeting?
+     * Normal meeting: everyone. Broadcast: only moderators (admin/supervisor or the host) and
+     * participants the host has promoted (meeting_speakers). Everyone else is view-only.
+     */
+    public static function canPublishFor(array $m, string $type, int $id, array $row, string $actor): bool
+    {
+        if (!self::isBroadcast($m)) {
+            return true;
+        }
+        $isMod = $type !== 'bc' && (App::staffSeesAll($row) || (int) ($m['host_cbc_id'] ?? 0) === $id);
+        return $isMod || self::isSpeaker((int) $m['id'], $actor);
+    }
+
+    public static function isSpeaker(int $meetingId, string $actor): bool
+    {
+        return (bool) DB::val('SELECT 1 FROM meeting_speakers WHERE meeting_id = ? AND actor = ?', [$meetingId, $actor]);
+    }
+
+    public static function allowSpeak(int $meetingId, string $actor): void
+    {
+        DB::exec('INSERT IGNORE INTO meeting_speakers (meeting_id, actor, granted_at) VALUES (?, ?, NOW())', [$meetingId, mb_substr($actor, 0, 24)]);
+    }
+
+    public static function revokeSpeak(int $meetingId, string $actor): void
+    {
+        DB::exec('DELETE FROM meeting_speakers WHERE meeting_id = ? AND actor = ?', [$meetingId, $actor]);
+    }
+
+    // ------------------------------------------------------------------ in-meeting group chat (persistent)
+
+    public static function chatPost(int $meetingId, string $actor, string $name, bool $isStaff, string $body): int
+    {
+        return DB::insert(
+            'INSERT INTO meeting_messages (meeting_id, actor, name, is_staff, body, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
+            [$meetingId, mb_substr($actor, 0, 24), mb_substr($name, 0, 80), $isStaff ? 1 : 0, mb_substr($body, 0, 2000)]
+        );
+    }
+
+    /**
+     * Messages for a meeting. $afterId <= 0 returns the latest $limit (oldest-first);
+     * $afterId > 0 returns messages newer than that id (for polling).
+     * @return list<array>
+     */
+    public static function chatSince(int $meetingId, int $afterId, int $limit = 80): array
+    {
+        $limit = max(1, min(100, $limit));
+        if ($afterId <= 0) {
+            $rows = DB::all(
+                'SELECT id, actor, name, is_staff, body, created_at FROM meeting_messages WHERE meeting_id = ? ORDER BY id DESC LIMIT ' . $limit,
+                [$meetingId]
+            );
+            return array_reverse($rows);
+        }
+        return DB::all(
+            'SELECT id, actor, name, is_staff, body, created_at FROM meeting_messages WHERE meeting_id = ? AND id > ? ORDER BY id ASC LIMIT ' . $limit,
+            [$meetingId, $afterId]
+        );
+    }
+
+    /** Format chat rows for a specific viewer (adds "mine"); strips nothing else. */
+    public static function chatFormat(array $rows, string $viewerActor): array
+    {
+        return array_map(static function (array $r) use ($viewerActor): array {
+            return [
+                'id' => (int) $r['id'],
+                'name' => (string) $r['name'],
+                'body' => (string) $r['body'],
+                'staff' => (int) $r['is_staff'] === 1,
+                'mine' => (string) $r['actor'] === $viewerActor,
+                'time' => date('h:i A', strtotime((string) $r['created_at'])),
+            ];
+        }, $rows);
     }
 }

@@ -13,10 +13,12 @@
   function toast(t) { var el = document.getElementById('toast'); el.textContent = t; el.className = 'toast show'; setTimeout(function () { el.className = 'toast'; }, 2600); }
   function meetBanner(m) {
     if (!m || !m.url) return '';
-    var icon = m.mode === 'voice' ? '🎙️' : '📹';
-    return '<a class="meet-banner" target="_blank" rel="noopener" href="' + esc(m.url) + '">' +
+    var bc = !!m.is_broadcast;
+    var icon = bc ? '📢' : (m.mode === 'voice' ? '🎙️' : '📹');
+    var sub = bc ? 'LIVE Broadcast – tap karke judein' : ((m.mode === 'voice' ? 'Voice' : 'Video') + ' meeting live hai – tap karke judein');
+    return '<a class="meet-banner' + (bc ? ' broadcast' : '') + '" target="_blank" rel="noopener" href="' + esc(m.url) + '">' +
       '<div class="mb-info"><div class="mb-title">' + icon + ' ' + esc(m.title || 'Meeting') + '</div>' +
-      '<div class="mb-sub">' + (m.mode === 'voice' ? 'Voice' : 'Video') + ' meeting live hai – tap karke judein</div></div><span class="mb-join">Join</span></a>';
+      '<div class="mb-sub">' + sub + '</div></div><span class="mb-join">Join</span></a>';
   }
   function openExt(url) {
     var a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener';
@@ -109,9 +111,10 @@
   function ringMeeting(m) {
     var d = document.createElement('div');
     d.className = 'meet-ring';
-    d.innerHTML = '<div class="mr-box"><div class="mr-ic">' + (m.mode === 'voice' ? '🎙️' : '📹') + '</div>' +
-      '<div class="mr-t">' + esc(m.title || 'Meeting') + '</div>' +
-      '<div class="mr-s">' + (m.mode === 'voice' ? 'Voice' : 'Video') + ' meeting shuru ho gayi hai – judein</div>' +
+    var bc = !!m.is_broadcast;
+    d.innerHTML = '<div class="mr-box"><div class="mr-ic">' + (bc ? '📢' : (m.mode === 'voice' ? '🎙️' : '📹')) + '</div>' +
+      '<div class="mr-t">' + esc(m.title || (bc ? 'Broadcast' : 'Meeting')) + '</div>' +
+      '<div class="mr-s">' + (bc ? 'LIVE Broadcast shuru ho gaya hai – judein' : ((m.mode === 'voice' ? 'Voice' : 'Video') + ' meeting shuru ho gayi hai – judein')) + '</div>' +
       '<a class="btn" id="mrJoin" target="_blank" rel="noopener" href="' + esc(m.url) + '">Join karein</a>' +
       '<button class="btn light" id="mrLater">Baad mein</button></div>';
     document.body.appendChild(d);

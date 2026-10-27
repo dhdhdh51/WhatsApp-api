@@ -123,6 +123,25 @@ final class Livekit
         return $out;
     }
 
+    /**
+     * Host action (broadcast): grant or revoke a participant's permission to publish
+     * audio/video. Used to promote a raised hand to speak, or send them back to view-only.
+     * canPublishData / canSubscribe stay on so chat and watching keep working either way.
+     */
+    public static function setCanPublish(string $room, string $identity, bool $canPublish): bool
+    {
+        $r = self::rpc('UpdateParticipant', $room, [
+            'room' => $room,
+            'identity' => $identity,
+            'permission' => [
+                'can_subscribe' => true,
+                'can_publish' => $canPublish,
+                'can_publish_data' => true,
+            ],
+        ]);
+        return $r !== null;
+    }
+
     /** Host action: mute / unmute one participant's microphone. */
     public static function setMuted(string $room, string $identity, bool $muted): bool
     {

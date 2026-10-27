@@ -206,6 +206,8 @@ tr:last-child td { border-bottom: none; }
 .meet-banner .mb-title { font-weight: 800; font-size: 15px; }
 .meet-banner .mb-sub { font-size: 12px; opacity: .9; }
 .meet-banner .mb-join { background: #fff; color: #4f46e5; font-weight: 800; font-size: 14px; padding: 8px 16px; border-radius: 999px; flex: none; }
+.meet-banner.broadcast { background: linear-gradient(135deg, #e11d48 0%, #b91c1c 100%); box-shadow: 0 10px 22px -10px rgba(225,29,72,.6); }
+.meet-banner.broadcast .mb-join { color: #b91c1c; }
 
 /* ---------- CBC meeting host controls ---------- */
 .host-card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 13px 14px; margin-bottom: 13px; box-shadow: var(--shadow-sm); }

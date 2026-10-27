@@ -1,26 +1,32 @@
-/* BC Daily Report – group video/voice on our own LiveKit server.
+/* BC Daily Report – group video/voice + live broadcast on our own LiveKit server.
    Used by /app/meet.html (app users) and /meet.php (panel staff).
 
-   Big rooms: audio for everyone, video only for the tiles on the current page
-   (adaptiveStream pauses the rest). Active speakers and raised hands sort to
-   the front. Tap a tile to zoom it. Host can mute/unmute. In-meeting chat
-   rides on the LiveKit data channel. */
+   Meeting   : everyone publishes; big rooms paginate; host can mute/unmute.
+   Broadcast : the audience joins view-only (token canPublish=false), only the host (and
+               anyone the host promotes) publishes. Viewers raise a hand ✋ and the host can
+               "allow to speak". In-meeting chat is persistent (DB-backed, polled) so late
+               joiners and view-only viewers see the whole thread. */
 (function () {
   'use strict';
-  var root, grid, bar, pager, audioBox, statusEl, titleEl, countEl, chatBox, chatLog, chatIn, handsEl;
+  var root, grid, bar, pager, audioBox, statusEl, titleEl, countEl, chatBox, chatLog, chatIn, handsEl, liveEl, trayEl;
   var room = null, cfg = null, isHost = false, mode = 'video';
+  var canPublish = true, broadcastMode = false, myHand = false, viewers = 1;
   var P = {};                 // identity -> { name, isLocal, videoTrack, el, speaking, micOff, hand }
+  var hands = {};             // identity -> name (raised hands, for the host tray / badge)
   var page = 0, pinned = null, chatOpen = false, unread = 0;
+  var lastChatId = 0, chatTimer = null, micOn = false, camOn = false, chatBtn = null, handBtn = null;
   var PER = Math.max(1, Math.min(12, parseInt((location.search.match(/[?&]per=(\d+)/) || [])[1] || '6', 10) || 6));
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function enc(o) { return new TextEncoder().encode(JSON.stringify(o)); }
   function q(s) { return root.querySelector(s); }
 
   function build() {
     root = document.getElementById('meet') || document.body;
     root.innerHTML =
       '<div class="mt-top"><div class="mt-head"><div class="mt-title">Meeting</div><div class="mt-status">Connect ho raha hai…</div></div>' +
-      '<div class="mt-hands"></div><div class="mt-count">0</div></div>' +
+      '<div class="mt-live"></div><div class="mt-hands"></div><div class="mt-count">0</div></div>' +
+      '<div class="mt-tray"></div>' +
       '<div class="mt-grid"></div>' +
       '<div class="mt-pager"></div>' +
       '<div class="mt-chat"><div class="mt-chat-log"></div>' +
@@ -29,7 +35,7 @@
       '<div class="mt-audio" aria-hidden="true"></div>';
     grid = q('.mt-grid'); bar = q('.mt-bar'); pager = q('.mt-pager');
     audioBox = q('.mt-audio'); statusEl = q('.mt-status'); titleEl = q('.mt-title');
-    countEl = q('.mt-count'); handsEl = q('.mt-hands');
+    countEl = q('.mt-count'); handsEl = q('.mt-hands'); liveEl = q('.mt-live'); trayEl = q('.mt-tray');
     chatBox = q('.mt-chat'); chatLog = q('.mt-chat-log'); chatIn = q('.mt-chat-in input');
     q('.mt-chat-in button').onclick = sendChat;
     chatIn.onkeydown = function (e) { if (e.key === 'Enter') sendChat(); };
@@ -50,10 +56,13 @@
       '<div class="mt-ph">' + esc((p.name || '?').charAt(0).toUpperCase()) + '</div>' +
       '<div class="mt-name"><span class="mt-mic"></span><span class="mt-nm"></span></div>' +
       '<div class="mt-hand">✋</div>' +
-      (isHost && !p.isLocal ? '<button class="mt-mod" title="Mute / unmute">🔇</button>' : '');
+      (isHost && !p.isLocal ? '<button class="mt-mod" title="Mute / unmute">🔇</button>' : '') +
+      (isHost && broadcastMode && !p.isLocal ? '<button class="mt-demote" title="View-only">⬇️</button>' : '');
     d.onclick = function () { pinned = (pinned === id) ? null : id; render(); };
     var mod = d.querySelector('.mt-mod');
     if (mod) mod.onclick = function (e) { e.stopPropagation(); setMuted(id, !P[id].micOff); };
+    var dem = d.querySelector('.mt-demote');
+    if (dem) dem.onclick = function (e) { e.stopPropagation(); promote(id, false); };
     return d;
   }
   function updateTile(id) {
@@ -125,13 +134,19 @@
       updateTile(id);
     });
 
+    if (!ids.length) {
+      grid.innerHTML = '<div class="mt-wait">' + (broadcastMode ? 'Host connect ho raha hai… 📢' : 'Koi aur nahi juda hai.') + '</div>';
+    }
     grid.classList.toggle('zoomed', !!pinned);
     grid.style.gridTemplateColumns = 'repeat(' + (pinned ? 1 : (vis.length <= 1 ? 1 : (vis.length <= 4 ? 2 : 3))) + ', 1fr)';
-    countEl.textContent = '👥 ' + ids.length;
-    var hands = ids.filter(function (i) { return P[i].hand; });
-    handsEl.textContent = hands.length ? '✋ ' + hands.length : '';
-    handsEl.title = hands.map(function (i) { return P[i].name; }).join(', ');
+    updateCount();
+    updateHandsBadge();
     quality(ids.length);
+  }
+
+  function updateCount() {
+    if (broadcastMode) countEl.textContent = '👁 ' + Math.max(viewers, Object.keys(P).length);
+    else countEl.textContent = '👥 ' + Object.keys(P).length;
   }
 
   /** Low-res video when many people are on screen; full quality for a zoomed tile. */
@@ -161,26 +176,46 @@
     delete P[identity];
   }
 
-  // ---------------------------------------------------------------- chat (data channel)
-  function addChat(name, text, mine) {
+  // ---------------------------------------------------------------- persistent chat (DB-backed)
+  function chatReq(method, extra, body) {
+    var headers = { Accept: 'application/json' };
+    var url;
+    if (cfg.chat_url) {                               // panel (session + CSRF)
+      url = cfg.chat_url + (extra || '');
+      if (method === 'POST' && cfg.csrf) headers['X-CSRF-TOKEN'] = cfg.csrf;
+    } else {                                          // app (bearer token)
+      url = '/api/app.php?a=meet_chat' + (extra || '');
+      var t = localStorage.getItem('bc_token'); if (t) headers.Authorization = 'Bearer ' + t;
+    }
+    var init = { method: method, headers: headers };
+    if (body) { headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(body); }
+    return fetch(url, init).then(function (r) { return r.json(); }).catch(function () { return { ok: false }; });
+  }
+  function renderMsg(m) {
+    if (!m || m.id <= lastChatId) return;             // monotonic dedupe
+    lastChatId = m.id;
     var d = document.createElement('div');
-    d.className = 'mt-msg' + (mine ? ' mine' : '');
-    d.innerHTML = '<b>' + esc(name) + '</b> ' + esc(text);
+    d.className = 'mt-msg' + (m.mine ? ' mine' : '') + (m.staff ? ' staff' : '');
+    d.innerHTML = '<b>' + esc(m.name) + '</b> ' + esc(m.body) + '<i class="mt-t">' + esc(m.time || '') + '</i>';
     chatLog.appendChild(d);
     chatLog.scrollTop = chatLog.scrollHeight;
-    if (!chatOpen && !mine) { unread++; paintChatBtn(); }
+    if (!chatOpen && !m.mine) { unread++; paintChatBtn(); }
+  }
+  function chatPoll() {
+    chatReq('GET', '&after=' + lastChatId).then(function (r) {
+      if (r && r.ok && r.rows) r.rows.forEach(renderMsg);
+    });
   }
   function sendChat() {
     var t = (chatIn.value || '').trim();
-    if (!t || !room) return;
+    if (!t) return;
     chatIn.value = '';
-    try {
-      var payload = new TextEncoder().encode(JSON.stringify({ t: 'chat', n: cfg.name || 'Main', m: t }));
-      room.localParticipant.publishData(payload, { reliable: true });
-    } catch (e) {}
-    addChat((cfg.name || 'Main') + ' (aap)', t, true);
+    chatReq('POST', '&after=' + lastChatId, { body: t }).then(function (r) {
+      if (r && r.ok && r.rows) r.rows.forEach(renderMsg);
+      else setStatus('Message nahi gaya – dobara koshish karein');
+    });
   }
-  var chatBtn = null;
+  function startChat() { chatPoll(); chatTimer = setInterval(chatPoll, 3000); }
   function paintChatBtn() { if (chatBtn) chatBtn.innerHTML = '💬' + (unread ? '<i>' + unread + '</i>' : ''); }
   function toggleChat() {
     chatOpen = !chatOpen;
@@ -188,22 +223,64 @@
     if (chatOpen) { unread = 0; paintChatBtn(); chatIn.focus(); }
   }
 
-  // ---------------------------------------------------------------- hand raise
+  // ---------------------------------------------------------------- hand raise + host promote
   function toggleHand() {
     if (!room) return;
-    var me = P['me'];
-    me.hand = !me.hand;
-    try { room.localParticipant.setAttributes({ hand: me.hand ? '1' : '' }); } catch (e) {}
-    try {
-      room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ t: 'hand', up: me.hand })), { reliable: true });
-    } catch (e) {}
-    if (handBtn) handBtn.style.opacity = me.hand ? 1 : .55;
-    updateTile('me');
+    myHand = !myHand;
+    if (P['me']) P['me'].hand = myHand;
+    try { room.localParticipant.setAttributes({ hand: myHand ? '1' : '' }); } catch (e) {}
+    try { room.localParticipant.publishData(enc({ t: 'hand', up: myHand, n: cfg.name || 'Main' }), { reliable: true }); } catch (e) {}
+    if (handBtn) handBtn.style.opacity = myHand ? 1 : .55;
+    if (P['me']) updateTile('me');
+    if (myHand && broadcastMode && !canPublish) setStatus('✋ Haath uthaya – host se bolne ki permission ka intezaar…');
+    else if (!myHand && broadcastMode && !canPublish) setStatus('LIVE – aap dekh/sun rahe hain');
     render();
   }
-  var handBtn = null;
+  function handRaised(identity, name, up) {
+    if (!identity) return;
+    if (up) hands[identity] = name || (P[identity] && P[identity].name) || 'Koi';
+    else delete hands[identity];
+    if (P[identity]) { P[identity].hand = !!up; updateTile(identity); }
+    updateHandsBadge(); renderTray();
+  }
+  function updateHandsBadge() {
+    var ids = Object.keys(hands);
+    handsEl.textContent = ids.length ? '✋ ' + ids.length : '';
+    handsEl.title = ids.map(function (i) { return hands[i]; }).join(', ');
+  }
+  function renderTray() {
+    if (!trayEl) return;
+    var ids = Object.keys(hands);
+    if (!isHost || !broadcastMode || !ids.length) { trayEl.className = 'mt-tray'; trayEl.innerHTML = ''; return; }
+    trayEl.className = 'mt-tray open';
+    trayEl.innerHTML = '<div class="mt-tray-h">✋ Bolna chahte hain (' + ids.length + ')</div>';
+    ids.forEach(function (id) {
+      var r = document.createElement('div'); r.className = 'mt-tray-row';
+      var s = document.createElement('span'); s.textContent = hands[id]; r.appendChild(s);
+      var b = document.createElement('button'); b.textContent = '🎤 Allow';
+      b.onclick = function () { promote(id, true); };
+      r.appendChild(b); trayEl.appendChild(r);
+    });
+  }
+  function promote(identity, allow) {
+    var headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
+    var url;
+    if (cfg.promote_url) { url = cfg.promote_url; if (cfg.csrf) headers['X-CSRF-TOKEN'] = cfg.csrf; }
+    else { url = '/api/app.php?a=meet_promote'; var t = localStorage.getItem('bc_token'); if (t) headers.Authorization = 'Bearer ' + t; }
+    return fetch(url, { method: 'POST', headers: headers, body: JSON.stringify({ identity: identity, allow: allow }) })
+      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        if (r && r.ok) {
+          try { room.localParticipant.publishData(enc({ t: 'promote', id: identity, allow: allow }), { reliable: true }); } catch (e) {}
+          if (allow) { delete hands[identity]; if (P[identity]) P[identity].hand = false; }
+          updateHandsBadge(); renderTray();
+          setStatus(allow ? 'Bolne ki permission de di' : 'Wapas view-only kar diya');
+        } else { setStatus('Permission badal nahi payi'); }
+        return r;
+      }).catch(function () { return { ok: false }; });
+  }
 
-  // ---------------------------------------------------------------- host actions
+  // ---------------------------------------------------------------- host mute
   function setMuted(identity, muted) {
     if (!isHost) return;
     api('meet_mute', { identity: identity, muted: muted }).then(function (r) {
@@ -215,7 +292,7 @@
     if (!isHost) return;
     api('meet_mute', { identity: '*', muted: true }).then(function (r) {
       setStatus(r && r.ok ? ((r.changed || 0) + ' logon ko mute kiya') : 'Mute nahi ho paya');
-      setTimeout(function () { setStatus('Connected'); }, 2500);
+      setTimeout(function () { setStatus(liveStatus()); }, 2500);
     });
   }
   function api(action, body) {
@@ -238,6 +315,75 @@
     return b;
   }
 
+  // ---------------------------------------------------------------- local media / publish state
+  function liveStatus() {
+    if (broadcastMode && !canPublish) return 'LIVE – aap dekh/sun rahe hain';
+    if (broadcastMode) return '🔴 LIVE – aap present kar rahe hain';
+    return 'Connected';
+  }
+  function enableLocalMedia() {
+    micOn = true;
+    return room.localParticipant.setMicrophoneEnabled(true).then(function () {
+      if (mode !== 'video') return null;
+      camOn = true;
+      return room.localParticipant.setCameraEnabled(true).then(function () {
+        var pubs = Array.from(room.localParticipant.videoTrackPublications.values());
+        if (pubs.length && pubs[0].track && P['me']) P['me'].videoTrack = pubs[0].track;
+      });
+    });
+  }
+  function toggleMic() {
+    micOn = !micOn;
+    room.localParticipant.setMicrophoneEnabled(micOn);
+    var b = bar.querySelector('.mic-btn'); if (b) b.style.opacity = micOn ? 1 : .45;
+  }
+  function toggleCam() {
+    camOn = !camOn;
+    room.localParticipant.setCameraEnabled(camOn).then(function () {
+      var pubs = Array.from(room.localParticipant.videoTrackPublications.values());
+      if (P['me']) P['me'].videoTrack = (camOn && pubs.length && pubs[0].track) ? pubs[0].track : null;
+      var v = P['me'] && P['me'].el && P['me'].el.querySelector('video');
+      if (v) v.dataset.att = '';
+      updateTile('me');
+    });
+    var b = bar.querySelector('.cam-btn'); if (b) b.style.opacity = camOn ? 1 : .45;
+  }
+  function renderBar() {
+    bar.innerHTML = '';
+    if (canPublish) {
+      var mb = btn('🎤', toggleMic, 'mic-btn'); mb.style.opacity = micOn ? 1 : .45;
+      if (mode === 'video') { var cb = btn('📷', toggleCam, 'cam-btn'); cb.style.opacity = camOn ? 1 : .45; }
+    }
+    handBtn = btn('✋', toggleHand, 'hand'); handBtn.style.opacity = myHand ? 1 : .55;
+    handBtn.title = canPublish ? 'Haath uthayein' : 'Bolne ke liye haath uthayein';
+    chatBtn = btn('💬', toggleChat, 'chat'); paintChatBtn();
+    if (isHost) btn('🔇 Sabko mute', muteAll, 'wide');
+    btn('📴', function () { try { room.disconnect(); } catch (e) {} }, 'red');
+  }
+  /** Re-sync UI when the server grants or revokes our publish permission (broadcast promote). */
+  function syncLocalPublish() {
+    if (!room || !room.localParticipant) return;
+    var perm = room.localParticipant.permissions;
+    var allowed = perm ? !!perm.canPublish : canPublish;
+    if (allowed === canPublish) return;
+    canPublish = allowed;
+    if (allowed) {
+      upsert('me', cfg.name || 'Main', true);
+      myHand = false; if (P['me']) P['me'].hand = false;
+      try { room.localParticipant.setAttributes({ hand: '' }); } catch (e) {}
+      enableLocalMedia().then(function () { updateTile('me'); render(); });
+      setStatus('✅ Aap ab bol sakte hain');
+    } else {
+      micOn = camOn = false;
+      try { room.localParticipant.setMicrophoneEnabled(false); } catch (e) {}
+      try { room.localParticipant.setCameraEnabled(false); } catch (e) {}
+      drop('me');
+      setStatus('🔇 Aap wapas view-only hain');
+    }
+    renderBar();
+    render();
+  }
+
   // ---------------------------------------------------------------- bootstrap
   function config() {
     if (window.MEET_CONFIG) return Promise.resolve(window.MEET_CONFIG);
@@ -256,7 +402,10 @@
       cfg = c;
       mode = c.mode === 'voice' ? 'voice' : 'video';
       isHost = !!c.is_host;
-      titleEl.textContent = c.title || 'Meeting';
+      broadcastMode = !!c.is_broadcast;
+      canPublish = (c.can_publish !== false);
+      titleEl.textContent = c.title || (broadcastMode ? 'Broadcast' : 'Meeting');
+      if (broadcastMode) liveEl.textContent = '🔴 LIVE';
       join();
     });
   }
@@ -282,6 +431,7 @@
         p.audioEl = a;
         p.micOff = !!pub.isMuted;
       }
+      if (hands[rp.identity]) { delete hands[rp.identity]; updateHandsBadge(); renderTray(); } // promoted -> speaking
       render();
     });
     room.on(LK.RoomEvent.TrackUnsubscribed, function (track, pub, rp) {
@@ -292,12 +442,22 @@
         if (v && v.dataset.att === '1') { try { track.detach(v); } catch (e) {} v.dataset.att = ''; }
         p.videoTrack = null;
       } else if (p.audioEl) { try { track.detach(p.audioEl); } catch (e) {} p.audioEl.remove(); p.audioEl = null; }
+      // in a broadcast, a participant with no more tracks is back to a plain viewer – drop the tile
+      if (broadcastMode && !p.videoTrack && !p.audioEl && !p.isLocal) drop(rp.identity);
       render();
     });
     room.on(LK.RoomEvent.TrackMuted, function (pub, rp) { if (P[rp.identity] && pub.kind === 'audio') { P[rp.identity].micOff = true; updateTile(rp.identity); } });
     room.on(LK.RoomEvent.TrackUnmuted, function (pub, rp) { if (P[rp.identity] && pub.kind === 'audio') { P[rp.identity].micOff = false; updateTile(rp.identity); } });
-    room.on(LK.RoomEvent.ParticipantConnected, function (rp) { upsert(rp.identity, rp.name || rp.identity, false); setStatus('Connected'); render(); });
-    room.on(LK.RoomEvent.ParticipantDisconnected, function (rp) { drop(rp.identity); render(); });
+    room.on(LK.RoomEvent.ParticipantConnected, function (rp) {
+      if (broadcastMode) { viewers++; updateCount(); }      // viewers don't get a tile until they publish
+      else { upsert(rp.identity, rp.name || rp.identity, false); setStatus('Connected'); render(); }
+    });
+    room.on(LK.RoomEvent.ParticipantDisconnected, function (rp) {
+      if (hands[rp.identity]) { delete hands[rp.identity]; updateHandsBadge(); renderTray(); }
+      drop(rp.identity);
+      if (broadcastMode) viewers = Math.max(1, viewers - 1);
+      render();
+    });
     room.on(LK.RoomEvent.ActiveSpeakersChanged, function (sp) {
       var on = {};
       sp.forEach(function (s) { on[s.identity] = true; });
@@ -306,56 +466,42 @@
     });
     if (LK.RoomEvent.ParticipantAttributesChanged) {
       room.on(LK.RoomEvent.ParticipantAttributesChanged, function (changed, rp) {
-        var p = P[rp.identity];
-        if (!p) return;
-        if (changed && typeof changed.hand !== 'undefined') { p.hand = changed.hand === '1'; render(); }
+        if (rp === room.localParticipant) return;
+        if (changed && typeof changed.hand !== 'undefined') handRaised(rp.identity, rp.name || rp.identity, changed.hand === '1');
+      });
+    }
+    if (LK.RoomEvent.ParticipantPermissionsChanged) {
+      room.on(LK.RoomEvent.ParticipantPermissionsChanged, function (prev, participant) {
+        if (!participant || participant === room.localParticipant || participant.isLocal) syncLocalPublish();
       });
     }
     room.on(LK.RoomEvent.DataReceived, function (payload, rp) {
       var msg;
       try { msg = JSON.parse(new TextDecoder().decode(payload)); } catch (e) { return; }
       if (!msg) return;
-      if (msg.t === 'chat') addChat(msg.n || (rp && rp.name) || 'Koi', msg.m || '', false);
-      else if (msg.t === 'hand' && rp && P[rp.identity]) { P[rp.identity].hand = !!msg.up; render(); }
+      if (msg.t === 'hand' && rp) handRaised(rp.identity, msg.n || rp.name || rp.identity, !!msg.up);
+      else if (msg.t === 'promote' && room.localParticipant && msg.id === room.localParticipant.identity) {
+        if (msg.allow) setStatus('✅ Host ne aapko bolne ki permission di');
+        setTimeout(syncLocalPublish, 400);
+      }
     });
-    room.on(LK.RoomEvent.Disconnected, function () { setStatus('Meeting khatam'); setTimeout(function () { history.back(); }, 1200); });
+    room.on(LK.RoomEvent.Disconnected, function () {
+      if (chatTimer) { clearInterval(chatTimer); chatTimer = null; }
+      setStatus('Meeting khatam'); setTimeout(function () { history.back(); }, 1200);
+    });
 
     room.connect(cfg.url, cfg.token).then(function () {
-      setStatus('Connected');
-      var me = upsert('me', cfg.name || 'Main', true);
-      return room.localParticipant.setMicrophoneEnabled(true).then(function () {
-        if (mode !== 'video') return null;
-        return room.localParticipant.setCameraEnabled(true).then(function () {
-          var pubs = Array.from(room.localParticipant.videoTrackPublications.values());
-          if (pubs.length && pubs[0].track) me.videoTrack = pubs[0].track;
-        });
-      });
-    }).then(function () {
-      var micOn = true, camOn = mode === 'video';
-      var mb = btn('🎤', function () {
-        micOn = !micOn;
-        room.localParticipant.setMicrophoneEnabled(micOn);
-        mb.style.opacity = micOn ? 1 : .45;
-      });
-      if (mode === 'video') {
-        var cb = btn('📷', function () {
-          camOn = !camOn;
-          room.localParticipant.setCameraEnabled(camOn).then(function () {
-            var pubs = Array.from(room.localParticipant.videoTrackPublications.values());
-            P['me'].videoTrack = (camOn && pubs.length && pubs[0].track) ? pubs[0].track : null;
-            var v = P['me'].el && P['me'].el.querySelector('video');
-            if (v) v.dataset.att = '';
-            updateTile('me');
-          });
-          cb.style.opacity = camOn ? 1 : .45;
-        });
+      viewers = (room.remoteParticipants ? room.remoteParticipants.size : 0) + 1;
+      setStatus(liveStatus());
+      if (canPublish) {
+        upsert('me', cfg.name || 'Main', true);
+        return enableLocalMedia();
       }
-      handBtn = btn('✋', toggleHand);
-      handBtn.style.opacity = .55;
-      chatBtn = btn('💬', toggleChat, 'chat');
-      if (isHost) btn('🔇 Sabko mute', muteAll, 'wide');
-      btn('📴', function () { room.disconnect(); }, 'red');
+      return null;
+    }).then(function () {
+      renderBar();
       render();
+      startChat();
     }).catch(function (e) {
       fail('Join nahi ho payi: ' + (e && e.message ? e.message : 'camera/mic ya network problem'));
     });

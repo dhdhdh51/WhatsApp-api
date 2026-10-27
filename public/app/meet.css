@@ -83,3 +83,30 @@ html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
 .mt-btn.chat { position: relative; }
 .mt-btn.chat i { position: absolute; top: -2px; right: -2px; background: #e5484d; color: #fff;
   font-style: normal; font-size: 11px; font-weight: 800; border-radius: 999px; padding: 1px 6px; }
+
+/* ---------- live broadcast (town-hall) ---------- */
+.mt-live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800;
+  background: #e5484d; color: #fff; border-radius: 999px; padding: 5px 11px; letter-spacing: .3px; }
+.mt-live:empty { display: none; }
+.mt-live::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #fff; animation: mt-pulse 1.3s infinite; }
+@keyframes mt-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+
+.mt-wait { grid-column: 1 / -1; text-align: center; opacity: .7; font-size: 15px; padding: 48px 16px; }
+
+/* raised-hands queue (host, broadcast) */
+.mt-tray { display: none; }
+.mt-tray.open { display: block; margin: 0 8px 4px; background: #10201b; border: 1px solid #284a3e; border-radius: 14px; padding: 8px 10px; max-height: 32vh; overflow-y: auto; }
+.mt-tray-h { font-size: 12.5px; font-weight: 800; color: #fbbf24; margin-bottom: 6px; }
+.mt-tray-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 0; border-top: 1px solid #1c3329; }
+.mt-tray-row:first-of-type { border-top: 0; }
+.mt-tray-row span { font-size: 14px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mt-tray-row button { flex: none; border: 0; border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 700;
+  background: linear-gradient(135deg, #16a34a, #0d9488); color: #fff; }
+
+/* send a promoted speaker back to view-only */
+.mt-demote { position: absolute; top: 8px; right: 48px; z-index: 3; border: 0; border-radius: 999px;
+  width: 34px; height: 34px; font-size: 14px; background: rgba(0,0,0,.55); color: #fff; }
+
+/* chat: staff messages + timestamp */
+.mt-msg.staff b { color: #fcd34d; }
+.mt-msg .mt-t { display: block; font-style: normal; font-size: 10px; opacity: .55; margin-top: 2px; }

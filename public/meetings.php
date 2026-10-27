@@ -29,10 +29,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $mode = p('mode') === 'voice' ? 'voice' : 'video';
         $id = Meetings::create($title, $audience, $mode, $branchId, (int) $user['id']);
-        Meetings::notifyStart($id);
         Audit::log((int) $user['id'], 'meeting_start', 'meeting', $id, ['title' => $title, 'audience' => $audience, 'branch_id' => $branchId]);
-        flash('success', 'Meeting shuru ho gayi – audience ko notification bhej diya. Aap bhi "Join" se judein.');
-        redirect('/meetings.php');
+        flash('success', $audience === 'broadcast'
+            ? '📢 Broadcast shuru ho gaya – sabke phone pe ring + notification ja raha hai. Aap bhi "Join" se judein.'
+            : 'Meeting shuru ho gayi – audience ko notification bhej diya. Aap bhi "Join" se judein.');
+        // Answer the browser now, then fan out the ring in the background. A broadcast rings
+        // every BC and every staff member, so this keeps the "Start" click snappy.
+        header('Location: /meetings.php');
+        http_response_code(302);
+        session_write_close();
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();            // PHP-FPM
+        } elseif (function_exists('litespeed_finish_request')) {
+            litespeed_finish_request();          // LiteSpeed / OpenLiteSpeed (this server)
+        }
+        @set_time_limit(300);
+        Meetings::notifyStart($id);
+        exit;
     }
     if ($action === 'end') {
         $id = (int) p('id');
@@ -46,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $branches = DB::all('SELECT id, name, area FROM branches ORDER BY name');
 $active = DB::all("SELECT m.*, b.name branch, u.name by_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by WHERE m.is_active = 1 ORDER BY m.id DESC");
 $past = DB::all("SELECT m.*, b.name branch, u.name by_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by WHERE m.is_active = 0 ORDER BY m.id DESC LIMIT 15");
-$audLabel = ['all' => 'Everyone', 'bc' => 'All BCs', 'cbc' => 'All CBC supervisors', 'branch' => 'Branch'];
+$audLabel = ['broadcast' => '📢 Broadcast (everyone)', 'all' => 'Everyone', 'bc' => 'All BCs', 'cbc' => 'All CBC supervisors', 'branch' => 'Branch'];
 
 View::header('Meetings / मीटिंग', 'meetings');
 ?>
@@ -57,6 +70,7 @@ View::header('Meetings / मीटिंग', 'meetings');
         <div class="col-12"><label class="form-label small"><?= L('Title', 'शीर्षक') ?></label><input name="title" class="form-control form-control-sm" required maxlength="160" placeholder="e.g. Monthly review / मासिक समीक्षा"></div>
         <div class="col-7"><label class="form-label small"><?= L('Who can join', 'कौन जुड़ सकता है') ?></label>
           <select name="audience" id="aud" class="form-select form-select-sm">
+            <option value="broadcast">📢 Broadcast — everyone, view-only</option>
             <option value="all">Everyone (BC + CBC)</option>
             <option value="cbc">All CBC supervisors</option>
             <option value="bc">All BCs</option>
@@ -70,7 +84,8 @@ View::header('Meetings / मीटिंग', 'meetings');
           </select></div>
         <div class="col-12"><button class="btn btn-success btn-sm"><i class="bi bi-camera-video-fill"></i> <?= L('Start & notify', 'शुरू करें और सूचित करें') ?></button></div>
       </form>
-      <p class="small text-muted mt-2 mb-0">Start karte hi audience ke phone pe notification jaata hai aur app mein "Join" banner dikhta hai. Meeting video call <b>Jitsi</b> par khulti hai (camera/mic allow karein).</p>
+      <p class="small text-muted mt-2 mb-0">Start karte hi audience ke phone pe <b>ring + notification</b> jaata hai aur app mein "Join" banner dikhta hai. Call hamare apne server (LiveKit) par khulti hai (camera/mic allow karein).<br>
+        <b>📢 Broadcast</b> = sabko (har BC + staff) ring jaata hai aur sab <b>view-only</b> judte hain; aap present karte hain. Kisi ka haath uthe (✋) to use "bolne" ki permission de sakte hain.</p>
     </div></div>
   </div>
   <div class="col-lg-7">

@@ -79,7 +79,8 @@ if (!$actor) {
 // ------------------------------------------------------------------ is a meeting live for me? (does NOT count as joining)
 if ($action === 'meet_status') {
     $m = $actor['type'] === 'bc' ? Meetings::forBc($actor['row']) : Meetings::forCbc((int) $actor['id']);
-    out(['ok' => true, 'meeting' => $m ? ['title' => $m['title'], 'room' => $m['room'], 'mode' => $m['mode'], 'url' => $m['url']] : null]);
+    out(['ok' => true, 'meeting' => $m ? ['title' => $m['title'], 'room' => $m['room'], 'mode' => $m['mode'],
+        'url' => $m['url'], 'is_broadcast' => !empty($m['is_broadcast'])] : null]);
 }
 
 // ------------------------------------------------------------------ group meeting join token (BC + staff)
@@ -92,17 +93,22 @@ if ($action === 'meet_token') {
     }
     // same identity as the panel (user-N) so one person never joins twice and echoes
     $ident = ($actor['type'] === 'bc' ? 'bc-' : 'user-') . (int) $actor['id'];
-    $tok = Livekit::token($m['room'], $ident, (string) ($actor['row']['name'] ?? 'User'));
+    $mid = (int) ($m['id'] ?? Meetings::idForRoom((string) $m['room']));
+    $isBroadcast = !empty($m['is_broadcast']);
+    // admins/supervisors (and a CBC in their own meeting) moderate; in a broadcast everyone
+    // else is view-only until the host promotes them (meeting_speakers)
+    $isHost = $actor['type'] !== 'bc' && (!empty($m['is_host']) || App::staffSeesAll($actor['row']));
+    $canPublish = !$isBroadcast || $isHost || Meetings::isSpeaker($mid, $ident);
+    $tok = Livekit::token((string) $m['room'], $ident, (string) ($actor['row']['name'] ?? 'User'), $canPublish);
     if (!$tok) {
         fail('Meeting server configure nahi hai.', 500);
     }
-    $isHost = $actor['type'] !== 'bc' && (!empty($m['is_host']) || App::staffSeesAll($actor['row']));
-    $mid = (int) ($m['id'] ?? Meetings::idForRoom((string) $m['room']));
     if ($mid) {
         Meetings::markJoined($mid, $ident); // stops the "join karein" reminders for this person
     }
     out(['ok' => true, 'url' => Livekit::url(), 'token' => $tok, 'room' => $m['room'],
         'mode' => $m['mode'], 'title' => $m['title'], 'name' => $actor['row']['name'] ?? 'User',
+        'meeting_id' => $mid, 'is_broadcast' => $isBroadcast, 'can_publish' => $canPublish,
         'is_host' => $isHost]);
 }
 
@@ -137,6 +143,54 @@ if ($action === 'meet_mute') {
         fail('identity chahiye');
     }
     out(['ok' => Livekit::setMuted((string) $m['room'], $who, $muted)]);
+}
+
+// ------------------------------------------------------------------ in-meeting group chat (persistent)
+if ($action === 'meet_chat') {
+    $m = $actor['type'] === 'bc' ? Meetings::forBc($actor['row']) : Meetings::forCbc((int) $actor['id']);
+    if (!$m || empty($m['room'])) {
+        fail('Koi meeting live nahi hai.');
+    }
+    $mid = (int) ($m['id'] ?? Meetings::idForRoom((string) $m['room']));
+    $ident = ($actor['type'] === 'bc' ? 'bc-' : 'user-') . (int) $actor['id'];
+    if ($method === 'POST') {
+        $body = trim(str_replace("\r\n", "\n", (string) ($in['body'] ?? '')));
+        if ($body === '' || mb_strlen($body) > 2000) {
+            fail('Message likhein (max 2000 akshar).');
+        }
+        Meetings::chatPost($mid, $ident, (string) ($actor['row']['name'] ?? 'User'), $actor['type'] !== 'bc', $body);
+    }
+    $after = (int) ($_GET['after'] ?? 0);
+    out(['ok' => true, 'rows' => Meetings::chatFormat(Meetings::chatSince($mid, $after), $ident)]);
+}
+
+// ------------------------------------------------------------------ broadcast: host promotes a raised hand to speak
+if ($action === 'meet_promote') {
+    if ($method !== 'POST') {
+        fail('POST required', 405);
+    }
+    if ($actor['type'] === 'bc') {
+        fail('Sirf host kar sakta hai.', 403);
+    }
+    $m = Meetings::forCbc((int) $actor['id']);
+    if (!$m || empty($m['room'])) {
+        fail('Koi meeting live nahi hai.');
+    }
+    if (empty($m['is_host']) && !App::staffSeesAll($actor['row'])) {
+        fail('Sirf host kar sakta hai.', 403);
+    }
+    $mid = (int) ($m['id'] ?? Meetings::idForRoom((string) $m['room']));
+    $who = trim((string) ($in['identity'] ?? ''));
+    $allow = !empty($in['allow']);
+    if ($who === '') {
+        fail('identity chahiye');
+    }
+    if ($allow) {
+        Meetings::allowSpeak($mid, $who);
+    } else {
+        Meetings::revokeSpeak($mid, $who);
+    }
+    out(['ok' => Livekit::setCanPublish((string) $m['room'], $who, $allow), 'allow' => $allow]);
 }
 
 // ------------------------------------------------------------------ 1:1 calls (BC + CBC)
