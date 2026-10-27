@@ -55,9 +55,27 @@ final class Scope
         ), 'block');
     }
 
+    /** @var array<int,bool> per-request cache */
+    private static array $branchCache = [];
+
+    /** Does this user have a region (one or more branches) assigned? (BC Supervisors + Managers) */
+    public static function hasBranches(array $user): bool
+    {
+        $id = (int) ($user['id'] ?? 0);
+        if (!array_key_exists($id, self::$branchCache)) {
+            self::$branchCache[$id] = $id > 0 && (bool) DB::val('SELECT 1 FROM user_branches WHERE user_id = ? LIMIT 1', [$id]);
+        }
+        return self::$branchCache[$id];
+    }
+
     public static function seesAll(array $user): bool
     {
-        return in_array($user['role'], ['admin', 'supervisor'], true);
+        if (($user['role'] ?? '') === 'admin') {
+            return true;
+        }
+        // A BC Supervisor assigned a region (branches) sees only that region; with no region assigned
+        // they still see every BC (keeps existing supervisors working until a region is set).
+        return ($user['role'] ?? '') === 'supervisor' && !self::hasBranches($user);
     }
 
     /** CBC users whose BCs the user can see (for filters). Empty for a CBC. */

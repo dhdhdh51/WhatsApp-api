@@ -244,7 +244,10 @@ final class App
     /** Does this staff user see every BC (admin / supervisor) instead of only their own? */
     public static function staffSeesAll(array $row): bool
     {
-        return in_array($row['role'] ?? 'cbc', ['admin', 'supervisor'], true);
+        if (($row['role'] ?? '') === 'admin') {
+            return true;
+        }
+        return ($row['role'] ?? '') === 'supervisor' && !Scope::hasBranches($row);
     }
 
     /**

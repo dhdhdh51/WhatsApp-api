@@ -300,8 +300,8 @@ if (str_starts_with($action, 'call_')) {
 if ($actor['type'] === 'cbc') {
     $u = $actor['row'];
     $uid = (int) $actor['id'];
-    $seesAll = App::staffSeesAll($u);                 // admin / supervisor -> every BC
-    $bcFilter = $seesAll ? [] : ['cbc_id' => $uid];
+    $seesAll = App::staffSeesAll($u);                 // admin / region-less supervisor -> every BC
+    [$scopeW, $scopeP] = \App\Scope::bc($u);          // 1=1 (all) | cbc_id (cbc) | branch IN (regional supervisor)
     $today = Calendar::today();
     switch ($action) {
         case 'logout':
@@ -309,14 +309,12 @@ if ($actor['type'] === 'cbc') {
             out(['ok' => true]);
 
         case 'me':
-            out(['ok' => true, 'type' => 'cbc', 'role' => $seesAll ? ucfirst((string) $u['role']) : 'CBC',
+            out(['ok' => true, 'type' => 'cbc', 'role' => \App\Auth::roleLabel((string) ($u['role'] ?? 'cbc')),
                 'name' => $u['name'], 'phone' => $u['phone'],
-                'bc_count' => (int) ($seesAll
-                    ? DB::val('SELECT COUNT(*) FROM bcs WHERE is_active = 1')
-                    : DB::val('SELECT COUNT(*) FROM bcs WHERE cbc_id = ? AND is_active = 1', [$uid]))]);
+                'bc_count' => (int) DB::val("SELECT COUNT(*) FROM bcs b WHERE {$scopeW} AND b.is_active = 1", $scopeP)]);
 
         case 'status':
-            $rows = Calendar::dayRows($today, null, $bcFilter);
+            $rows = Calendar::dayRows($today, $u, []);
             $counts = ['submitted' => 0, 'pending' => 0, 'off' => 0];
             $bcs = [];
             foreach ($rows as $r) {
