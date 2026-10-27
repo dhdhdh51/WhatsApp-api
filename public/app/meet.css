@@ -251,3 +251,11 @@ html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
   .bcs-btn.end{min-width:52px;flex-direction:column;font-size:9px}
   .bcs-brand-sm{display:none}
 }
+
+/* top headlines band (news-style, under the header) */
+.bcs-ticker-top{position:relative;flex:none;height:34px;left:auto;right:auto;bottom:auto;
+  background:linear-gradient(90deg,#0a2457,var(--cb-navy));border-bottom:2px solid var(--cb-gold)}
+.bcs-ticker-top .bcs-ticker-tag{background:var(--cb-red)}
+.bcs-ticker-top .bcs-ticker-move{animation-duration:30s;font-weight:700}
+.bcs-ticker-top .bcs-ticker-move b{color:var(--cb-gold)}
+@media (max-width:900px){ .bcs-ticker-top{height:28px} .bcs-ticker-top .bcs-ticker-move{font-size:12px} }

@@ -240,6 +240,7 @@
       '<header class="bcs-top"><div class="bcs-brand"><div class="bcs-logo">' + (cfg.logo ? '<img src="' + esc(cfg.logo) + '" alt="">' : 'CBI') + '</div><div><b>' + esc(brand) + '</b><span>' + esc(bank) + '</span></div></div>' +
       '<div class="bcs-live">LIVE</div><div class="bcs-ttl"><b>' + esc(title) + '</b><span>' + esc(sub) + '</span></div>' +
       '<div class="bcs-clock"><b class="bcs-date"></b><span class="bcs-time"></span></div></header>' +
+      '<div class="bcs-ticker bcs-ticker-top"><span class="bcs-ticker-tag">● सुर्खियाँ</span><div class="bcs-ticker-wrap"><div class="bcs-ticker-move bcs-ticker-top-move"></div></div></div>' +
       '<div class="bcs-body"><main class="bcs-stage"><video class="bcs-stagevid" autoplay playsinline></video>' +
       '<div class="bcs-stage-ph"><div class="av">●</div><div class="nm"></div><div class="sub">Host connect ho raha hai…</div></div>' +
       '<div class="bcs-scheme"></div>' +
@@ -258,6 +259,8 @@
     S.ltRole.textContent = (cfg.host_role ? cfg.host_role + ', ' : '') + (cfg.host_name || 'Host');
     var notice = cfg.ticker || 'सभी BC साथी अपने-अपने क्षेत्र में योजनाओं की प्रगति रिपोर्ट समय पर अपडेट करें';
     S.ticker.innerHTML = esc(notice) + ' &nbsp;&nbsp; <b>APY</b> • <b>PMJJBY</b> • <b>PMSBY</b> • <b>PMJDY</b> &nbsp;&nbsp; ' + esc(notice);
+    var topT = q('.bcs-ticker-top-move');
+    if (topT) { var head = cfg.headlines || ('🔴 LIVE: ' + title + '  •  ' + sub + '  •  सभी प्रतिभागी कृपया समय पर जुड़ें और अपने क्षेत्र के आँकड़े तैयार रखें'); topT.innerHTML = esc(head) + ' &nbsp;&nbsp; • &nbsp;&nbsp; ' + esc(head); }
     if (S.itime) S.itime.textContent = t12(new Date());
     clockTick(); setInterval(clockTick, 20000);
   }
