@@ -63,8 +63,14 @@ final class View
     </div>
     <nav class="app-nav">
       <?php foreach (self::NAV as $key => [$url, $en, $hi, $icon, $adminOnly]):
-          // Region Managers (supervisors) also get Users (their region's CBC logins) and Branches (their region's branches); other admin pages stay admin-only.
-          if ($adminOnly && $user['role'] !== 'admin' && !(in_array($key, ['users', 'branches'], true) && $user['role'] === 'supervisor')) continue; ?>
+          $role = $user['role'];
+          // Branches are managed only by the Region Manager (supervisor) of a region; the Admin manages Regions, not branches.
+          if ($key === 'branches') {
+              if ($role !== 'supervisor') { continue; }
+          } elseif ($adminOnly && $role !== 'admin' && !($key === 'users' && $role === 'supervisor')) {
+              // Region Managers also get the Users page (their region's CBC logins); other admin pages stay admin-only.
+              continue;
+          } ?>
         <a class="app-nav-link <?= $active === $key ? 'active' : '' ?>" href="<?= $url ?>"><i class="bi bi-<?= $icon ?>"></i> <span class="app-nav-label"><?= e($en) ?><small class="app-nav-hi"><?= e($hi) ?></small></span><?php if ($key === 'inbox' && $inboxUnread > 0): ?><span class="badge text-bg-danger rounded-pill"><?= $inboxUnread ?></span><?php endif; ?><?php if ($key === 'chat' && $chatUnread > 0): ?><span class="badge text-bg-danger rounded-pill"><?= $chatUnread ?></span><?php endif; ?></a>
       <?php endforeach; ?>
     </nav>
