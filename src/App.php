@@ -247,7 +247,7 @@ final class App
         if (($row['role'] ?? '') === 'admin') {
             return true;
         }
-        return ($row['role'] ?? '') === 'supervisor' && !Scope::hasBranches($row);
+        return ($row['role'] ?? '') === 'supervisor' && (int) ($row['region_id'] ?? 0) === 0;
     }
 
     /**

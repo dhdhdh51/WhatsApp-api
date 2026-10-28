@@ -28,7 +28,7 @@ final class View
         'settings'  => ['/settings.php', 'Settings', 'सेटिंग्स', 'gear', true],
         'templates' => ['/templates.php', 'Templates', 'टेम्पलेट', 'card-text', true],
         'users'     => ['/users.php', 'Users', 'यूज़र', 'person-badge', true],
-        'branches'  => ['/branches.php', 'Branches', 'शाखाएँ', 'diagram-3', true],
+        'branches'  => ['/branches.php', 'Regions & Branches', 'रीजन & शाखाएँ', 'diagram-3', true],
         'audit'     => ['/audit.php', 'Audit Log', 'ऑडिट लॉग', 'shield-check', true],
     ];
 

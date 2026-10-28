@@ -5,20 +5,40 @@ namespace App;
 
 /**
  * Data visibility:
- *   admin, supervisor – all BCs
- *   manager           – BCs of the assigned branches
- *   cbc               – only the BCs assigned to this CBC (bcs.cbc_id)
+ *   admin               – everything
+ *   supervisor          – REGION MANAGER: every BC in their region (all branches whose region_id
+ *                         matches users.region_id). With no region set, still sees all (back-compat).
+ *   manager             – BCs of the individual branches assigned in user_branches (branch-level)
+ *   cbc                 – only the BCs assigned to this CBC (bcs.cbc_id)
  */
 final class Scope
 {
+    /** The region a Region Manager (supervisor) owns, 0 = none. */
+    public static function region(array $user): int
+    {
+        return ($user['role'] ?? '') === 'supervisor' ? (int) ($user['region_id'] ?? 0) : 0;
+    }
+
+    public static function seesAll(array $user): bool
+    {
+        if (($user['role'] ?? '') === 'admin') {
+            return true;
+        }
+        // A Region Manager with no region assigned still sees everything (keeps things working until a region is set).
+        return ($user['role'] ?? '') === 'supervisor' && self::region($user) === 0;
+    }
+
     /** @return array{0:string,1:array} SQL condition on the bcs alias + params */
     public static function bc(array $user, string $alias = 'b'): array
     {
         if (self::seesAll($user)) {
             return ['1=1', []];
         }
-        if ($user['role'] === 'cbc') {
+        if (($user['role'] ?? '') === 'cbc') {
             return ["{$alias}.cbc_id = ?", [(int) $user['id']]];
+        }
+        if (($user['role'] ?? '') === 'supervisor') {   // Region Manager -> all branches in their region
+            return ["{$alias}.branch_id IN (SELECT id FROM branches WHERE region_id = ?)", [self::region($user)]];
         }
         return ["{$alias}.branch_id IN (SELECT ub.branch_id FROM user_branches ub WHERE ub.user_id = ?)", [(int) $user['id']]];
     }
@@ -30,16 +50,22 @@ final class Scope
         return (bool) DB::val("SELECT COUNT(*) FROM bcs b WHERE {$w} AND b.id = ?", $p);
     }
 
-    /** May this user place/keep a BC in this branch? admin/region-less = any; scoped = only their own branches. */
+    /** May this user place/keep a BC in this branch? admin/region-less = any; scoped = only within their region/branches. */
     public static function canUseBranch(array $user, ?int $branchId): bool
     {
         if (self::seesAll($user)) {
             return true;
         }
-        if (!in_array($user['role'] ?? '', ['supervisor', 'manager'], true) || !$branchId) {
+        if (!$branchId) {
             return false;
         }
-        return (bool) DB::val('SELECT 1 FROM user_branches WHERE user_id = ? AND branch_id = ?', [(int) $user['id'], $branchId]);
+        if (($user['role'] ?? '') === 'supervisor') {
+            return (bool) DB::val('SELECT 1 FROM branches WHERE id = ? AND region_id = ?', [$branchId, self::region($user)]);
+        }
+        if (($user['role'] ?? '') === 'manager') {
+            return (bool) DB::val('SELECT 1 FROM user_branches WHERE user_id = ? AND branch_id = ?', [(int) $user['id'], $branchId]);
+        }
+        return false;
     }
 
     /** WHERE (alias $a on the users table) for CBC logins this person may manage. */
@@ -49,8 +75,8 @@ final class Scope
             return ["{$a}.role = 'cbc'", []];
         }
         $me = (int) $user['id'];
-        // CBCs the supervisor created, or CBCs who follow up a BC inside the supervisor's region
-        return ["{$a}.role = 'cbc' AND ({$a}.created_by = ? OR EXISTS (SELECT 1 FROM bcs b WHERE b.cbc_id = {$a}.id AND b.branch_id IN (SELECT ub.branch_id FROM user_branches ub WHERE ub.user_id = ?)))", [$me, $me]];
+        // CBCs the Region Manager created, or CBCs who follow up a BC inside their region
+        return ["{$a}.role = 'cbc' AND ({$a}.created_by = ? OR EXISTS (SELECT 1 FROM bcs b WHERE b.cbc_id = {$a}.id AND b.branch_id IN (SELECT id FROM branches WHERE region_id = ?)))", [$me, self::region($user)]];
     }
 
     public static function canManageCbc(array $user, int $cbcId): bool
@@ -69,8 +95,11 @@ final class Scope
         if (self::seesAll($user)) {
             return DB::all('SELECT * FROM branches ORDER BY name');
         }
-        if ($user['role'] === 'cbc') {
+        if (($user['role'] ?? '') === 'cbc') {
             return DB::all('SELECT DISTINCT br.* FROM branches br JOIN bcs b ON b.branch_id = br.id WHERE b.cbc_id = ? ORDER BY br.name', [(int) $user['id']]);
+        }
+        if (($user['role'] ?? '') === 'supervisor') {   // Region Manager -> every branch in their region
+            return DB::all('SELECT * FROM branches WHERE region_id = ? ORDER BY name', [self::region($user)]);
         }
         return DB::all(
             'SELECT br.* FROM branches br JOIN user_branches ub ON ub.branch_id = br.id WHERE ub.user_id = ? ORDER BY br.name',
@@ -88,33 +117,10 @@ final class Scope
         ), 'block');
     }
 
-    /** @var array<int,bool> per-request cache */
-    private static array $branchCache = [];
-
-    /** Does this user have a region (one or more branches) assigned? (BC Supervisors + Managers) */
-    public static function hasBranches(array $user): bool
-    {
-        $id = (int) ($user['id'] ?? 0);
-        if (!array_key_exists($id, self::$branchCache)) {
-            self::$branchCache[$id] = $id > 0 && (bool) DB::val('SELECT 1 FROM user_branches WHERE user_id = ? LIMIT 1', [$id]);
-        }
-        return self::$branchCache[$id];
-    }
-
-    public static function seesAll(array $user): bool
-    {
-        if (($user['role'] ?? '') === 'admin') {
-            return true;
-        }
-        // A BC Supervisor assigned a region (branches) sees only that region; with no region assigned
-        // they still see every BC (keeps existing supervisors working until a region is set).
-        return ($user['role'] ?? '') === 'supervisor' && !self::hasBranches($user);
-    }
-
     /** CBC users whose BCs the user can see (for filters). Empty for a CBC. */
     public static function cbcs(array $user): array
     {
-        if ($user['role'] === 'cbc') {
+        if (($user['role'] ?? '') === 'cbc') {
             return [];
         }
         [$w, $p] = self::bc($user);
