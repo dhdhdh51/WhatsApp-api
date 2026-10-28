@@ -107,6 +107,30 @@ final class Scope
         );
     }
 
+    /**
+     * Regions the user may see, each with its total branch count.
+     * admin / region-less supervisor -> all regions; Region Manager -> only their own;
+     * branch manager / cbc -> regions that contain a branch they can see.
+     * @return array<int,array{id:int,name:string,branches:int}>
+     */
+    public static function regionsVisible(array $user): array
+    {
+        $cnt = '(SELECT COUNT(*) FROM branches bx WHERE bx.region_id = rg.id) branches';
+        if (self::seesAll($user)) {
+            return DB::all("SELECT rg.id, rg.name, {$cnt} FROM regions rg ORDER BY rg.name");
+        }
+        if (($user['role'] ?? '') === 'supervisor') {
+            return DB::all("SELECT rg.id, rg.name, {$cnt} FROM regions rg WHERE rg.id = ? ORDER BY rg.name", [self::region($user)]);
+        }
+        [$w, $p] = self::bc($user, 'b');
+        return DB::all(
+            "SELECT DISTINCT rg.id, rg.name, {$cnt} FROM regions rg
+             JOIN branches br ON br.region_id = rg.id JOIN bcs b ON b.branch_id = br.id
+             WHERE {$w} ORDER BY rg.name",
+            $p
+        );
+    }
+
     /** Distinct block names visible to the user. */
     public static function blocks(array $user): array
     {

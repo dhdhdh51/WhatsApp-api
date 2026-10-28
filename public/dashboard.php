@@ -27,6 +27,11 @@ if ($branch !== '') {
     $where .= ' AND b.branch_id = ?';
     $params[] = (int) $branch;
 }
+$region = (string) q('region_id');   // drill the whole page into one RO (region)
+if ($region !== '') {
+    $where .= ' AND b.branch_id IN (SELECT id FROM branches WHERE region_id = ?)';
+    $params[] = (int) $region;
+}
 $cbc = $user['role'] === 'cbc' ? '' : (string) q('cbc_id');
 if ($cbc !== '') {
     $where .= ' AND b.cbc_id = ?';
@@ -41,9 +46,9 @@ $tot = DB::one("SELECT {$S}, COUNT(*) reports
 $trend = DB::all("SELECT r.report_date d, {$S}, COUNT(*) n
                   FROM reports r JOIN bcs b ON b.id = r.bc_id WHERE {$where} GROUP BY r.report_date ORDER BY r.report_date", $params);
 
-$byBranch = DB::all("SELECT COALESCE(br.name, '—') name, COUNT(DISTINCT b.id) bcs, COUNT(*) reports, {$S}
-                     FROM reports r JOIN bcs b ON b.id = r.bc_id LEFT JOIN branches br ON br.id = b.branch_id
-                     WHERE {$where} GROUP BY br.id, br.name ORDER BY {$T} DESC", $params);
+$byBranch = DB::all("SELECT COALESCE(br.name, '—') name, COALESCE(rg.name, '—') region, COUNT(DISTINCT b.id) bcs, COUNT(*) reports, {$S}
+                     FROM reports r JOIN bcs b ON b.id = r.bc_id LEFT JOIN branches br ON br.id = b.branch_id LEFT JOIN regions rg ON rg.id = br.region_id
+                     WHERE {$where} GROUP BY br.id, br.name, rg.name ORDER BY {$T} DESC", $params);
 
 $byCbc = $user['role'] === 'cbc' ? [] : DB::all("SELECT COALESCE(cu.name, '— (no CBC)') name, COUNT(DISTINCT b.id) bcs, COUNT(*) reports, {$S}
                      FROM reports r JOIN bcs b ON b.id = r.bc_id LEFT JOIN users cu ON cu.id = b.cbc_id
@@ -54,8 +59,45 @@ $byBc = DB::all("SELECT b.id, b.bc_code, b.name, COALESCE(br.name,'') branch, CO
                  FROM reports r JOIN bcs b ON b.id = r.bc_id LEFT JOIN branches br ON br.id = b.branch_id
                  WHERE {$where} GROUP BY b.id, b.bc_code, b.name, br.name ORDER BY total DESC LIMIT 50", $params);
 
+// RO-wise (region) summary: same filters as the cards above, shown for every RO the user may see (zero-activity ROs included).
+$visibleRegions = Scope::regionsVisible($user);
+$regionAgg = [];
+foreach (DB::all("SELECT COALESCE(br.region_id, 0) rid, COUNT(DISTINCT b.branch_id) branches, COUNT(DISTINCT b.id) bcs, COUNT(*) reports, {$S}, {$T} total
+                  FROM reports r JOIN bcs b ON b.id = r.bc_id LEFT JOIN branches br ON br.id = b.branch_id
+                  WHERE {$where} GROUP BY br.region_id", $params) as $row) {
+    $regionAgg[(int) $row['rid']] = $row;
+}
+$mkRegion = static function (int $rid, string $name, int $branches, array $agg): array {
+    $r = ['rid' => $rid, 'name' => $name, 'branches' => $branches,
+          'bcs' => (int) ($agg['bcs'] ?? 0), 'reports' => (int) ($agg['reports'] ?? 0), 'total' => (int) ($agg['total'] ?? 0)];
+    foreach (App\ReportParser::SCHEMES as $k) {
+        $r[$k] = (int) ($agg[$k] ?? 0);
+    }
+    return $r;
+};
+$byRegion = [];
+foreach ($visibleRegions as $rg) {
+    if ($region !== '' && (int) $region !== (int) $rg['id']) {
+        continue;
+    }
+    $byRegion[] = $mkRegion((int) $rg['id'], (string) $rg['name'], (int) $rg['branches'], $regionAgg[(int) $rg['id']] ?? []);
+}
+if ($region === '' && !empty($regionAgg[0])) {   // work whose branch has no RO assigned
+    $byRegion[] = $mkRegion(0, '— ' . L('no RO', 'बिना RO') . ' —', (int) $regionAgg[0]['branches'], $regionAgg[0]);
+}
+usort($byRegion, static fn ($a, $b) => ($b['total'] <=> $a['total']) ?: strcmp($a['name'], $b['name']));
+$regionTot = ['branches' => 0, 'bcs' => 0, 'reports' => 0, 'total' => 0] + Schemes::zero();
+foreach ($byRegion as $r) {
+    foreach (['branches', 'bcs', 'reports', 'total'] as $k) {
+        $regionTot[$k] += $r[$k];
+    }
+    foreach (App\ReportParser::SCHEMES as $k) {
+        $regionTot[$k] += $r[$k];
+    }
+}
+
 // today
-$todayRows = Calendar::dayRows(Calendar::today(), $user, ['branch_id' => $branch, 'cbc_id' => $cbc]);
+$todayRows = Calendar::dayRows(Calendar::today(), $user, ['branch_id' => $branch, 'cbc_id' => $cbc, 'region_id' => $region]);
 $todayByCbc = [];
 foreach ($todayRows as $r) {
     $k = $r['cbc_name'] ?: '— (no CBC)';
@@ -69,6 +111,7 @@ ksort($todayByCbc);
 [$appScope, $appParams] = Scope::bc($user);
 $appExtra = [];
 if ($branch !== '') { $appExtra[] = 'b.branch_id = ?'; $appParams[] = (int) $branch; }
+if ($region !== '') { $appExtra[] = 'b.branch_id IN (SELECT id FROM branches WHERE region_id = ?)'; $appParams[] = (int) $region; }
 if ($cbc !== '') { $appExtra[] = 'b.cbc_id = ?'; $appParams[] = (int) $cbc; }
 $appStats = DB::one('SELECT COUNT(*) total, SUM(b.app_first_seen IS NOT NULL) activated, SUM(b.app_last_seen >= (NOW() - INTERVAL 7 DAY)) active7 FROM bcs b WHERE b.is_active = 1 AND ' . $appScope . ($appExtra ? ' AND ' . implode(' AND ', $appExtra) : ''), $appParams) ?: ['total' => 0, 'activated' => 0, 'active7' => 0];
 
@@ -84,8 +127,12 @@ foreach ($todayRows as $r) {
 }
 
 $branchIds = null;
-if ($user['role'] === 'manager') {
+if (!Scope::seesAll($user)) {   // branch managers, region managers and CBCs only escalate their own branches
     $branchIds = array_map('intval', array_column(Scope::branches($user), 'id'));
+}
+if ($region !== '') {           // drill escalations into the selected RO
+    $regionBranchIds = array_map('intval', array_column(DB::all('SELECT id FROM branches WHERE region_id = ?', [(int) $region]), 'id'));
+    $branchIds = $branchIds === null ? $regionBranchIds : array_values(array_intersect($branchIds, $regionBranchIds));
 }
 if ($branch !== '') {
     $branchIds = $branchIds === null ? [(int) $branch] : array_values(array_intersect($branchIds, [(int) $branch]));
@@ -101,7 +148,14 @@ View::header('Dashboard / डैशबोर्ड', 'dashboard', true);
 <form class="row g-2 align-items-end mb-3">
   <div class="col-6 col-md-2"><label class="form-label small"><?= L('From', 'से') ?></label><input type="date" name="from" value="<?= e($from) ?>" class="form-control form-control-sm"></div>
   <div class="col-6 col-md-2"><label class="form-label small"><?= L('To', 'तक') ?></label><input type="date" name="to" value="<?= e($to) ?>" class="form-control form-control-sm"></div>
-  <div class="col-8 col-md-3"><label class="form-label small"><?= L('Branch', 'शाखा') ?></label><select name="branch_id" class="form-select form-select-sm"><?= View::branchOptions($user, $branch) ?></select></div>
+  <?php if (count($visibleRegions) > 1): ?>
+  <div class="col-8 col-md-2"><label class="form-label small"><?= L('RO (Region)', 'रीजन (RO)') ?></label>
+    <select name="region_id" class="form-select form-select-sm">
+      <option value="">— <?= L('All ROs', 'सभी RO') ?> —</option>
+      <?php foreach ($visibleRegions as $rg): ?><option value="<?= (int) $rg['id'] ?>" <?= (string) $region === (string) $rg['id'] ? 'selected' : '' ?>><?= e($rg['name']) ?> (<?= (int) $rg['branches'] ?>)</option><?php endforeach; ?>
+    </select></div>
+  <?php endif; ?>
+  <div class="col-8 col-md-2"><label class="form-label small"><?= L('Branch', 'शाखा') ?></label><select name="branch_id" class="form-select form-select-sm"><?= View::branchOptions($user, $branch) ?></select></div>
   <?php if ($user['role'] !== 'cbc'): ?><div class="col-8 col-md-2"><label class="form-label small">CBC</label><select name="cbc_id" class="form-select form-select-sm"><?= View::cbcOptions($user, $cbc) ?></select></div><?php endif; ?>
   <div class="col-4 col-md-2"><button class="btn btn-sm btn-success w-100"><i class="bi bi-funnel"></i> <?= L('Apply', 'लागू') ?></button></div>
 </form>
@@ -130,6 +184,47 @@ View::header('Dashboard / डैशबोर्ड', 'dashboard', true);
     <div class="small"><?= L('App active (7 days)', 'ऐप सक्रिय (7 दिन)') ?></div><div class="fs-4 fw-bold"><?= (int) $appStats['active7'] ?></div>
     <div class="small text-muted"><?= L('Open App users list', 'ऐप उपयोगकर्ता सूची') ?></div></div></div></a></div>
 </div>
+
+<?php if ($byRegion): ?>
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-1">
+    <span><i class="bi bi-diagram-3"></i> <?= L('RO-wise — work done under each Regional Office', 'RO अनुसार — हर रीजनल ऑफिस के अंतर्गत कितना काम') ?></span>
+    <span class="small text-muted"><?= e($from) ?> → <?= e($to) ?><?php if ($region !== ''): ?> · <a href="<?= e(qs(['region_id' => null])) ?>"><?= L('show all ROs', 'सभी RO दिखाएँ') ?></a><?php endif; ?></span>
+  </div>
+  <div class="table-responsive"><table class="table table-sm table-striped mb-0 align-middle">
+    <thead><tr>
+      <th><?= L('RO (Region)', 'रीजन (RO)') ?></th>
+      <th class="text-end"><?= L('Branches', 'शाखाएँ') ?></th>
+      <th class="text-end">BCs</th>
+      <th class="text-end"><?= L('Reports', 'रिपोर्ट') ?></th>
+      <?= Schemes::th() ?>
+      <th class="text-end"><?= L('Total', 'कुल') ?></th>
+    </tr></thead>
+    <tbody>
+    <?php foreach ($byRegion as $r): ?>
+      <tr>
+        <td class="fw-semibold"><?= $r['rid'] ? '<a href="' . e(qs(['region_id' => $r['rid']])) . '">' . e($r['name']) . '</a>' : e($r['name']) ?></td>
+        <td class="text-end"><?= (int) $r['branches'] ?></td>
+        <td class="text-end"><?= (int) $r['bcs'] ?></td>
+        <td class="text-end"><?= (int) $r['reports'] ?></td>
+        <?= Schemes::td($r) ?>
+        <td class="text-end fw-bold"><?= (int) $r['total'] ?></td>
+      </tr>
+    <?php endforeach; ?>
+    </tbody>
+    <?php if (count($byRegion) > 1): ?>
+    <tfoot><tr class="table-active fw-bold">
+      <td><?= L('All ROs (total)', 'सभी RO (कुल)') ?></td>
+      <td class="text-end"><?= (int) $regionTot['branches'] ?></td>
+      <td class="text-end"><?= (int) $regionTot['bcs'] ?></td>
+      <td class="text-end"><?= (int) $regionTot['reports'] ?></td>
+      <?= Schemes::td($regionTot) ?>
+      <td class="text-end"><?= (int) $regionTot['total'] ?></td>
+    </tr></tfoot>
+    <?php endif; ?>
+  </table></div>
+</div>
+<?php endif; ?>
 
 <div class="row g-3">
   <div class="col-lg-8">
@@ -165,10 +260,10 @@ View::header('Dashboard / डैशबोर्ड', 'dashboard', true);
   <div class="col-lg-5">
     <div class="card"><div class="card-header"><?= L('Branch-wise', 'शाखा अनुसार') ?></div>
       <div class="table-responsive"><table class="table table-sm table-striped mb-0">
-        <thead><tr><th>Branch</th><th class="text-end">BCs</th><?= Schemes::th() ?></tr></thead>
+        <thead><tr><th>Branch</th><th>RO</th><th class="text-end">BCs</th><?= Schemes::th() ?></tr></thead>
         <tbody><?php foreach ($byBranch as $r): ?>
-          <tr><td><?= e($r['name']) ?></td><td class="text-end"><?= (int) $r['bcs'] ?></td><?= Schemes::td($r) ?></tr>
-        <?php endforeach; if (!$byBranch): ?><tr><td colspan="9" class="text-muted">No data / डेटा नहीं</td></tr><?php endif; ?></tbody>
+          <tr><td><?= e($r['name']) ?></td><td class="small text-muted"><?= e($r['region']) ?></td><td class="text-end"><?= (int) $r['bcs'] ?></td><?= Schemes::td($r) ?></tr>
+        <?php endforeach; if (!$byBranch): ?><tr><td colspan="10" class="text-muted">No data / डेटा नहीं</td></tr><?php endif; ?></tbody>
       </table></div></div>
   </div>
   <div class="col-lg-7">
