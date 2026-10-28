@@ -1,5 +1,5 @@
--- Regions: a Region Manager (users.role = 'supervisor') owns one region; a region groups many branches.
--- Admin → Region → (many) Branches → BCs/CBCs. Additive, safe to re-run.
+-- Regions group many branches. A Region Manager (users.role = supervisor) owns one region.
+-- Hierarchy is Admin then Region then many Branches then BCs and CBCs. Additive, safe to re-run.
 CREATE TABLE IF NOT EXISTS regions (
   id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
   name        VARCHAR(120) NOT NULL,
