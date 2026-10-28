@@ -11,6 +11,7 @@ final class View
         'dashboard' => ['/dashboard.php', 'Dashboard', 'डैशबोर्ड', 'speedometer2', false],
         'status'    => ['/status.php', "Today's Status", 'आज की स्थिति', 'list-check', false],
         'reports'   => ['/reports.php', 'Reports', 'रिपोर्ट', 'table', false],
+        'branchreport' => ['/branch_report.php', 'Branch Report', 'शाखा रिपोर्ट', 'clipboard-data', false],
         'bcs'       => ['/bcs.php', 'BCs', 'बीसी', 'people', false],
         'targets'   => ['/targets.php', 'Targets', 'लक्ष्य', 'bullseye', false],
         'leaves'    => ['/leaves.php', 'Leave', 'छुट्टी', 'calendar-x', false],
@@ -67,6 +68,8 @@ final class View
           // Branches are managed only by the Region Manager (supervisor) of a region; the Admin manages Regions, not branches.
           if ($key === 'branches') {
               if ($role !== 'supervisor') { continue; }
+          } elseif ($key === 'branchreport') {
+              if ($role === 'cbc') { continue; }   // Branch Report: Branch Manager fills, Region Manager / Admin review
           } elseif ($adminOnly && $role !== 'admin' && !(in_array($key, ['users', 'meetings'], true) && $role === 'supervisor')) {
               // Region Managers also get Users (their region's CBC logins) and Meetings (broadcast/video for their region); other admin pages stay admin-only.
               continue;

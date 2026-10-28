@@ -20,8 +20,9 @@ if (!$isAdmin && ($me['role'] ?? '') !== 'supervisor') {
     View::footer();
     exit;
 }
-// A BC Supervisor may only manage CBC logins in their own region (never admin/supervisor/manager).
+// A Region Manager (supervisor) may only manage CBC and Branch Manager logins of their own region (never admin/supervisor).
 $editId = (int) q('edit');
+$canManage = static fn (int $uid): bool => $isAdmin || Scope::canManageCbc($me, $uid) || Scope::canManageBm($me, $uid);
 $errors = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(p('action'), ['delete', 'delete_all_cbc'], true)) {
@@ -38,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(p('action'), ['delete', 'd
         if (!$u) {
             continue;
         }
-        if (!$isAdmin && !Scope::canManageCbc($me, $did)) {   // supervisor: only their own region's CBCs
+        if (!$canManage($did)) {   // supervisor: only their own region's CBCs / Branch Managers
             continue;
         }
         if ($did === (int) $me['id']) {
@@ -70,8 +71,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = strtolower((string) p('username'));
     $role = in_array(p('role'), ['admin', 'supervisor', 'manager', 'cbc'], true) ? (string) p('role') : 'manager';
     if (!$isAdmin) {
-        $role = 'cbc';   // a BC Supervisor can only create/edit CBC logins (never escalate the role)
-        if ($id && !Scope::canManageCbc($me, $id)) {
+        // a Region Manager can only create/edit CBC and Branch Manager logins (never escalate the role)
+        $role = p('role') === 'manager' ? 'manager' : 'cbc';
+        if ($id && !$canManage($id)) {
             http_response_code(403);
             exit('Not allowed');
         }
@@ -92,11 +94,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($phoneRaw !== '' && !$phone) {
         $errors[] = 'Invalid Indian mobile number';
     }
-    if ($role === 'cbc' && !$phone) {
-        $errors[] = 'CBC ke liye mobile number zaroori hai (app login) / सीबीसी के लिए मोबाइल नंबर आवश्यक है';
+    $appLogin = in_array($role, ['cbc', 'manager'], true);   // these log into the app with mobile number + password
+    if ($appLogin && !$phone) {
+        $errors[] = 'CBC / Branch Manager ke liye mobile number zaroori hai (app login) / मोबाइल नंबर आवश्यक है';
     }
-    if ($role === 'cbc' && $phone && DB::val('SELECT COUNT(*) FROM bcs WHERE phone = ? AND is_active = 1', [$phone])) {
-        $errors[] = 'Ye number pehle se ek active BC ka hai — CBC ko alag number dein (ek number sirf ek login) / यह नंबर पहले से एक बीसी का है';
+    if ($appLogin && $phone && DB::val('SELECT COUNT(*) FROM bcs WHERE phone = ? AND is_active = 1', [$phone])) {
+        $errors[] = 'Ye number pehle se ek active BC ka hai — alag number dein (ek number sirf ek login) / यह नंबर पहले से एक बीसी का है';
+    }
+    if ($appLogin && $phone && DB::val("SELECT COUNT(*) FROM users WHERE phone = ? AND id <> ? AND is_active = 1 AND role IN ('cbc','manager','supervisor','admin')", [$phone, $id])) {
+        $errors[] = 'Ye number pehle se kisi aur staff login ka hai — alag number dein (ek number sirf ek login) / यह नंबर पहले से किसी और लॉगिन का है';
+    }
+    if (!$isAdmin && $role === 'manager' && Scope::region($me) > 0) {   // Region Manager: only branches of their own region
+        $okIds = array_map('intval', array_column(DB::all('SELECT id FROM branches WHERE region_id = ?', [Scope::region($me)]), 'id'));
+        if (array_diff($branches, $okIds)) {
+            $errors[] = 'Sirf apni region ki branch chunein / केवल अपने रीजन की शाखा चुनें';
+        }
     }
     if (!$id && mb_strlen($pass) < 10) {
         $errors[] = 'Password required (min 10 chars)';
@@ -146,8 +158,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $listWhere = '1=1';
 $listParams = [];
-if (!$isAdmin) {   // a supervisor only sees the CBC logins in their region
-    [$listWhere, $listParams] = Scope::cbcManageWhere($me, 'u');
+if (!$isAdmin) {   // a supervisor only sees the CBC + Branch Manager logins in their region
+    [$cw, $cp] = Scope::cbcManageWhere($me, 'u');
+    [$bw, $bp] = Scope::bmManageWhere($me, 'u');
+    $listWhere = "(({$cw}) OR ({$bw}))";
+    $listParams = array_merge($cp, $bp);
 }
 $users = DB::all("SELECT u.*, (SELECT GROUP_CONCAT(b.name ORDER BY b.name SEPARATOR ', ')
                                FROM user_branches ub JOIN branches b ON b.id = ub.branch_id WHERE ub.user_id = u.id) AS branches,
@@ -155,7 +170,7 @@ $users = DB::all("SELECT u.*, (SELECT GROUP_CONCAT(b.name ORDER BY b.name SEPARA
                          (SELECT COUNT(*) FROM bcs WHERE bcs.cbc_id = u.id AND bcs.is_active = 1) AS cbc_bcs
                   FROM users u WHERE {$listWhere} ORDER BY FIELD(u.role,'admin','supervisor','manager','cbc'), u.name", $listParams);
 $edit = $editId ? DB::one('SELECT * FROM users WHERE id = ?', [$editId]) : null;
-if ($edit && !$isAdmin && !Scope::canManageCbc($me, $editId)) {   // can't open a user outside your region
+if ($edit && !$canManage($editId)) {   // can't open a user outside your region
     $edit = null;
     $editId = 0;
 }
@@ -166,10 +181,12 @@ if ($errors) {
     $editBranches = array_map('intval', (array) ($_POST['branches'] ?? []));
 }
 $allBranches = DB::all('SELECT * FROM branches ORDER BY name');
+// Branches offered for a Branch Manager: every branch for the Admin, only their own region's for a Region Manager.
+$branchChoices = ($isAdmin || Scope::region($me) === 0) ? $allBranches : DB::all('SELECT * FROM branches WHERE region_id = ? ORDER BY name', [Scope::region($me)]);
 $allRegions = DB::all('SELECT * FROM regions ORDER BY name');
 $editRegion = (int) ($edit['region_id'] ?? 0);
 
-View::header($isAdmin ? 'Users / यूज़र' : 'CBC logins / सीबीसी लॉगिन (apne region ke)', 'users');
+View::header($isAdmin ? 'Users / यूज़र' : 'CBC & Branch Manager logins / लॉगिन (apne region ke)', 'users');
 ?>
 <?php foreach ($errors as $er): ?><div class="alert alert-danger py-2"><?= e($er) ?></div><?php endforeach; ?>
 <div class="row g-3">
@@ -198,13 +215,13 @@ View::header($isAdmin ? 'Users / यूज़र' : 'CBC logins / सीबी�
     <div class="col-6"><label class="form-label small"><?= L('Name', 'नाम') ?></label><input name="name" class="form-control form-control-sm" required value="<?= e($edit['name'] ?? '') ?>"></div>
     <div class="col-6"><label class="form-label small">Username</label><input name="username" class="form-control form-control-sm" required value="<?= e($edit['username'] ?? '') ?>"></div>
     <div class="col-6"><label class="form-label small">Role</label><select name="role" class="form-select form-select-sm">
-      <?php foreach (($isAdmin ? ['cbc' => 'CBC (own BCs)', 'supervisor' => 'Region Manager (whole region)', 'manager' => 'Branch Manager (chosen branches)', 'admin' => 'Admin (everything)'] : ['cbc' => 'CBC']) as $rk => $rl): ?>
+      <?php foreach (($isAdmin ? ['cbc' => 'CBC (own BCs)', 'supervisor' => 'Region Manager (whole region)', 'manager' => 'Branch Manager (chosen branches)', 'admin' => 'Admin (everything)'] : ['cbc' => 'CBC', 'manager' => 'Branch Manager (apni region ki branch)']) as $rk => $rl): ?>
         <option value="<?= $rk ?>" <?= ($edit['role'] ?? 'cbc') === $rk ? 'selected' : '' ?>><?= e($rl) ?></option>
       <?php endforeach; ?></select></div>
     <div class="col-6"><label class="form-label small"><?= L('Password', 'पासवर्ड') ?></label><input type="password" name="password" class="form-control form-control-sm" minlength="10" placeholder="<?= !empty($edit['id']) ? 'leave empty = unchanged' : 'min 10 chars' ?>"></div>
     <div class="col-6"><label class="form-label small"><?= L('Mobile number', 'मोबाइल नंबर') ?> <span class="text-danger" id="phoneReq" style="display:none">*</span></label>
       <div class="input-group input-group-sm"><span class="input-group-text">+91</span><input name="phone" class="form-control form-control-sm" value="<?= e($edit['phone'] ?? '') ?>" inputmode="tel" maxlength="16" placeholder="98765 43210"></div>
-      <div class="form-text small"><?= L('CBC logs into the app with this number + password. WhatsApp summary bhi isi par.', 'सीबीसी इसी नंबर + पासवर्ड से ऐप में लॉगिन करता है।') ?></div></div>
+      <div class="form-text small"><?= L('CBC / Branch Manager logs into the app with this number + password. WhatsApp summary bhi isi par.', 'सीबीसी / ब्रांच मैनेजर इसी नंबर + पासवर्ड से ऐप में लॉगिन करता है।') ?></div></div>
     <div class="col-6 pt-3">
       <div class="form-check"><input class="form-check-input" type="checkbox" name="receive_summary" value="1" id="rs" <?= !empty($edit['receive_summary']) ? 'checked' : '' ?>><label class="form-check-label small" for="rs">WhatsApp summary 9 PM (pending list of own BCs)</label></div>
       <div class="form-check"><input class="form-check-input" type="checkbox" name="is_active" value="1" id="ia" <?= !isset($edit['is_active']) || $edit['is_active'] ? 'checked' : '' ?>><label class="form-check-label small" for="ia">Active</label></div></div>
@@ -213,13 +230,13 @@ View::header($isAdmin ? 'Users / यूज़र' : 'CBC logins / सीबी�
       <select name="region_id" class="form-select form-select-sm"><option value="">— none (sees all BCs) —</option>
         <?php foreach ($allRegions as $rg): ?><option value="<?= (int) $rg['id'] ?>" <?= $editRegion === (int) $rg['id'] ? 'selected' : '' ?>><?= e($rg['name']) ?></option><?php endforeach; ?>
       </select><div class="form-text">Region Manager poore region (saari branches) ko dekhega/manage karega. Khud apni branches add karega. Region banane ke liye <a href="/regions.php">Regions page</a>.</div></div>
-    <div class="col-12" data-role-field="manager"><label class="form-label small"><?= L('Branches (for Branch Manager)', 'शाखाएँ (ब्रांच मैनेजर के लिए)') ?></label>
-      <select name="branches[]" multiple class="form-select form-select-sm" size="5">
-      <?php foreach ($allBranches as $b): ?><option value="<?= (int) $b['id'] ?>" <?= in_array((int) $b['id'], $editBranches, true) ? 'selected' : '' ?>><?= e($b['name']) ?><?= $b['area'] ? ' (' . e($b['area']) . ')' : '' ?></option><?php endforeach; ?>
-      </select><div class="form-text">Ctrl/Cmd-click to select several branches.</div></div>
     <?php endif; ?>
+    <div class="col-12" data-role-field="manager"><label class="form-label small"><?= L('Branch (for Branch Manager)', 'शाखा (ब्रांच मैनेजर के लिए)') ?></label>
+      <select name="branches[]" multiple class="form-select form-select-sm" size="5">
+      <?php foreach ($branchChoices as $b): ?><option value="<?= (int) $b['id'] ?>" <?= in_array((int) $b['id'], $editBranches, true) ? 'selected' : '' ?>><?= e($b['name']) ?><?= $b['area'] ? ' (' . e($b['area']) . ')' : '' ?></option><?php endforeach; ?>
+      </select><div class="form-text">Branch Manager apni branch ki daily report app se bharega. Ctrl/Cmd-click se ek se zyada branch chun sakte hain.</div></div>
     <div class="col-12"><button class="btn btn-success btn-sm"><?= L('Save', 'सेव') ?></button> <a href="/users.php" class="btn btn-outline-secondary btn-sm">New</a></div>
   </form></div></div>
 </div>
 </div>
-<?php View::footer('<script>(function(){var r=document.querySelector("select[name=role]");if(!r)return;var req=document.getElementById("phoneReq");var fields=document.querySelectorAll("[data-role-field]");function t(){if(req)req.style.display=r.value==="cbc"?"inline":"none";fields.forEach(function(f){f.style.display=(f.getAttribute("data-role-field")===r.value)?"block":"none";});}r.addEventListener("change",t);t();})();</script>');
+<?php View::footer('<script>(function(){var r=document.querySelector("select[name=role]");if(!r)return;var req=document.getElementById("phoneReq");var fields=document.querySelectorAll("[data-role-field]");function t(){if(req)req.style.display=(r.value==="cbc"||r.value==="manager")?"inline":"none";fields.forEach(function(f){f.style.display=(f.getAttribute("data-role-field")===r.value)?"block":"none";});}r.addEventListener("change",t);t();})();</script>');

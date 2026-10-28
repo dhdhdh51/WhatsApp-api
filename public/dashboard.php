@@ -83,7 +83,7 @@ foreach ($visibleRegions as $rg) {
     $byRegion[] = $mkRegion((int) $rg['id'], (string) $rg['name'], (int) $rg['branches'], $regionAgg[(int) $rg['id']] ?? []);
 }
 if ($region === '' && !empty($regionAgg[0])) {   // work whose branch has no RO assigned
-    $byRegion[] = $mkRegion(0, '— ' . L('no RO', 'बिना RO') . ' —', (int) $regionAgg[0]['branches'], $regionAgg[0]);
+    $byRegion[] = $mkRegion(0, '— no RO / बिना RO —', (int) $regionAgg[0]['branches'], $regionAgg[0]);
 }
 usort($byRegion, static fn ($a, $b) => ($b['total'] <=> $a['total']) ?: strcmp($a['name'], $b['name']));
 $regionTot = ['branches' => 0, 'bcs' => 0, 'reports' => 0, 'total' => 0] + Schemes::zero();

@@ -136,8 +136,8 @@ final class App
                 $usedDefault = $ok;
             }
         } else {
-            // No BC with this phone – maybe a staff member (CBC / supervisor / admin) using their panel password.
-            $cbc = $phone ? DB::one("SELECT * FROM users WHERE role IN ('cbc','supervisor','admin') AND phone = ? AND is_active = 1", [$phone]) : null;
+            // No BC with this phone – maybe a staff member (CBC / Branch Manager / supervisor / admin) using their panel password.
+            $cbc = $phone ? DB::one("SELECT * FROM users WHERE role IN ('cbc','manager','supervisor','admin') AND phone = ? AND is_active = 1", [$phone]) : null;
             if ($cbc) {
                 $ok = password_verify($password, (string) $cbc['password_hash']);
             } else {
@@ -194,7 +194,7 @@ final class App
             return null;
         }
         $t = DB::one("SELECT t.id tid, t.device, u.* FROM cbc_app_tokens t JOIN users u ON u.id = t.user_id
-                      WHERE t.token_hash = ? AND u.is_active = 1 AND u.role IN ('cbc','supervisor','admin')", [hash('sha256', $token)]);
+                      WHERE t.token_hash = ? AND u.is_active = 1 AND u.role IN ('cbc','manager','supervisor','admin')", [hash('sha256', $token)]);
         if (!$t) {
             return null;
         }

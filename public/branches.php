@@ -48,8 +48,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'delete') {
         $n = (int) DB::val('SELECT COUNT(*) FROM bcs WHERE branch_id = ?', [$id]);
+        $nr = (int) DB::val('SELECT COUNT(*) FROM branch_reports WHERE branch_id = ?', [$id]);
         if ($n > 0) {
             flash('danger', "Is branch me {$n} BC hai — pehle unhe hataayein/badlein. / पहले बीसी हटाएँ");
+        } elseif ($nr > 0) {
+            flash('danger', "Is branch ki {$nr} din ki Branch Report save hai — isliye ise delete nahi kar sakte (record bachane ke liye). / इस शाखा की रिपोर्ट सेव है");
         } else {
             DB::exec('DELETE FROM branches WHERE id = ?', [$id]);
             Audit::log((int) $user['id'], 'branch_delete', 'branch', $id);

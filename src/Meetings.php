@@ -141,17 +141,34 @@ final class Meetings
     /** Latest active meeting a CBC can join/host, or null. */
     public static function forCbc(int $cbcUserId): ?array
     {
+        $u = DB::one('SELECT id, role, region_id FROM users WHERE id = ?', [$cbcUserId]) ?: [];
+        $myRegion = ($u['role'] ?? '') === 'supervisor' ? (int) ($u['region_id'] ?? 0) : 0;
+        $params = [$cbcUserId];
+        $regionSql = '';
+        if (!App::staffSeesAll($u)) {
+            // A region-scoped meeting reaches only staff of that region: its Region Manager, the CBCs of
+            // its BCs and the Branch Managers of its branches. Org-wide (region_id NULL) reaches everyone.
+            $regionSql = ' AND (region_id IS NULL OR region_id = ?
+                 OR region_id IN (SELECT br.region_id FROM bcs b JOIN branches br ON br.id = b.branch_id WHERE b.cbc_id = ?)
+                 OR region_id IN (SELECT br2.region_id FROM user_branches ub JOIN branches br2 ON br2.id = ub.branch_id WHERE ub.user_id = ?))';
+            array_push($params, $myRegion, $cbcUserId, $cbcUserId);
+        }
         $row = DB::one(
-            "SELECT id, title, room, mode, audience, host_cbc_id FROM meetings
-             WHERE is_active = 1 AND (audience IN ('all','cbc','broadcast') OR host_cbc_id = ?)
-             AND (region_id IS NULL OR region_id IN (SELECT DISTINCT br.region_id FROM bcs b JOIN branches br ON br.id = b.branch_id WHERE b.cbc_id = ?))
+            "SELECT id, title, room, mode, audience, host_cbc_id, created_by, region_id FROM meetings
+             WHERE is_active = 1 AND (audience IN ('all','cbc','broadcast') OR host_cbc_id = ?){$regionSql}
              ORDER BY id DESC LIMIT 1",
-            [$cbcUserId, $cbcUserId]
+            $params
         );
-        return $row ? ['id' => (int) $row['id'], 'title' => $row['title'], 'room' => $row['room'],
+        if (!$row) {
+            return null;
+        }
+        $isHost = (int) $row['host_cbc_id'] === $cbcUserId;   // a CBC's own app meeting (can end it from the app)
+        // moderators: that host, the staff user who created it, or the Region Manager of its region
+        $canModerate = $isHost || (int) $row['created_by'] === $cbcUserId || ($myRegion > 0 && (int) $row['region_id'] === $myRegion);
+        return ['id' => (int) $row['id'], 'title' => $row['title'], 'room' => $row['room'],
             'url' => self::url($row['room'], $row['mode']),
             'mode' => $row['mode'], 'is_broadcast' => $row['audience'] === 'broadcast',
-            'is_host' => ((int) $row['host_cbc_id'] === $cbcUserId)] : null;
+            'is_host' => $isHost, 'can_moderate' => $canModerate];
     }
 
     /** BC WHERE clause (uses alias b on the bcs table) for a meeting's audience; null = no BCs. */
@@ -277,11 +294,20 @@ final class Meetings
         $staffSql = null;
         $staffParams = [];
         if ($region > 0) {
-            if ($isBroadcast || in_array($m['audience'], ['all', 'cbc'], true)) {
-                $staffSql = "SELECT DISTINCT b.cbc_id AS id FROM bcs b JOIN branches br ON br.id = b.branch_id
-                             WHERE br.region_id = ? AND b.cbc_id IS NOT NULL
-                               AND EXISTS (SELECT 1 FROM users u WHERE u.id = b.cbc_id AND u.is_active = 1)";
+            $cbcSql = 'SELECT b.cbc_id FROM bcs b JOIN branches br ON br.id = b.branch_id WHERE br.region_id = ? AND b.cbc_id IS NOT NULL';
+            $bmSql = 'SELECT ub.user_id FROM user_branches ub JOIN branches br2 ON br2.id = ub.branch_id WHERE br2.region_id = ?';
+            if ($m['audience'] === 'cbc') {          // the region's CBCs only
+                $staffSql = "SELECT DISTINCT u.id FROM users u WHERE u.is_active = 1 AND u.id IN ({$cbcSql})";
                 $staffParams = [$region];
+            } elseif ($isBroadcast || $m['audience'] === 'all') {
+                // the region's CBCs + Branch Managers (+ its Region Manager for a broadcast), never the creator
+                $rmSql = $isBroadcast ? " OR (u.role = 'supervisor' AND u.region_id = ?)" : '';
+                $staffSql = "SELECT DISTINCT u.id FROM users u WHERE u.is_active = 1 AND u.id <> ?
+                             AND (u.id IN ({$cbcSql}) OR (u.role = 'manager' AND u.id IN ({$bmSql})){$rmSql})";
+                $staffParams = [(int) ($m['created_by'] ?? 0), $region, $region];
+                if ($isBroadcast) {
+                    $staffParams[] = $region;
+                }
             }
         } else {
             $staffSql = $isBroadcast
@@ -358,7 +384,9 @@ final class Meetings
         if ($mRegion > 0) {   // region-scoped meeting: only staff who belong to that region, or the CBC host
             $belongs = ((($row['role'] ?? '') === 'supervisor') && (int) ($row['region_id'] ?? 0) === $mRegion)
                 || (int) ($m['host_cbc_id'] ?? 0) === $id
-                || (bool) DB::val('SELECT 1 FROM bcs b JOIN branches br ON br.id = b.branch_id WHERE br.region_id = ? AND b.cbc_id = ? LIMIT 1', [$mRegion, $id]);
+                || (bool) DB::val('SELECT 1 FROM bcs b JOIN branches br ON br.id = b.branch_id WHERE br.region_id = ? AND b.cbc_id = ? LIMIT 1', [$mRegion, $id])
+                || ((($row['role'] ?? '') === 'manager')
+                    && (bool) DB::val('SELECT 1 FROM user_branches ub JOIN branches br ON br.id = ub.branch_id WHERE ub.user_id = ? AND br.region_id = ? LIMIT 1', [$id, $mRegion]));
             return $belongs && (in_array($aud, ['all', 'cbc', 'broadcast'], true) || (int) ($m['host_cbc_id'] ?? 0) === $id);
         }
         return in_array($aud, ['all', 'cbc', 'broadcast'], true) || (int) ($m['host_cbc_id'] ?? 0) === $id;

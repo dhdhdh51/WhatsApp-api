@@ -89,6 +89,35 @@ final class Scope
         return (bool) DB::val("SELECT 1 FROM users u WHERE {$w} AND u.id = ?", $p);
     }
 
+    /**
+     * WHERE (alias $a on users) for Branch Manager logins this person may manage.
+     * A Region Manager: Branch Managers whose every branch is inside their region, and who have a
+     * branch there (or were created by them). A BM spanning another region stays with the Admin.
+     */
+    public static function bmManageWhere(array $user, string $a = 'u'): array
+    {
+        if (self::seesAll($user)) {
+            return ["{$a}.role = 'manager'", []];
+        }
+        $r = self::region($user);
+        return ["{$a}.role = 'manager'
+                 AND NOT EXISTS (SELECT 1 FROM user_branches ubx JOIN branches bx ON bx.id = ubx.branch_id
+                                 WHERE ubx.user_id = {$a}.id AND (bx.region_id IS NULL OR bx.region_id <> ?))
+                 AND ({$a}.created_by = ? OR EXISTS (SELECT 1 FROM user_branches uby JOIN branches byy ON byy.id = uby.branch_id
+                                                     WHERE uby.user_id = {$a}.id AND byy.region_id = ?))",
+            [$r, (int) $user['id'], $r]];
+    }
+
+    public static function canManageBm(array $user, int $userId): bool
+    {
+        if ($userId <= 0) {
+            return false;
+        }
+        [$w, $p] = self::bmManageWhere($user, 'u');
+        $p[] = $userId;
+        return (bool) DB::val("SELECT 1 FROM users u WHERE {$w} AND u.id = ?", $p);
+    }
+
     /** Branches visible to the user. */
     public static function branches(array $user): array
     {

@@ -50,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = Meetings::create($title, $audience, $mode, $branchId, (int) $user['id'], $regionId);
         Audit::log((int) $user['id'], 'meeting_start', 'meeting', $id, ['title' => $title, 'audience' => $audience, 'branch_id' => $branchId, 'region_id' => $regionId]);
         flash('success', $audience === 'broadcast'
-            ? '📢 Broadcast shuru ho gaya – ' . ($isRM && $regionName ? e($regionName) . ' ke' : 'sabke') . ' phone pe ring + notification ja raha hai. Aap bhi "Join" se judein.'
+            ? '📢 Broadcast shuru ho gaya – ' . ($isRM && $regionName ? $regionName . ' ke' : 'sabke') . ' phone pe ring + notification ja raha hai. Aap bhi "Join" se judein.'
             : 'Meeting shuru ho gayi – audience ko notification bhej diya. Aap bhi "Join" se judein.');
         // Answer the browser now, then fan out the ring in the background.
         header('Location: /meetings.php');
