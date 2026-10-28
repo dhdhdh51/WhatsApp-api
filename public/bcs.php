@@ -15,21 +15,32 @@ use App\View;
 
 $user = Auth::require();
 $isAdmin = Auth::isAdmin($user);
+$canEdit = $isAdmin || ($user['role'] ?? '') === 'supervisor';   // BC Supervisors manage BCs in their own region
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!$isAdmin) {
+    if (!$canEdit) {
         http_response_code(403);
-        exit('Admin only');
+        exit('Not allowed');
     }
     if (p('action') === 'assign_cbc') {
         $ids = array_map('intval', (array) ($_POST['bc_ids'] ?? []));
         $cbcId = p('cbc_id') !== '' ? (int) p('cbc_id') : null;
-        if ($cbcId && !DB::val("SELECT COUNT(*) FROM users WHERE id = ? AND role = 'cbc'", [$cbcId])) {
+        $cbcOk = $cbcId && ($isAdmin ? DB::val("SELECT 1 FROM users WHERE id = ? AND role = 'cbc'", [$cbcId]) : Scope::canManageCbc($user, $cbcId));
+        if ($cbcId && !$cbcOk) {
             $cbcId = null;
         }
         if ($ids) {
             $params = [$cbcId];
-            $n = DB::exec('UPDATE bcs SET cbc_id = ? WHERE id IN (' . DB::in($ids, $params) . ')', $params);
+            $in = DB::in($ids, $params);
+            $scopeSql = '';
+            if (!$isAdmin) {               // a supervisor may only reassign BCs inside their region
+                [$sw2, $sp2] = Scope::bc($user);
+                $scopeSql = " AND {$sw2}";
+                foreach ($sp2 as $x) {
+                    $params[] = $x;
+                }
+            }
+            $n = DB::exec("UPDATE bcs b SET b.cbc_id = ? WHERE b.id IN ({$in}){$scopeSql}", $params);
             Audit::log((int) $user['id'], 'bc_assign_cbc', 'bc', null, ['cbc_id' => $cbcId, 'bc_ids' => $ids]);
             flash('success', "{$n} BCs assigned / सीबीसी बदला गया");
         } else {
@@ -39,6 +50,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $id = (int) p('id');
     $bc = DB::one('SELECT * FROM bcs WHERE id = ?', [$id]);
+    if ($bc && !$isAdmin && !Scope::canSeeBc($user, $id)) {   // supervisor: only BCs in their region
+        $bc = null;
+    }
     if ($bc) {
         switch (p('action')) {
             case 'toggle_active':
@@ -124,8 +138,9 @@ $rows = DB::all("SELECT b.*, br.name branch, cu.name AS cbc_name,
 View::header('BC management / बीसी प्रबंधन', 'bcs');
 ?>
 <div class="d-flex flex-wrap gap-2 mb-2">
-  <?php if ($isAdmin): ?>
+  <?php if ($canEdit): ?>
   <a href="/bc_edit.php" class="btn btn-sm btn-success"><i class="bi bi-plus-lg"></i> <?= L('Add BC', 'बीसी जोड़ें') ?></a>
+  <?php endif; if ($isAdmin): ?>
   <a href="/bc_import.php" class="btn btn-sm btn-outline-success"><i class="bi bi-upload"></i> <?= L('CSV import', 'CSV इम्पोर्ट') ?></a>
   <?php endif; ?>
   <a href="<?= e(qs(['export' => 'csv', 'page' => null])) ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> <?= L('CSV export', 'CSV एक्सपोर्ट') ?></a>
@@ -143,21 +158,21 @@ View::header('BC management / बीसी प्रबंधन', 'bcs');
   <div class="col-4 col-md-1"><button class="btn btn-sm btn-success w-100"><i class="bi bi-funnel"></i></button></div>
 </form>
 
-<?php if ($isAdmin): ?>
+<?php if ($canEdit): ?>
 <form method="post" id="bulk" class="d-flex flex-wrap gap-2 align-items-center mb-2 small"><?= Csrf::field() ?><input type="hidden" name="action" value="assign_cbc">
   <span><?= L('Selected BCs → assign CBC', 'चुने हुए बीसी → सीबीसी') ?>:</span>
-  <select name="cbc_id" class="form-select form-select-sm" style="max-width:240px"><?= View::cbcOptions($user, '', '— remove CBC / हटाएँ —', true) ?></select>
+  <select name="cbc_id" class="form-select form-select-sm" style="max-width:240px"><?= View::cbcOptions($user, '', '— remove CBC / हटाएँ —', $isAdmin) ?></select>
   <button class="btn btn-sm btn-outline-primary" onclick="return confirm('Assign CBC to selected BCs?')"><i class="bi bi-person-check"></i> <?= L('Assign', 'असाइन') ?></button>
   <a href="/users.php" class="small">+ CBC login</a>
 </form>
 <?php endif; ?>
 <div class="table-responsive">
 <table class="table table-sm table-hover align-middle">
-  <thead class="table-light"><tr><?php if ($isAdmin): ?><th><input type="checkbox" class="form-check-input" data-check-all="bc_ids[]"></th><?php endif; ?><th>BC ID</th><th><?= L('Name', 'नाम') ?></th><th>WhatsApp</th><th><?= L('Branch', 'शाखा') ?></th><th><?= L('Block', 'ब्लॉक') ?></th><th>CBC</th><th><?= L('Status', 'स्थिति') ?></th><th></th></tr></thead>
+  <thead class="table-light"><tr><?php if ($canEdit): ?><th><input type="checkbox" class="form-check-input" data-check-all="bc_ids[]"></th><?php endif; ?><th>BC ID</th><th><?= L('Name', 'नाम') ?></th><th>WhatsApp</th><th><?= L('Branch', 'शाखा') ?></th><th><?= L('Block', 'ब्लॉक') ?></th><th>CBC</th><th><?= L('Status', 'स्थिति') ?></th><th></th></tr></thead>
   <tbody>
   <?php foreach ($rows as $r): ?>
   <tr class="<?= $r['is_active'] ? '' : 'table-secondary' ?>">
-    <?php if ($isAdmin): ?><td><input type="checkbox" class="form-check-input" name="bc_ids[]" value="<?= (int) $r['id'] ?>" form="bulk"></td><?php endif; ?>
+    <?php if ($canEdit): ?><td><input type="checkbox" class="form-check-input" name="bc_ids[]" value="<?= (int) $r['id'] ?>" form="bulk"></td><?php endif; ?>
     <td><?= e($r['bc_code']) ?></td>
     <td><a href="/conversation.php?bc_id=<?= (int) $r['id'] ?>"><?= e($r['name']) ?></a></td>
     <td class="small"><?= e(Phone::display($r['phone'])) ?></td>
@@ -172,7 +187,7 @@ View::header('BC management / बीसी प्रबंधन', 'bcs');
         <?php elseif ($r['welcome_status'] === 'failed'): ?><span class="badge text-bg-danger">👋 welcome failed</span>
         <?php endif; ?></td>
     <td class="text-nowrap">
-      <?php if ($isAdmin): ?>
+      <?php if ($canEdit): ?>
       <a class="btn btn-sm btn-outline-secondary" href="/bc_edit.php?id=<?= (int) $r['id'] ?>" title="Edit"><i class="bi bi-pencil"></i></a>
       <form method="post" class="d-inline"><?= Csrf::field() ?><input type="hidden" name="id" value="<?= (int) $r['id'] ?>">
         <button name="action" value="toggle_active" class="btn btn-sm btn-outline-<?= $r['is_active'] ? 'danger' : 'success' ?>" title="<?= $r['is_active'] ? 'Deactivate' : 'Activate' ?>"

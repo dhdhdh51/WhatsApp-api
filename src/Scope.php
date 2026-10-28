@@ -30,6 +30,39 @@ final class Scope
         return (bool) DB::val("SELECT COUNT(*) FROM bcs b WHERE {$w} AND b.id = ?", $p);
     }
 
+    /** May this user place/keep a BC in this branch? admin/region-less = any; scoped = only their own branches. */
+    public static function canUseBranch(array $user, ?int $branchId): bool
+    {
+        if (self::seesAll($user)) {
+            return true;
+        }
+        if (!in_array($user['role'] ?? '', ['supervisor', 'manager'], true) || !$branchId) {
+            return false;
+        }
+        return (bool) DB::val('SELECT 1 FROM user_branches WHERE user_id = ? AND branch_id = ?', [(int) $user['id'], $branchId]);
+    }
+
+    /** WHERE (alias $a on the users table) for CBC logins this person may manage. */
+    public static function cbcManageWhere(array $user, string $a = 'u'): array
+    {
+        if (self::seesAll($user)) {
+            return ["{$a}.role = 'cbc'", []];
+        }
+        $me = (int) $user['id'];
+        // CBCs the supervisor created, or CBCs who follow up a BC inside the supervisor's region
+        return ["{$a}.role = 'cbc' AND ({$a}.created_by = ? OR EXISTS (SELECT 1 FROM bcs b WHERE b.cbc_id = {$a}.id AND b.branch_id IN (SELECT ub.branch_id FROM user_branches ub WHERE ub.user_id = ?)))", [$me, $me]];
+    }
+
+    public static function canManageCbc(array $user, int $cbcId): bool
+    {
+        if ($cbcId <= 0) {
+            return false;
+        }
+        [$w, $p] = self::cbcManageWhere($user, 'u');
+        $p[] = $cbcId;
+        return (bool) DB::val("SELECT 1 FROM users u WHERE {$w} AND u.id = ?", $p);
+    }
+
     /** Branches visible to the user. */
     public static function branches(array $user): array
     {

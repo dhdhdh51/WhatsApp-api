@@ -9,13 +9,26 @@ use App\Csrf;
 use App\DB;
 use App\Phone;
 use App\Queue;
+use App\Scope;
 use App\View;
 
-$user = Auth::requireAdmin();
+$user = Auth::require();
+$isAdmin = Auth::isAdmin($user);
+if (!$isAdmin && ($user['role'] ?? '') !== 'supervisor') {
+    http_response_code(403);
+    View::header('Access denied', '');
+    echo '<div class="alert alert-danger">Only Admin and BC Supervisors can manage BCs. / यह पेज एडमिन और BC सुपरवाइज़र के लिए है।</div>';
+    View::footer();
+    exit;
+}
 $id = (int) (q('id') ?: p('id'));
 $bc = $id ? DB::one('SELECT * FROM bcs WHERE id = ?', [$id]) : null;
 if ($id && !$bc) {
     flash('danger', 'BC not found');
+    redirect('/bcs.php');
+}
+if ($bc && !$isAdmin && !Scope::canSeeBc($user, $id)) {   // a supervisor may only edit BCs in their own region
+    flash('danger', 'Ye BC aapke region me nahi hai / This BC is not in your region');
     redirect('/bcs.php');
 }
 
@@ -49,6 +62,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     if ($data['branch_id'] && !DB::val('SELECT COUNT(*) FROM branches WHERE id = ?', [$data['branch_id']])) {
         $errors[] = 'Invalid branch';
+    }
+    if (!$isAdmin) {   // a BC Supervisor stays inside their own region
+        if (!Scope::canUseBranch($user, $data['branch_id'] ? (int) $data['branch_id'] : null)) {
+            $errors[] = 'Apne region ki branch chunein / Pick a branch in your region';
+        }
+        if ($data['cbc_id'] && !Scope::canManageCbc($user, (int) $data['cbc_id'])) {
+            $errors[] = 'Ye CBC aapke region ka nahi hai / That CBC is not in your region';
+        }
     }
     if (!$errors) {
         if (DB::val('SELECT COUNT(*) FROM bcs WHERE bc_code = ? AND id <> ?', [$data['bc_code'], $id])) {
@@ -98,8 +119,8 @@ View::header($bc ? 'Edit BC / बीसी बदलें' : 'Add BC / बी�
   <div class="col-md-4"><label class="form-label"><?= L('Branch / area', 'शाखा / क्षेत्र') ?></label>
     <select name="branch_id" class="form-select"><option value="">—</option><?= View::branchOptions($user, $data['branch_id'], false) ?></select></div>
   <div class="col-md-4"><label class="form-label"><?= L('CBC (follows up this BC)', 'सीबीसी') ?></label>
-    <select name="cbc_id" class="form-select"><?= View::cbcOptions($user, $data['cbc_id'] ?? '', '— none —', true) ?></select>
-    <div class="form-text"><a href="/users.php">Create CBC login</a> (role CBC)</div></div>
+    <select name="cbc_id" class="form-select"><?= View::cbcOptions($user, $data['cbc_id'] ?? '', '— none —', $isAdmin) ?></select>
+    <div class="form-text"><a href="/users.php">Create / manage CBC login</a></div></div>
   <div class="col-md-4"><label class="form-label"><?= L('Block', 'ब्लॉक') ?></label><input name="block" class="form-control" maxlength="120" value="<?= e($data['block']) ?>" list="blocks">
     <datalist id="blocks"><?php foreach (App\Scope::blocks($user) as $b): ?><option value="<?= e($b) ?>"><?php endforeach; ?></datalist></div>
   <div class="col-md-4"><label class="form-label"><?= L('Status', 'स्थिति') ?></label>

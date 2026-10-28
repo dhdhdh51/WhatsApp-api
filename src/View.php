@@ -62,7 +62,8 @@ final class View
     </div>
     <nav class="app-nav">
       <?php foreach (self::NAV as $key => [$url, $en, $hi, $icon, $adminOnly]):
-          if ($adminOnly && $user['role'] !== 'admin') continue; ?>
+          // BC Supervisors also get the Users page (to manage their region's CBC logins); other admin pages stay admin-only.
+          if ($adminOnly && $user['role'] !== 'admin' && !($key === 'users' && $user['role'] === 'supervisor')) continue; ?>
         <a class="app-nav-link <?= $active === $key ? 'active' : '' ?>" href="<?= $url ?>"><i class="bi bi-<?= $icon ?>"></i> <span class="app-nav-label"><?= e($en) ?><small class="app-nav-hi"><?= e($hi) ?></small></span><?php if ($key === 'inbox' && $inboxUnread > 0): ?><span class="badge text-bg-danger rounded-pill"><?= $inboxUnread ?></span><?php endif; ?><?php if ($key === 'chat' && $chatUnread > 0): ?><span class="badge text-bg-danger rounded-pill"><?= $chatUnread ?></span><?php endif; ?></a>
       <?php endforeach; ?>
     </nav>
