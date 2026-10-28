@@ -212,7 +212,7 @@ View::header($isAdmin ? 'Users / यूज़र' : 'CBC logins / सीबी�
     <div class="col-12" data-role-field="supervisor"><label class="form-label small"><?= L('Region (for Region Manager)', 'रीजन (रीजन मैनेजर के लिए)') ?></label>
       <select name="region_id" class="form-select form-select-sm"><option value="">— none (sees all BCs) —</option>
         <?php foreach ($allRegions as $rg): ?><option value="<?= (int) $rg['id'] ?>" <?= $editRegion === (int) $rg['id'] ? 'selected' : '' ?>><?= e($rg['name']) ?></option><?php endforeach; ?>
-      </select><div class="form-text">Region Manager poore region (saari branches) ko dekhega/manage karega. <a href="/branches.php">Regions + branches manage karein</a>.</div></div>
+      </select><div class="form-text">Region Manager poore region (saari branches) ko dekhega/manage karega. Khud apni branches add karega. Region banane ke liye <a href="/regions.php">Regions page</a>.</div></div>
     <div class="col-12" data-role-field="manager"><label class="form-label small"><?= L('Branches (for Branch Manager)', 'शाखाएँ (ब्रांच मैनेजर के लिए)') ?></label>
       <select name="branches[]" multiple class="form-select form-select-sm" size="5">
       <?php foreach ($allBranches as $b): ?><option value="<?= (int) $b['id'] ?>" <?= in_array((int) $b['id'], $editBranches, true) ? 'selected' : '' ?>><?= e($b['name']) ?><?= $b['area'] ? ' (' . e($b['area']) . ')' : '' ?></option><?php endforeach; ?>

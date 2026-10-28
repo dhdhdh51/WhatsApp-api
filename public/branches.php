@@ -7,62 +7,69 @@ use App\Audit;
 use App\Auth;
 use App\Csrf;
 use App\DB;
+use App\Scope;
 use App\View;
 
-$user = Auth::requireAdmin();
+$user = Auth::require();
+$isAdmin = Auth::isAdmin($user);
+$isRM = ($user['role'] ?? '') === 'supervisor';   // Region Manager
+$myRegion = Scope::region($user);                  // 0 for admin / region-less supervisor
+
+// Only the Admin (superadmin) and a Region Manager may open this page.
+if (!$isAdmin && !$isRM) {
+    http_response_code(403);
+    View::header('Access denied', '');
+    echo '<div class="alert alert-danger">Only Admin or a Region Manager can open this page. / यह पेज केवल एडमिन या रीजन मैनेजर के लिए है।</div>';
+    View::footer();
+    exit;
+}
+
+// A Region Manager who has no region yet cannot add branches.
+$rmNoRegion = $isRM && $myRegion === 0;
+$regionName = $myRegion ? (string) DB::val('SELECT name FROM regions WHERE id = ?', [$myRegion]) : '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($rmNoRegion) {
+        http_response_code(403);
+        exit('No region assigned');
+    }
     $action = (string) p('action');
-
-    // ---------------- Regions ----------------
-    if ($action === 'region_add') {
-        $name = trim((string) p('region_name'));
-        if ($name === '' || mb_strlen($name) > 120) {
-            flash('danger', 'Region name required / रीजन का नाम आवश्यक');
-        } elseif (DB::val('SELECT COUNT(*) FROM regions WHERE name = ?', [$name])) {
-            flash('danger', 'Region already exists / यह रीजन पहले से है');
-        } else {
-            $rid = DB::insert('INSERT INTO regions (name) VALUES (?)', [$name]);
-            Audit::log((int) $user['id'], 'region_add', 'region', $rid, ['name' => $name]);
-            flash('success', 'Region added / रीजन जोड़ा गया');
-        }
-        redirect('/branches.php');
-    }
-    if ($action === 'region_delete') {
-        $rid = (int) p('region_id');
-        $nb = (int) DB::val('SELECT COUNT(*) FROM branches WHERE region_id = ?', [$rid]);
-        $nm = (int) DB::val("SELECT COUNT(*) FROM users WHERE region_id = ? AND role = 'supervisor'", [$rid]);
-        if ($nb || $nm) {
-            flash('danger', "Is region me {$nb} branch aur {$nm} manager hai — pehle unhe hataayein/badlein.");
-        } else {
-            DB::exec('DELETE FROM regions WHERE id = ?', [$rid]);
-            Audit::log((int) $user['id'], 'region_delete', 'region', $rid);
-            flash('success', 'Region deleted / रीजन हटाया');
-        }
-        redirect('/branches.php');
-    }
-
-    // ---------------- Branches ----------------
     $id = (int) p('id');
-    $name = (string) p('name');
-    $area = (string) p('area');
-    $regionId = p('region_id') !== '' ? (int) p('region_id') : null;
-    if ($regionId && !DB::val('SELECT 1 FROM regions WHERE id = ?', [$regionId])) {
-        $regionId = null;
+    $name = trim((string) p('name'));
+    $area = trim((string) p('area'));
+
+    // Which region does this branch belong to?
+    if ($isAdmin) {
+        $regionId = p('region_id') !== '' ? (int) p('region_id') : null;
+        if ($regionId !== null && !DB::val('SELECT 1 FROM regions WHERE id = ?', [$regionId])) {
+            $regionId = null;
+        }
+    } else {
+        $regionId = $myRegion;   // a Region Manager can only ever touch their own region
     }
+
+    // When editing/deleting, a Region Manager may only act on a branch inside their own region.
+    if ($id && !$isAdmin && !DB::val('SELECT 1 FROM branches WHERE id = ? AND region_id = ?', [$id, $myRegion])) {
+        http_response_code(403);
+        exit('Not your branch');
+    }
+
     if ($action === 'delete') {
         $n = (int) DB::val('SELECT COUNT(*) FROM bcs WHERE branch_id = ?', [$id]);
         if ($n > 0) {
-            flash('danger', "Branch has {$n} BCs – move them first / पहले बीसी हटाएँ");
+            flash('danger', "Is branch me {$n} BC hai — pehle unhe hataayein/badlein. / पहले बीसी हटाएँ");
         } else {
             DB::exec('DELETE FROM branches WHERE id = ?', [$id]);
             Audit::log((int) $user['id'], 'branch_delete', 'branch', $id);
-            flash('success', 'Branch deleted');
+            flash('success', 'Branch deleted / शाखा हटाई');
         }
     } elseif ($name === '' || mb_strlen($name) > 120) {
-        flash('danger', 'Name required');
+        flash('danger', 'Branch name required / शाखा का नाम आवश्यक');
     } elseif (DB::val('SELECT COUNT(*) FROM branches WHERE name = ? AND id <> ?', [$name, $id])) {
-        flash('danger', 'Branch name already exists');
+        flash('danger', 'Branch name already exists / यह शाखा पहले से है');
+    } elseif (!$regionId) {
+        // Admin may leave it blank only if they picked none; a Region Manager always has one.
+        flash('danger', $isAdmin ? 'Pick a region / रीजन चुनें' : 'No region assigned / कोई रीजन नहीं');
     } else {
         if ($id) {
             DB::exec('UPDATE branches SET name = ?, area = ?, region_id = ? WHERE id = ?', [$name, $area ?: null, $regionId, $id]);
@@ -75,64 +82,94 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     redirect('/branches.php');
 }
 
-$regions = DB::all('SELECT r.*,
-    (SELECT COUNT(*) FROM branches b WHERE b.region_id = r.id) AS branches,
-    (SELECT COUNT(*) FROM users u WHERE u.region_id = r.id AND u.role = \'supervisor\') AS managers
-    FROM regions r ORDER BY r.name');
-$rows = DB::all('SELECT br.*, rg.name AS region_name,
-    (SELECT COUNT(*) FROM bcs b WHERE b.branch_id = br.id AND b.is_active = 1) AS bcs
-    FROM branches br LEFT JOIN regions rg ON rg.id = br.region_id ORDER BY rg.name IS NULL, rg.name, br.name');
-$regOpts = static function ($sel) use ($regions): string {
-    $h = '<option value="">— no region —</option>';
-    foreach ($regions as $rg) {
-        $h .= '<option value="' . (int) $rg['id'] . '"' . ((int) $sel === (int) $rg['id'] ? ' selected' : '') . '>' . e($rg['name']) . '</option>';
-    }
-    return $h;
-};
+View::header($isAdmin ? 'Branches / शाखाएँ' : ('Branches · ' . $regionName), 'branches');
 
-View::header('Regions & Branches / रीजन और शाखाएँ', 'branches');
-?>
-<div class="row g-3">
-  <div class="col-lg-4">
-    <div class="card"><div class="card-header"><i class="bi bi-diagram-3"></i> <?= L('Regions', 'रीजन') ?></div><div class="card-body">
-      <form method="post" class="row g-2 align-items-end mb-3"><?= Csrf::field() ?><input type="hidden" name="action" value="region_add">
-        <div class="col-8"><label class="form-label small"><?= L('New region name', 'नया रीजन नाम') ?></label><input name="region_name" class="form-control form-control-sm" required maxlength="120" placeholder="e.g. RO Agra"></div>
-        <div class="col-4"><button class="btn btn-sm btn-success w-100"><?= L('Add', 'जोड़ें') ?></button></div>
-      </form>
-      <ul class="list-group list-group-flush small">
-        <?php foreach ($regions as $rg): ?>
-        <li class="list-group-item d-flex justify-content-between align-items-center px-0">
-          <span><b><?= e($rg['name']) ?></b> <span class="text-muted">· <?= (int) $rg['branches'] ?> branch · <?= (int) $rg['managers'] ?> manager</span></span>
-          <form method="post" class="d-inline" onsubmit="return confirm('Delete this region?')"><?= Csrf::field() ?><input type="hidden" name="action" value="region_delete"><input type="hidden" name="region_id" value="<?= (int) $rg['id'] ?>"><button class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-trash"></i></button></form>
-        </li>
-        <?php endforeach; if (!$regions): ?><li class="list-group-item text-muted px-0">Abhi koi region nahi. Upar se add karein.</li><?php endif; ?>
-      </ul>
-      <p class="small text-muted mt-2 mb-0"><?= L('A Region Manager manages a whole region (all its branches).', 'एक रीजन मैनेजर पूरे रीजन (सभी शाखाओं) को संभालता है।') ?></p>
-    </div></div>
+// ---- Region Manager with no region: nothing to manage yet ----
+if ($rmNoRegion):
+    ?>
+  <div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle"></i>
+    <?= L('You have not been assigned a region yet. Please ask the Admin (Shivam) to assign your region — then you can add your branches here.',
+          'आपको अभी कोई रीजन नहीं दिया गया है। कृपया एडमिन (शिवम) से अपना रीजन assign करवाएँ — उसके बाद आप यहाँ अपनी शाखाएँ जोड़ पाएँगे।') ?>
   </div>
-  <div class="col-lg-8">
-    <div class="card mb-3"><div class="card-header"><i class="bi bi-building"></i> <?= L('Add branch', 'शाखा जोड़ें') ?></div><div class="card-body">
-      <form method="post" class="row g-2 align-items-end"><?= Csrf::field() ?>
-        <div class="col-md-4"><label class="form-label small"><?= L('Branch name', 'शाखा का नाम') ?></label><input name="name" class="form-control form-control-sm" required maxlength="120"></div>
-        <div class="col-md-3"><label class="form-label small"><?= L('Area', 'क्षेत्र') ?></label><input name="area" class="form-control form-control-sm" maxlength="120"></div>
-        <div class="col-md-3"><label class="form-label small"><?= L('Region', 'रीजन') ?></label><select name="region_id" class="form-select form-select-sm"><?= $regOpts('') ?></select></div>
-        <div class="col-md-2"><button class="btn btn-sm btn-success w-100"><?= L('Add', 'जोड़ें') ?></button></div>
-      </form>
-    </div></div>
-    <div class="table-responsive"><table class="table table-sm align-middle">
-      <thead><tr><th><?= L('Branch', 'शाखा') ?></th><th><?= L('Area', 'क्षेत्र') ?></th><th><?= L('Region', 'रीजन') ?></th><th>Active BCs</th><th></th></tr></thead>
-      <tbody><?php foreach ($rows as $r): ?>
-      <tr><td colspan="5">
-        <form method="post" class="row g-2 align-items-center"><?= Csrf::field() ?><input type="hidden" name="id" value="<?= (int) $r['id'] ?>">
-          <div class="col-md-3"><input name="name" value="<?= e($r['name']) ?>" class="form-control form-control-sm" required></div>
-          <div class="col-md-3"><input name="area" value="<?= e($r['area']) ?>" class="form-control form-control-sm" placeholder="area"></div>
-          <div class="col-md-3"><select name="region_id" class="form-select form-select-sm"><?= $regOpts($r['region_id']) ?></select></div>
-          <div class="col-md-1 small text-center"><?= (int) $r['bcs'] ?></div>
-          <div class="col-md-2 text-nowrap"><button name="action" value="save" class="btn btn-sm btn-outline-success">Save</button>
-            <button name="action" value="delete" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete branch?')"><i class="bi bi-trash"></i></button></div>
-        </form></td></tr>
-      <?php endforeach; if (!$rows): ?><tr><td colspan="5" class="text-muted">Abhi koi branch nahi.</td></tr><?php endif; ?></tbody>
-    </table></div>
+<?php
+    View::footer();
+    exit;
+endif;
+
+if ($isAdmin):
+    // ---------------- Admin (superadmin): all branches across every region ----------------
+    $regions = DB::all('SELECT id, name FROM regions ORDER BY name');
+    $rows = DB::all('SELECT br.*, rg.name AS region_name,
+        (SELECT COUNT(*) FROM bcs b WHERE b.branch_id = br.id AND b.is_active = 1) AS bcs
+        FROM branches br LEFT JOIN regions rg ON rg.id = br.region_id
+        ORDER BY rg.name IS NULL, rg.name, br.name');
+    $regOpts = static function ($sel) use ($regions): string {
+        $h = '<option value="">— no region —</option>';
+        foreach ($regions as $rg) {
+            $h .= '<option value="' . (int) $rg['id'] . '"' . ((int) $sel === (int) $rg['id'] ? ' selected' : '') . '>' . e($rg['name']) . '</option>';
+        }
+        return $h;
+    };
+    ?>
+  <div class="alert alert-info py-2 small">
+    <i class="bi bi-info-circle"></i>
+    <?= L('Regions are created on the', 'रीजन बनाने के लिए') ?> <a href="/regions.php"><?= L('Regions page', 'Regions पेज') ?></a>.
+    <?= L('Normally each Region Manager adds the branches inside their own region. As Admin you can view and fix any branch here.',
+          'आम तौर पर हर रीजन मैनेजर अपने रीजन की शाखाएँ खुद जोड़ता है। एडमिन होने के नाते आप यहाँ किसी भी शाखा को देख/ठीक कर सकते हैं।') ?>
   </div>
-</div>
-<?php View::footer();
+  <div class="card mb-3"><div class="card-header"><i class="bi bi-building"></i> <?= L('Add branch', 'शाखा जोड़ें') ?></div><div class="card-body">
+    <form method="post" class="row g-2 align-items-end"><?= Csrf::field() ?>
+      <div class="col-md-4"><label class="form-label small"><?= L('Branch name', 'शाखा का नाम') ?></label><input name="name" class="form-control form-control-sm" required maxlength="120"></div>
+      <div class="col-md-3"><label class="form-label small"><?= L('Area', 'क्षेत्र') ?></label><input name="area" class="form-control form-control-sm" maxlength="120"></div>
+      <div class="col-md-3"><label class="form-label small"><?= L('Region', 'रीजन') ?></label><select name="region_id" class="form-select form-select-sm"><?= $regOpts('') ?></select></div>
+      <div class="col-md-2"><button class="btn btn-sm btn-success w-100"><?= L('Add', 'जोड़ें') ?></button></div>
+    </form>
+  </div></div>
+  <div class="table-responsive"><table class="table table-sm align-middle">
+    <thead><tr><th><?= L('Branch', 'शाखा') ?></th><th><?= L('Area', 'क्षेत्र') ?></th><th><?= L('Region', 'रीजन') ?></th><th>Active BCs</th><th></th></tr></thead>
+    <tbody><?php foreach ($rows as $r): ?>
+    <tr><td colspan="5">
+      <form method="post" class="row g-2 align-items-center"><?= Csrf::field() ?><input type="hidden" name="id" value="<?= (int) $r['id'] ?>">
+        <div class="col-md-3"><input name="name" value="<?= e($r['name']) ?>" class="form-control form-control-sm" required></div>
+        <div class="col-md-3"><input name="area" value="<?= e($r['area']) ?>" class="form-control form-control-sm" placeholder="area"></div>
+        <div class="col-md-3"><select name="region_id" class="form-select form-select-sm"><?= $regOpts($r['region_id']) ?></select></div>
+        <div class="col-md-1 small text-center"><?= (int) $r['bcs'] ?></div>
+        <div class="col-md-2 text-nowrap"><button name="action" value="save" class="btn btn-sm btn-outline-success">Save</button>
+          <button name="action" value="delete" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete branch?')"><i class="bi bi-trash"></i></button></div>
+      </form></td></tr>
+    <?php endforeach; if (!$rows): ?><tr><td colspan="5" class="text-muted">Abhi koi branch nahi.</td></tr><?php endif; ?></tbody>
+  </table></div>
+<?php else:
+    // ---------------- Region Manager: only their own region's branches ----------------
+    $rows = DB::all('SELECT br.*,
+        (SELECT COUNT(*) FROM bcs b WHERE b.branch_id = br.id AND b.is_active = 1) AS bcs
+        FROM branches br WHERE br.region_id = ? ORDER BY br.name', [$myRegion]);
+    ?>
+  <div class="alert alert-info py-2 small">
+    <i class="bi bi-diagram-3"></i>
+    <?= L('You are the Region Manager of', 'आप इस रीजन के रीजन मैनेजर हैं:') ?> <b><?= e($regionName) ?></b>.
+    <?= L('Add and manage the branches of your region here.', 'अपने रीजन की शाखाएँ यहाँ जोड़ें और संभालें।') ?>
+  </div>
+  <div class="card mb-3"><div class="card-header"><i class="bi bi-building"></i> <?= L('Add branch to', 'शाखा जोड़ें') ?> <?= e($regionName) ?></div><div class="card-body">
+    <form method="post" class="row g-2 align-items-end"><?= Csrf::field() ?>
+      <div class="col-md-5"><label class="form-label small"><?= L('Branch name', 'शाखा का नाम') ?></label><input name="name" class="form-control form-control-sm" required maxlength="120"></div>
+      <div class="col-md-4"><label class="form-label small"><?= L('Area', 'क्षेत्र') ?></label><input name="area" class="form-control form-control-sm" maxlength="120"></div>
+      <div class="col-md-3"><button class="btn btn-sm btn-success w-100"><?= L('Add', 'जोड़ें') ?></button></div>
+    </form>
+  </div></div>
+  <div class="table-responsive"><table class="table table-sm align-middle">
+    <thead><tr><th><?= L('Branch', 'शाखा') ?></th><th><?= L('Area', 'क्षेत्र') ?></th><th>Active BCs</th><th></th></tr></thead>
+    <tbody><?php foreach ($rows as $r): ?>
+    <tr><td colspan="4">
+      <form method="post" class="row g-2 align-items-center"><?= Csrf::field() ?><input type="hidden" name="id" value="<?= (int) $r['id'] ?>">
+        <div class="col-md-4"><input name="name" value="<?= e($r['name']) ?>" class="form-control form-control-sm" required></div>
+        <div class="col-md-4"><input name="area" value="<?= e($r['area']) ?>" class="form-control form-control-sm" placeholder="area"></div>
+        <div class="col-md-1 small text-center"><?= (int) $r['bcs'] ?></div>
+        <div class="col-md-3 text-nowrap"><button name="action" value="save" class="btn btn-sm btn-outline-success">Save</button>
+          <button name="action" value="delete" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete branch?')"><i class="bi bi-trash"></i></button></div>
+      </form></td></tr>
+    <?php endforeach; if (!$rows): ?><tr><td colspan="4" class="text-muted"><?= L('No branches yet — add your first branch above.', 'अभी कोई शाखा नहीं — ऊपर से पहली शाखा जोड़ें।') ?></td></tr><?php endif; ?></tbody>
+  </table></div>
+<?php endif;
+View::footer();

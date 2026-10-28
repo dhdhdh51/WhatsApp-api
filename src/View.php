@@ -28,7 +28,8 @@ final class View
         'settings'  => ['/settings.php', 'Settings', 'सेटिंग्स', 'gear', true],
         'templates' => ['/templates.php', 'Templates', 'टेम्पलेट', 'card-text', true],
         'users'     => ['/users.php', 'Users', 'यूज़र', 'person-badge', true],
-        'branches'  => ['/branches.php', 'Regions & Branches', 'रीजन & शाखाएँ', 'diagram-3', true],
+        'regions'   => ['/regions.php', 'Regions', 'रीजन', 'diagram-3', true],
+        'branches'  => ['/branches.php', 'Branches', 'शाखाएँ', 'building', true],
         'audit'     => ['/audit.php', 'Audit Log', 'ऑडिट लॉग', 'shield-check', true],
     ];
 
@@ -62,8 +63,8 @@ final class View
     </div>
     <nav class="app-nav">
       <?php foreach (self::NAV as $key => [$url, $en, $hi, $icon, $adminOnly]):
-          // BC Supervisors also get the Users page (to manage their region's CBC logins); other admin pages stay admin-only.
-          if ($adminOnly && $user['role'] !== 'admin' && !($key === 'users' && $user['role'] === 'supervisor')) continue; ?>
+          // Region Managers (supervisors) also get Users (their region's CBC logins) and Branches (their region's branches); other admin pages stay admin-only.
+          if ($adminOnly && $user['role'] !== 'admin' && !(in_array($key, ['users', 'branches'], true) && $user['role'] === 'supervisor')) continue; ?>
         <a class="app-nav-link <?= $active === $key ? 'active' : '' ?>" href="<?= $url ?>"><i class="bi bi-<?= $icon ?>"></i> <span class="app-nav-label"><?= e($en) ?><small class="app-nav-hi"><?= e($hi) ?></small></span><?php if ($key === 'inbox' && $inboxUnread > 0): ?><span class="badge text-bg-danger rounded-pill"><?= $inboxUnread ?></span><?php endif; ?><?php if ($key === 'chat' && $chatUnread > 0): ?><span class="badge text-bg-danger rounded-pill"><?= $chatUnread ?></span><?php endif; ?></a>
       <?php endforeach; ?>
     </nav>
