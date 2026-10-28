@@ -16,7 +16,7 @@
   var parts = {};             // identity -> { name, host } (everyone, for the participant list)
   var hands = {};             // identity -> name (raised hands)
   var page = 0, pinned = null, chatOpen = false, unread = 0;
-  var lastChatId = 0, chatTimer = null, micOn = false, camOn = false, chatBtn = null, handBtn = null;
+  var lastChatId = 0, chatTimer = null, micOn = false, camOn = false, chatBtn = null, handBtn = null, micBtn = null, camBtn = null;
   var S = {};                 // studio DOM refs
   var PER = Math.max(1, Math.min(12, parseInt((location.search.match(/[?&]per=(\d+)/) || [])[1] || '6', 10) || 6));
 
@@ -26,8 +26,19 @@
   function setStatus(t) { if (statusEl) statusEl.textContent = t; else if (studio && S.phSub && S.vid && !S.vid.classList.contains('on')) S.phSub.textContent = t; }
   function fail(msg) {
     root.innerHTML = '<div class="mt-err"><p>' + esc(msg) + '</p><button class="mt-btn" id="mtBack">Wapas</button></div>';
-    var b = document.getElementById('mtBack'); if (b) b.onclick = function () { history.back(); };
+    var b = document.getElementById('mtBack'); if (b) b.onclick = goBack;
   }
+  // Leave the meeting screen. The panel opens meetings in a new tab, where history.back() does
+  // nothing, so fall back to a real page (back_url from meet.php, the app home otherwise).
+  function goBack() {
+    var to = (cfg && cfg.back_url) || '/app/';
+    if (history.length > 1) {
+      history.back();
+      var t = setTimeout(function () { location.replace(to); }, 1500);   // back() did not navigate
+      window.addEventListener('pagehide', function () { clearTimeout(t); }, { once: true });
+    } else location.replace(to);
+  }
+  function leave() { try { room.disconnect(); } catch (e) { goBack(); } }
 
   function upsert(identity, name, isLocal) {
     if (!P[identity]) P[identity] = { name: name || identity, isLocal: !!isLocal, videoTrack: null, screen: null, el: null, speaking: false, micOff: false, hand: false };
@@ -62,7 +73,10 @@
     chatReq('POST', '&after=' + lastChatId, { body: t }).then(function (r) { if (r && r.ok && r.rows) r.rows.forEach(renderMsg); else setStatus('Message nahi gaya'); });
   }
   function startChat() { chatPoll(); chatTimer = setInterval(chatPoll, 3000); }
-  function paintChatBtn() { if (chatBtn) chatBtn.innerHTML = '💬' + (unread ? '<i>' + unread + '</i>' : ''); }
+  function paintChatBtn() {
+    if (!chatBtn) return; setBtn(chatBtn, '💬', 'Chat');
+    if (unread) { var i = document.createElement('i'); i.textContent = unread; chatBtn.appendChild(i); }
+  }
   function toggleChat() { chatOpen = !chatOpen; chatBox.classList.toggle('open', chatOpen); if (chatOpen) { unread = 0; paintChatBtn(); chatIn.focus(); } }
 
   // ================= shared hand-raise / promote =================
@@ -71,7 +85,7 @@
     if (P['me']) P['me'].hand = myHand;
     try { room.localParticipant.setAttributes({ hand: myHand ? '1' : '' }); } catch (e) {}
     try { room.localParticipant.publishData(enc({ t: 'hand', up: myHand, n: cfg.name || 'Main' }), { reliable: true }); } catch (e) {}
-    if (studio) { studioControls(); } else { if (handBtn) handBtn.style.opacity = myHand ? 1 : .55; if (P['me']) updateTile('me'); render(); }
+    if (studio) { studioControls(); } else { paintHand(); if (P['me']) updateTile('me'); render(); }
     if (myHand && broadcastMode && !canPublish) setStatus('✋ Haath uthaya – host se permission ka intezaar…');
   }
   function handRaised(identity, name, up) {
@@ -124,7 +138,7 @@
       });
     });
   }
-  function toggleMic() { micOn = !micOn; room.localParticipant.setMicrophoneEnabled(micOn); if (studio) studioControls(); else { var b = bar.querySelector('.mic-btn'); if (b) b.style.opacity = micOn ? 1 : .45; } }
+  function toggleMic() { micOn = !micOn; room.localParticipant.setMicrophoneEnabled(micOn); if (studio) studioControls(); else paintMic(); }
   function toggleCam() {
     camOn = !camOn;
     room.localParticipant.setCameraEnabled(camOn).then(function () {
@@ -132,7 +146,7 @@
       if (P['me']) P['me'].videoTrack = (camOn && pubs.length && pubs[0].track) ? pubs[0].track : null;
       if (studio) { studioStage(); studioTiles(); } else { var v = P['me'] && P['me'].el && P['me'].el.querySelector('video'); if (v) v.dataset.att = ''; updateTile('me'); }
     });
-    if (!studio) { var b = bar.querySelector('.cam-btn'); if (b) b.style.opacity = camOn ? 1 : .45; }
+    if (!studio) paintCam();
   }
   function toggleScreen() {
     if (!room || !canPublish) return; screenOn = !screenOn;
@@ -196,7 +210,11 @@
   }
   function render() {
     var ids = order(), vis;
-    if (pinned && P[pinned]) { vis = [pinned]; pager.innerHTML = '<span class="mt-pglbl">Zoom – tap karke wapas</span>'; }
+    if (pinned && P[pinned]) {   // zoomed on one person: the hint is a real button that un-zooms
+      vis = [pinned]; pager.innerHTML = '';
+      var zb = document.createElement('button'); zb.type = 'button'; zb.className = 'mt-pg'; zb.textContent = '🔍 Zoom band karein';
+      zb.onclick = function () { pinned = null; render(); }; pager.appendChild(zb);
+    }
     else {
       var pages = Math.max(1, Math.ceil(ids.length / PER)); if (page > pages - 1) page = pages - 1;
       vis = ids.slice(page * PER, page * PER + PER); pager.innerHTML = '';
@@ -218,14 +236,30 @@
     ids.forEach(function (id) { var r = document.createElement('div'); r.className = 'mt-tray-row'; var s = document.createElement('span'); s.textContent = hands[id]; r.appendChild(s); var b = document.createElement('button'); b.textContent = '🎤 Allow'; b.onclick = function () { promote(id, true); }; r.appendChild(b); trayEl.appendChild(r); });
   }
   function drop(identity) { var p = P[identity]; if (!p) return; if (p.el && p.el.parentNode) p.el.remove(); if (p.audioEl) p.audioEl.remove(); if (pinned === identity) pinned = null; delete P[identity]; }
-  function btn(label, onClick, cls) { var b = document.createElement('button'); b.className = 'mt-btn' + (cls ? ' ' + cls : ''); b.innerHTML = label; b.onclick = onClick; bar.appendChild(b); return b; }
+  // Bottom bar buttons: icon + short caption. state 'off' = red tint (mic/camera off), 'on' = amber (hand raised).
+  function setBtn(b, icon, label, state) {
+    if (!b) return;
+    b.innerHTML = '<b class="ic">' + icon + '</b><span>' + esc(label) + '</span>';
+    b.title = label; b.setAttribute('aria-label', label);
+    b.classList.toggle('off', state === 'off'); b.classList.toggle('on', state === 'on');
+  }
+  function btn(icon, label, onClick, cls) {
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'mt-btn' + (cls ? ' ' + cls : '');
+    b.onclick = onClick; setBtn(b, icon, label); bar.appendChild(b); return b;
+  }
+  function paintMic() { setBtn(micBtn, micOn ? '🎤' : '🔇', 'Mic', micOn ? '' : 'off'); }
+  function paintCam() { setBtn(camBtn, '📷', 'Camera', camOn ? '' : 'off'); }
+  function paintHand() { setBtn(handBtn, '✋', 'Haath', myHand ? 'on' : ''); }
   function renderBar() {
-    bar.innerHTML = '';
-    if (canPublish) { var mb = btn('🎤', toggleMic, 'mic-btn'); mb.style.opacity = micOn ? 1 : .45; if (mode === 'video') { var cb = btn('📷', toggleCam, 'cam-btn'); cb.style.opacity = camOn ? 1 : .45; } }
-    handBtn = btn('✋', toggleHand, 'hand'); handBtn.style.opacity = myHand ? 1 : .55;
-    chatBtn = btn('💬', toggleChat, 'chat'); paintChatBtn();
-    if (isHost) btn('🔇 Sabko mute', muteAll, 'wide');
-    btn('📴', function () { try { room.disconnect(); } catch (e) {} }, 'red');
+    bar.innerHTML = ''; micBtn = camBtn = null;
+    if (canPublish) {
+      micBtn = btn('🎤', 'Mic', toggleMic, 'mic-btn'); paintMic();
+      if (mode === 'video') { camBtn = btn('📷', 'Camera', toggleCam, 'cam-btn'); paintCam(); }
+    }
+    handBtn = btn('✋', 'Haath', toggleHand, 'hand'); paintHand();
+    chatBtn = btn('💬', 'Chat', toggleChat, 'chat'); paintChatBtn();
+    if (isHost) btn('🔇', 'Sab mute', muteAll, 'muteall');
+    btn('📴', 'Leave', leave, 'red');
   }
 
   // ================= STUDIO (broadcast) UI =================
@@ -263,6 +297,7 @@
     if (topT) { var head = cfg.headlines || ('🔴 LIVE: ' + title + '  •  ' + sub + '  •  सभी प्रतिभागी कृपया समय पर जुड़ें और अपने क्षेत्र के आँकड़े तैयार रखें'); topT.innerHTML = esc(head) + ' &nbsp;&nbsp; • &nbsp;&nbsp; ' + esc(head); }
     if (S.itime) S.itime.textContent = t12(new Date());
     clockTick(); setInterval(clockTick, 20000);
+    window.addEventListener('resize', fitControls);
   }
   function pickStage() {
     var ids = Object.keys(P);
@@ -315,8 +350,11 @@
     sbtn('👥', 'लोग', '', function () { S.side.classList.toggle('open'); });
     if (isHost) sbtn('🔇', 'All mute', '', muteAll);
     sbtn('📊', 'प्रगति', S.scheme.classList.contains('open') ? 'active' : '', toggleScheme);
-    sbtn('📴', isHost ? 'End' : 'Leave', 'end', function () { try { room.disconnect(); } catch (e) {} });
+    sbtn('📴', isHost ? 'End' : 'Leave', 'end', leave);
+    fitControls();
   }
+  // the bar may wrap to two rows on a phone; the side panel (chat / people) must end above it
+  function fitControls() { if (S.controls) document.documentElement.style.setProperty('--bcs-ctl', S.controls.offsetHeight + 'px'); }
   function toggleScheme() { S.scheme.classList.toggle('open'); if (S.scheme.classList.contains('open') && !schemeLoaded) loadScheme(); studioControls(); }
   function loadScheme() {
     schemeLoaded = true;
@@ -377,7 +415,7 @@
     if (LK.RoomEvent.ParticipantAttributesChanged) room.on(LK.RoomEvent.ParticipantAttributesChanged, function (ch, rp) { if (rp === room.localParticipant) return; if (ch && typeof ch.hand !== 'undefined') handRaised(rp.identity, rp.name || rp.identity, ch.hand === '1'); });
     if (LK.RoomEvent.ParticipantPermissionsChanged) room.on(LK.RoomEvent.ParticipantPermissionsChanged, function (pr, pt) { if (!pt || pt === room.localParticipant || pt.isLocal) syncLocalPublish(); });
     room.on(LK.RoomEvent.DataReceived, function (payload, rp) { var m; try { m = JSON.parse(new TextDecoder().decode(payload)); } catch (e) { return; } if (!m) return; if (m.t === 'hand' && rp) handRaised(rp.identity, m.n || rp.name || rp.identity, !!m.up); else if (m.t === 'promote' && room.localParticipant && m.id === room.localParticipant.identity) { if (m.allow) setStatus('✅ permission mili'); setTimeout(syncLocalPublish, 400); } });
-    room.on(LK.RoomEvent.Disconnected, function () { if (chatTimer) { clearInterval(chatTimer); chatTimer = null; } setStatus('Meeting khatam'); setTimeout(function () { history.back(); }, 1200); });
+    room.on(LK.RoomEvent.Disconnected, function () { if (chatTimer) { clearInterval(chatTimer); chatTimer = null; } setStatus('Meeting khatam'); setTimeout(goBack, 1200); });
     room.connect(cfg.url, cfg.token).then(function () { viewers = (room.remoteParticipants ? room.remoteParticipants.size : 0) + 1; setStatus('Connected'); if (canPublish) { upsert('me', cfg.name || 'Main', true); return enableLocalMedia(); } return null; })
       .then(function () { renderBar(); render(); startChat(); }).catch(function (e) { fail('Join nahi ho payi: ' + (e && e.message ? e.message : 'camera/mic ya network problem')); });
   }
@@ -407,7 +445,7 @@
     if (LK.RoomEvent.ParticipantAttributesChanged) room.on(LK.RoomEvent.ParticipantAttributesChanged, function (ch, rp) { if (rp === room.localParticipant) return; if (ch && typeof ch.hand !== 'undefined') handRaised(rp.identity, rp.name || rp.identity, ch.hand === '1'); });
     if (LK.RoomEvent.ParticipantPermissionsChanged) room.on(LK.RoomEvent.ParticipantPermissionsChanged, function (pr, pt) { if (!pt || pt === room.localParticipant || pt.isLocal) syncLocalPublish(); });
     room.on(LK.RoomEvent.DataReceived, function (payload, rp) { var m; try { m = JSON.parse(new TextDecoder().decode(payload)); } catch (e) { return; } if (!m) return; if (m.t === 'hand' && rp) handRaised(rp.identity, m.n || rp.name || rp.identity, !!m.up); else if (m.t === 'promote' && room.localParticipant && m.id === room.localParticipant.identity) { if (m.allow) setStatus('✅ permission mili'); setTimeout(syncLocalPublish, 400); } });
-    room.on(LK.RoomEvent.Disconnected, function () { if (chatTimer) { clearInterval(chatTimer); chatTimer = null; } setStatus('Broadcast samapt'); setTimeout(function () { history.back(); }, 1400); });
+    room.on(LK.RoomEvent.Disconnected, function () { if (chatTimer) { clearInterval(chatTimer); chatTimer = null; } setStatus('Broadcast samapt'); setTimeout(goBack, 1400); });
     room.connect(cfg.url, cfg.token).then(function () {
       var me = room.localParticipant; parts[me.identity] = { name: cfg.name || 'आप', host: isHost };
       if (canPublish) { var p = upsert('me', cfg.name || 'आप', true); p.host = isHost; parts['me'] = { name: cfg.name || 'आप', host: isHost }; return enableLocalMedia(); }

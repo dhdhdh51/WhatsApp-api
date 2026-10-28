@@ -21,10 +21,19 @@ html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
 .mt-name { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 2; font-size: 12px; font-weight: 600;
   background: rgba(0,0,0,.5); padding: 4px 8px; border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.mt-bar { display: flex; gap: 14px; justify-content: center; padding: 14px 16px calc(20px + env(safe-area-inset-bottom));
+/* bottom control bar: the buttons share the width, so the bar always fits the screen (nothing cut off) */
+.mt-bar { display: flex; gap: 6px; justify-content: center; padding: 10px 8px calc(12px + env(safe-area-inset-bottom));
   background: linear-gradient(transparent, #000c); }
-.mt-btn { border: 0; border-radius: 999px; min-width: 58px; height: 58px; font-size: 21px; background: rgba(255,255,255,.18); color: #fff; font-weight: 700; }
-.mt-btn.red { background: #e5484d; width: auto; padding: 0 22px; font-size: 16px; }
+.mt-btn { border: 0; border-radius: 999px; min-width: 58px; height: 58px; padding: 0 22px; font-size: 16px; background: rgba(255,255,255,.18); color: #fff; font-weight: 700; font-family: inherit; cursor: pointer; }
+.mt-bar .mt-btn { flex: 1 1 0; min-width: 0; max-width: 78px; height: 60px; padding: 9px 2px 0; border-radius: 16px; font-size: 21px;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 3px; position: relative; }
+.mt-bar .mt-btn .ic { font-weight: 400; line-height: 1; }
+/* caption: a long one ("Sab mute") wraps to a 2nd line on small phones instead of being cut */
+.mt-bar .mt-btn span { font-size: 10px; line-height: 1.12; max-width: 100%; text-align: center; white-space: normal; overflow-wrap: break-word;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.mt-bar .mt-btn.off { background: rgba(229,72,77,.32); }
+.mt-bar .mt-btn.on { background: #f59e0b; color: #1b1205; }
+.mt-btn.red { background: #e5484d; }
 
 .mt-err { margin: auto; text-align: center; padding: 26px; max-width: 420px; }
 .mt-err p { font-size: 16px; line-height: 1.5; margin-bottom: 18px; }
@@ -50,7 +59,6 @@ html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
 .mt-pg:disabled { opacity: .35; }
 .mt-pglbl { font-size: 13px; opacity: .8; min-width: 56px; text-align: center; }
 
-.mt-btn.wide { width: auto; padding: 0 18px; font-size: 14px; }
 
 /* ---------- hand raise ---------- */
 .mt-hands { font-size: 13px; font-weight: 800; background: #f59e0b; color: #1b1205;
@@ -81,7 +89,7 @@ html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
   background: linear-gradient(135deg,#16a34a,#0d9488); color: #fff; }
 
 .mt-btn.chat { position: relative; }
-.mt-btn.chat i { position: absolute; top: -2px; right: -2px; background: #e5484d; color: #fff;
+.mt-btn.chat i { position: absolute; top: 3px; right: 4px; background: #e5484d; color: #fff;
   font-style: normal; font-size: 11px; font-weight: 800; border-radius: 999px; padding: 1px 6px; }
 
 /* ---------- live broadcast (town-hall) ---------- */
@@ -242,13 +250,15 @@ html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
   .bcs-brand b{font-size:12px}.bcs-ttl b{font-size:13px}.bcs-clock b{font-size:12px}.bcs-clock span{font-size:10px}
   .bcs-body{flex-direction:column;padding:8px;gap:8px}
   .bcs-stage{flex:none;height:42vh}
-  .bcs-side{width:auto;flex:1;position:fixed;inset:52px 0 66px 0;background:var(--cb-bg);padding:8px;z-index:30;display:none}
+  .bcs-side{width:auto;flex:1;position:fixed;inset:52px 0 var(--bcs-ctl,66px) 0;background:var(--cb-bg);padding:8px;z-index:30;display:none}
   .bcs-side.open{display:flex}
   .bcs-tiles{grid-template-columns:repeat(3,1fr)}
   .bcs-scheme{bottom:76px;left:8px;right:8px}
-  .bcs-controls{height:60px;gap:7px}
-  .bcs-btn{min-width:46px;height:46px;font-size:9px}.bcs-btn i{font-size:16px}
-  .bcs-btn.end{min-width:52px;flex-direction:column;font-size:9px}
+  /* phones: fixed-size buttons that wrap to a 2nd row instead of running off the screen */
+  .bcs-controls{height:auto;min-height:60px;flex-wrap:wrap;gap:6px;padding:6px 6px calc(6px + env(safe-area-inset-bottom))}
+  .bcs-btn{flex:0 0 54px;width:54px;min-width:0;height:48px;font-size:9.5px}.bcs-btn i{font-size:16px}
+  .bcs-btn span{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bcs-btn.end{flex:0 0 54px;min-width:0;flex-direction:column;font-size:9.5px}
   .bcs-brand-sm{display:none}
 }
 

@@ -148,6 +148,8 @@ $cfg = [
     'chat_url' => '/meet.php?id=' . $id . '&chat=1',
     'promote_url' => $canModerate ? '/meet.php?id=' . $id . '&speak=1' : null,
     'summary_url' => '/meet.php?id=' . $id . '&summary=1',
+    // where "Leave" goes: the panel opens a meeting in a new tab, where history.back() does nothing
+    'back_url' => in_array($user['role'], ['admin', 'supervisor'], true) ? '/meetings.php' : '/dashboard.php',
     'csrf' => App\Csrf::token(),
 ];
 header('Cache-Control: no-store');
@@ -157,12 +159,12 @@ header('Cache-Control: no-store');
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title><?= e($m['title']) ?> · <?= $isBroadcast ? 'Broadcast' : 'Meeting' ?></title>
-<link rel="stylesheet" href="/app/meet.css?v=6">
+<link rel="stylesheet" href="/app/meet.css?v=7">
 </head>
 <body>
 <div id="meet"></div>
 <script>window.MEET_CONFIG = <?= json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;</script>
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
-<script src="/app/meet.js?v=6"></script>
+<script src="/app/meet.js?v=7"></script>
 </body>
 </html>
