@@ -15,7 +15,7 @@
     if (!m || !m.url) return '';
     var bc = !!m.is_broadcast;
     var icon = bc ? '📢' : (m.mode === 'voice' ? '🎙️' : '📹');
-    var sub = bc ? 'LIVE Broadcast – tap karke judein' : ((m.mode === 'voice' ? 'Voice' : 'Video') + ' meeting live hai – tap karke judein');
+    var sub = (m.region ? m.region + ' · ' : '') + (bc ? 'LIVE Broadcast – tap karke judein' : ((m.mode === 'voice' ? 'Voice' : 'Video') + ' meeting live hai – tap karke judein'));
     return '<a class="meet-banner' + (bc ? ' broadcast' : '') + '" target="_blank" rel="noopener" href="' + esc(m.url) + '">' +
       '<div class="mb-info"><div class="mb-title">' + icon + ' ' + esc(m.title || 'Meeting') + '</div>' +
       '<div class="mb-sub">' + sub + '</div></div><span class="mb-join">Join</span></a>';
@@ -114,7 +114,8 @@
     var bc = !!m.is_broadcast;
     d.innerHTML = '<div class="mr-box"><div class="mr-ic">' + (bc ? '📢' : (m.mode === 'voice' ? '🎙️' : '📹')) + '</div>' +
       '<div class="mr-t">' + esc(m.title || (bc ? 'Broadcast' : 'Meeting')) + '</div>' +
-      '<div class="mr-s">' + (bc ? 'LIVE Broadcast shuru ho gaya hai – judein' : ((m.mode === 'voice' ? 'Voice' : 'Video') + ' meeting shuru ho gayi hai – judein')) + '</div>' +
+      (m.region ? '<div class="mr-s"><b>' + esc(m.region) + '</b></div>' : '') +
+      '<div class="mr-s">' + (bc ? 'LIVE Broadcast shuru ho gaya hai – camera ke saath judein' : ((m.mode === 'voice' ? 'Voice' : 'Video') + ' meeting shuru ho gayi hai – judein')) + '</div>' +
       '<a class="btn" id="mrJoin" target="_blank" rel="noopener" href="' + esc(m.url) + '">Join karein</a>' +
       '<button class="btn light" id="mrLater">Baad mein</button></div>';
     document.body.appendChild(d);

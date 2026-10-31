@@ -54,7 +54,7 @@ if (q('chat') !== '') {
             echo json_encode(['ok' => false, 'error' => 'empty']);
             exit;
         }
-        Meetings::chatPost($id, $meActor, (string) $user['name'], true, $body);
+        Meetings::chatPost($id, $meActor, Meetings::displayName($user), true, $body);
     }
     $after = (int) q('after', 0);
     echo json_encode(['ok' => true, 'rows' => Meetings::chatFormat(Meetings::chatSince($id, $after), $meActor)], JSON_UNESCAPED_UNICODE);
@@ -81,7 +81,8 @@ if (q('speak') !== '') {
     } else {
         Meetings::revokeSpeak($id, $who);
     }
-    echo json_encode(['ok' => Livekit::setCanPublish((string) $m['room'], $who, $allow), 'allow' => $allow]);
+    // a broadcast is a group video call: taking the mic back keeps the person's camera
+    echo json_encode(['ok' => Livekit::setCanPublish((string) $m['room'], $who, $allow, $isBroadcast), 'allow' => $allow]);
     exit;
 }
 
@@ -118,14 +119,18 @@ if (q('summary') !== '') {
     exit;
 }
 
-// broadcast audience is view-only unless you moderate or were promoted to speak
+// Broadcast = group video call: everyone shows their camera; the microphone is for the host,
+// moderators and people the host allowed (raised hand). can_publish keeps its old meaning
+// (camera + mic) so an older cached meet.js still works.
 $canPublish = !$isBroadcast || $canModerate || Meetings::isSpeaker($id, $meActor);
-$token = Livekit::token((string) $m['room'], $meActor, (string) $user['name'], $canPublish);
+$canVideo = ($m['mode'] ?? 'video') === 'video';
+$meName = Meetings::displayName($user);            // "Deepak Sharma (RO Agra)"
+$token = Livekit::token((string) $m['room'], $meActor, $meName, $canPublish || $canVideo, 7200, $canPublish ? null : ['camera']);
 if (!$token) {
     flash('danger', 'Meeting server configure nahi hai (livekit settings)');
     redirect('/meetings.php');
 }
-$hostU = DB::one('SELECT name, role FROM users WHERE id = ?', [(int) (($m['created_by'] ?? 0) ?: ($m['host_cbc_id'] ?? 0))]);
+$host = Meetings::hostInfo($m);
 $cfg = [
     'ok' => true,
     'url' => Livekit::url(),
@@ -133,17 +138,20 @@ $cfg = [
     'room' => $m['room'],
     'mode' => $m['mode'] ?? 'video',
     'title' => $m['title'],
-    'name' => $user['name'],
+    'name' => $meName,
     'meeting_id' => $id,
     'is_broadcast' => $isBroadcast,
     'can_publish' => $canPublish,
+    'can_video' => $canVideo,
     // panel admins/supervisors moderate; a CBC only in their own meeting
     'is_host' => $canModerate,
     'brand' => 'BC Monitoring App',
     'bank' => 'Central Bank of India',
     'subtitle' => 'APY, PMJJBY, PMSBY एवं PMJDY की प्रगति समीक्षा',
-    'host_name' => $hostU['name'] ?? 'Host',
-    'host_role' => $hostU ? Auth::roleLabel((string) $hostU['role']) : '',
+    'host_name' => $host['name'],
+    'host_role' => $host['role'],
+    'host_region' => $host['region'],
+    'host_identity' => $host['identity'],
     'mute_url' => '/meet.php?id=' . $id . '&mute=1',
     'chat_url' => '/meet.php?id=' . $id . '&chat=1',
     'promote_url' => $canModerate ? '/meet.php?id=' . $id . '&speak=1' : null,
@@ -159,12 +167,12 @@ header('Cache-Control: no-store');
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title><?= e($m['title']) ?> · <?= $isBroadcast ? 'Broadcast' : 'Meeting' ?></title>
-<link rel="stylesheet" href="/app/meet.css?v=7">
+<link rel="stylesheet" href="/app/meet.css?v=8">
 </head>
 <body>
 <div id="meet"></div>
 <script>window.MEET_CONFIG = <?= json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;</script>
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
-<script src="/app/meet.js?v=7"></script>
+<script src="/app/meet.js?v=8"></script>
 </body>
 </html>

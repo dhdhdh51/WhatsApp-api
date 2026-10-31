@@ -80,13 +80,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 if ($isAdmin) {
     $branches = DB::all('SELECT id, name, area FROM branches ORDER BY name');
-    $active = DB::all("SELECT m.*, b.name branch, u.name by_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by WHERE m.is_active = 1 ORDER BY m.id DESC");
-    $past = DB::all("SELECT m.*, b.name branch, u.name by_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by WHERE m.is_active = 0 ORDER BY m.id DESC LIMIT 15");
+    $active = DB::all("SELECT m.*, b.name branch, u.name by_name, rg.name region_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by LEFT JOIN regions rg ON rg.id = m.region_id WHERE m.is_active = 1 ORDER BY m.id DESC");
+    $past = DB::all("SELECT m.*, b.name branch, u.name by_name, rg.name region_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by LEFT JOIN regions rg ON rg.id = m.region_id WHERE m.is_active = 0 ORDER BY m.id DESC LIMIT 15");
 } else {
     // Region Manager: their own region's meetings, plus any org-wide (Admin) meeting they may just view.
     $branches = DB::all('SELECT id, name, area FROM branches WHERE region_id = ? ORDER BY name', [$myRegion]);
-    $active = DB::all("SELECT m.*, b.name branch, u.name by_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by WHERE m.is_active = 1 AND (m.region_id = ? OR m.region_id IS NULL) ORDER BY m.id DESC", [$myRegion]);
-    $past = DB::all("SELECT m.*, b.name branch, u.name by_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by WHERE m.is_active = 0 AND (m.region_id = ? OR m.region_id IS NULL) ORDER BY m.id DESC LIMIT 15", [$myRegion]);
+    $active = DB::all("SELECT m.*, b.name branch, u.name by_name, rg.name region_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by LEFT JOIN regions rg ON rg.id = m.region_id WHERE m.is_active = 1 AND (m.region_id = ? OR m.region_id IS NULL) ORDER BY m.id DESC", [$myRegion]);
+    $past = DB::all("SELECT m.*, b.name branch, u.name by_name, rg.name region_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by LEFT JOIN regions rg ON rg.id = m.region_id WHERE m.is_active = 0 AND (m.region_id = ? OR m.region_id IS NULL) ORDER BY m.id DESC LIMIT 15", [$myRegion]);
 }
 $audLabel = ['broadcast' => '📢 Broadcast', 'all' => 'Everyone', 'bc' => 'All BCs', 'cbc' => 'All CBC supervisors', 'branch' => 'Branch'];
 $rmScoped = $isRM && $regionName !== '';
@@ -107,7 +107,7 @@ View::header('Meetings / मीटिंग', 'meetings');
         <div class="col-12"><label class="form-label small"><?= L('Title', 'शीर्षक') ?></label><input name="title" class="form-control form-control-sm" required maxlength="160" placeholder="e.g. Monthly review / मासिक समीक्षा"></div>
         <div class="col-7"><label class="form-label small"><?= L('Who can join', 'कौन जुड़ सकता है') ?></label>
           <select name="audience" id="aud" class="form-select form-select-sm">
-            <option value="broadcast">📢 Broadcast — <?= $rmScoped ? e($regionName) . ', ' : '' ?>view-only</option>
+            <option value="broadcast">📢 Broadcast — <?= $rmScoped ? e($regionName) . ', ' : '' ?>sabka video</option>
             <option value="all"><?= $rmScoped ? 'Everyone — ' . e($regionName) : 'Everyone (BC + CBC)' ?></option>
             <option value="cbc"><?= $rmScoped ? 'CBCs — ' . e($regionName) : 'All CBC supervisors' ?></option>
             <option value="bc"><?= $rmScoped ? 'BCs — ' . e($regionName) : 'All BCs' ?></option>
@@ -122,7 +122,7 @@ View::header('Meetings / मीटिंग', 'meetings');
         <div class="col-12"><button class="btn btn-success btn-sm"><i class="bi bi-camera-video-fill"></i> <?= L('Start & notify', 'शुरू करें और सूचित करें') ?></button></div>
       </form>
       <p class="small text-muted mt-2 mb-0">Start karte hi audience ke phone pe <b>ring + notification</b> jaata hai aur app mein "Join" banner dikhta hai. Call hamare apne server (LiveKit) par khulti hai (camera/mic allow karein).<br>
-        <b>📢 Broadcast</b> = <?= $rmScoped ? e($regionName) . ' ke' : 'har' ?> BC + staff ko ring jaata hai aur sab <b>view-only</b> judte hain; aap present karte hain. Kisi ka haath uthe (✋) to use "bolne" ki permission de sakte hain.</p>
+        <b>📢 Broadcast</b> = <?= $rmScoped ? e($regionName) . ' ke' : 'har' ?> BC + staff ko ring jaata hai. Video call jaisa: aap bade screen par, aur <b>sabka camera</b> niche dikhta hai. Mic sirf aapka; kisi ka haath uthe (✋) to "🎤 Allow" se use bolne dein.</p>
     </div></div>
   </div>
   <div class="col-lg-7">
@@ -135,7 +135,7 @@ View::header('Meetings / मीटिंग', 'meetings');
         <div class="list-group-item">
           <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
             <div><div class="fw-semibold"><i class="bi bi-broadcast text-success"></i> <?= e($m['title']) ?><?= (int) ($m['region_id'] ?? 0) === 0 && $isRM ? ' <span class="badge text-bg-secondary">org-wide</span>' : '' ?></div>
-              <div class="small text-muted"><?= e($audLabel[$m['audience']] ?? $m['audience']) ?><?= $m['branch'] ? ' – ' . e($m['branch']) : '' ?> · <?= e(fmt_dt($m['created_at'])) ?><?= $m['by_name'] ? ' · ' . e($m['by_name']) : '' ?></div></div>
+              <div class="small text-muted"><?= $m['region_name'] ? '<span class="badge text-bg-primary">' . e($m['region_name']) . '</span> ' : '' ?><?= e($audLabel[$m['audience']] ?? $m['audience']) ?><?= $m['branch'] ? ' – ' . e($m['branch']) : '' ?> · <?= e(fmt_dt($m['created_at'])) ?><?= $m['by_name'] ? ' · ' . e($m['by_name']) : '' ?></div></div>
             <div class="d-flex gap-1">
               <a class="btn btn-sm btn-success" target="_blank" rel="noopener" href="<?= e($url) ?>"><i class="bi bi-camera-video"></i> Join</a>
               <button type="button" class="btn btn-sm btn-outline-secondary" data-copy="<?= e($url) ?>"><i class="bi bi-clipboard"></i></button>
@@ -147,7 +147,7 @@ View::header('Meetings / मीटिंग', 'meetings');
       </div></div>
     <div class="card"><div class="card-header small"><?= L('Recent (ended)', 'पिछली मीटिंग') ?></div>
       <ul class="list-group list-group-flush small" style="max-height:280px;overflow:auto">
-        <?php foreach ($past as $m): ?><li class="list-group-item d-flex justify-content-between"><span><?= e($m['title']) ?> <span class="text-muted">· <?= e($audLabel[$m['audience']] ?? $m['audience']) ?></span></span><span class="text-muted"><?= e(fmt_dt($m['created_at'])) ?></span></li><?php endforeach; ?>
+        <?php foreach ($past as $m): ?><li class="list-group-item d-flex justify-content-between"><span><?= e($m['title']) ?> <?= $m['region_name'] ? '<span class="badge text-bg-light border">' . e($m['region_name']) . '</span>' : '' ?> <span class="text-muted">· <?= e($audLabel[$m['audience']] ?? $m['audience']) ?></span></span><span class="text-muted"><?= e(fmt_dt($m['created_at'])) ?></span></li><?php endforeach; ?>
         <?php if (!$past): ?><li class="list-group-item text-muted">—</li><?php endif; ?>
       </ul></div>
   </div>

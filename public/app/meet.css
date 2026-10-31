@@ -150,12 +150,27 @@ html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
 .bcs-clock b{font-size:14px;font-weight:700;display:block}
 .bcs-clock span{font-size:12px;opacity:.85}
 
-/* ---- body: stage + sidebar ---- */
+/* ---- body: main column (stage + everyone's video) + sidebar ---- */
 .bcs-body{flex:1;display:flex;gap:12px;padding:12px;min-height:0}
-.bcs-stage{flex:1;position:relative;background:#06142f;border-radius:14px;overflow:hidden;min-width:0;
+.bcs-main{flex:1;display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0;position:relative}
+.bcs-stage{flex:1 1 auto;position:relative;background:#06142f;border-radius:14px;overflow:hidden;min-width:0;min-height:0;
   box-shadow:0 10px 30px -14px rgba(6,20,47,.6)}
 .bcs-stagevid{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#06142f;display:none}
 .bcs-stagevid.on{display:block}
+.bcs-stagevid.mirror,.bcs-tile.me video{transform:scaleX(-1)}   /* own camera mirrored, like a video call */
+.bcs-pin{display:none;position:absolute;left:10px;top:10px;z-index:4;max-width:calc(100% - 20px);background:rgba(6,20,47,.78);color:#fff;
+  font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bcs-toast{position:absolute;left:50%;top:12px;transform:translateX(-50%);z-index:6;max-width:calc(100% - 24px);background:rgba(6,20,47,.9);color:#fff;
+  font-size:13px;font-weight:700;padding:8px 14px;border-radius:12px;opacity:0;transition:opacity .25s;pointer-events:none;text-align:center}
+.bcs-toast.show{opacity:1}
+
+/* ---- gallery: everyone's camera (video-call style). Desktop = filmstrip under the stage ---- */
+.bcs-gallery{flex:none;display:flex;flex-direction:column;gap:6px;min-height:0}
+.bcs-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+.bcs-gpager{display:flex;align-items:center;justify-content:center;gap:10px;font-size:12px;font-weight:700;color:var(--cb-muted)}
+.bcs-gpager .cnt{margin-right:auto}
+.bcs-gpager button{border:1px solid var(--cb-line);background:#fff;color:var(--cb-ink);border-radius:999px;min-width:40px;height:30px;font-size:15px;font-weight:800;cursor:pointer}
+.bcs-gpager button:disabled{opacity:.35}
 .bcs-stage-ph{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#9db4de;text-align:center;padding:20px}
 .bcs-stage-ph .ic{font-size:48px}
 .bcs-stage-ph .av{width:92px;height:92px;border-radius:50%;background:linear-gradient(135deg,var(--cb-blue),var(--cb-blue-l));
@@ -177,18 +192,23 @@ html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
 .bcs-ticker-move b{color:var(--cb-gold);margin:0 10px}
 @keyframes bcs-scroll{from{transform:translateX(0)}to{transform:translateX(-100%)}}
 
-/* ---- sidebar ---- */
-.bcs-side{flex:none;width:336px;display:flex;flex-direction:column;gap:10px;min-height:0;overflow-y:auto;scrollbar-width:thin}
-.bcs-tiles{display:grid;grid-template-columns:1fr 1fr;gap:7px}
-.bcs-tile{position:relative;aspect-ratio:16/10;background:#0e2550;border-radius:9px;overflow:hidden}
-.bcs-tile.host{grid-column:1 / -1;aspect-ratio:16/9;outline:3px solid #22c55e;outline-offset:-3px}
+/* ---- gallery tiles ---- */
+.bcs-tile{position:relative;aspect-ratio:16/10;background:#0e2550;border-radius:9px;overflow:hidden;cursor:pointer;min-width:0}
 .bcs-tile video{width:100%;height:100%;object-fit:cover;display:none;background:#000}
 .bcs-tile.has-video video{display:block}
 .bcs-tile .av{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;color:#fff;background:linear-gradient(135deg,var(--cb-blue),var(--cb-blue-l))}
 .bcs-tile.has-video .av{display:none}
 .bcs-tile .nm{position:absolute;left:5px;right:5px;bottom:5px;font-size:10.5px;font-weight:600;color:#fff;background:rgba(0,0,0,.55);padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bcs-tile.host{outline:2px solid #fbbf24;outline-offset:-2px}
+.bcs-tile.pinned{outline:2px solid #fff;outline-offset:-2px}
 .bcs-tile.speaking{outline:3px solid #22c55e;outline-offset:-3px}
-.bcs-tile .more{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:800;color:#cbd9f0;font-size:15px;background:#0e2550}
+.bcs-tile.raised{outline:3px solid #f59e0b;outline-offset:-3px}
+.bcs-tile .hand{display:none;position:absolute;left:5px;top:5px;z-index:2;background:#f59e0b;color:#1b1205;border-radius:999px;padding:1px 6px;font-size:12px}
+.bcs-tile.raised .hand{display:block}
+.bcs-tile .allow{display:none;position:absolute;right:5px;top:5px;z-index:2;border:0;border-radius:999px;background:#16a34a;color:#fff;font-size:10.5px;font-weight:800;padding:4px 9px;cursor:pointer}
+
+/* ---- sidebar ---- */
+.bcs-side{flex:none;width:336px;display:flex;flex-direction:column;gap:10px;min-height:0;overflow-y:auto;scrollbar-width:thin}
 
 .bcs-card{background:var(--cb-card);border:1px solid var(--cb-line);border-radius:12px;overflow:hidden;flex:none}
 .bcs-card>h4{margin:0;padding:9px 13px;font-size:13px;font-weight:800;color:var(--cb-navy);background:#f2f6fc;border-bottom:1px solid var(--cb-line);display:flex;align-items:center;gap:7px}
@@ -206,6 +226,8 @@ html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
 .bcs-prow .pm{flex:none;font-size:13px}
 .bcs-prow .pm.off{color:var(--cb-red)} .bcs-prow .pm.on{color:#16a34a}
 .bcs-prow .host-b{font-size:9.5px;font-weight:800;color:#fff;background:#16a34a;border-radius:999px;padding:1px 6px}
+.bcs-prow .pallow{flex:none;border:0;background:#16a34a;color:#fff;border-radius:999px;font-size:10px;font-weight:800;padding:3px 9px;cursor:pointer}
+.bcs-prow .pdemote{flex:none;border:1px solid var(--cb-line);background:#fff;border-radius:999px;font-size:11px;padding:1px 6px;cursor:pointer}
 
 .bcs-chat{display:flex;flex-direction:column;flex:1;min-height:170px}
 .bcs-chatlog{flex:1;overflow-y:auto;padding:9px 11px;display:flex;flex-direction:column;gap:7px;scrollbar-width:thin}
@@ -220,9 +242,9 @@ html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
 .bcs-chatin input{flex:1;min-width:0;border:1px solid var(--cb-line);border-radius:999px;padding:9px 13px;font-size:13px;font-family:inherit}
 .bcs-chatin button{flex:none;border:0;border-radius:50%;width:38px;height:38px;background:var(--cb-blue);color:#fff;font-size:16px}
 
-/* ---- scheme panel (आज की प्रस्तुति) overlay ---- */
-.bcs-scheme{position:absolute;left:12px;right:12px;bottom:84px;z-index:20;background:rgba(255,255,255,.98);border:1px solid var(--cb-line);
-  border-radius:12px;box-shadow:0 20px 50px -18px rgba(6,20,47,.6);padding:12px 14px;display:none;max-width:560px}
+/* ---- scheme panel (आज की प्रस्तुति) overlay, over the bottom of the main column ---- */
+.bcs-scheme{position:absolute;left:12px;right:12px;bottom:12px;z-index:20;background:rgba(255,255,255,.98);border:1px solid var(--cb-line);
+  border-radius:12px;box-shadow:0 20px 50px -18px rgba(6,20,47,.6);padding:12px 14px;display:none;max-width:560px;max-height:calc(100% - 24px);overflow-y:auto}
 .bcs-scheme.open{display:block}
 .bcs-scheme h4{margin:0 0 8px;font-size:14px;color:var(--cb-navy);font-weight:800}
 .bcs-scheme table{width:100%;border-collapse:collapse;font-size:12.5px}
@@ -249,18 +271,39 @@ html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
   .bcs-brand span,.bcs-ttl span{display:none}
   .bcs-brand b{font-size:12px}.bcs-ttl b{font-size:13px}.bcs-clock b{font-size:12px}.bcs-clock span{font-size:10px}
   .bcs-body{flex-direction:column;padding:8px;gap:8px}
-  .bcs-stage{flex:none;height:42vh}
+  .bcs-main{gap:8px}
+  /* phone: the host fills whatever the gallery leaves; everyone else in square tiles, 3 per row (max 2 rows / page) */
+  .bcs-main .bcs-stage{flex:1 1 auto;height:auto;min-height:150px}
+  .bcs-gallery.empty .bcs-grid{display:none}
+  .bcs-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  .bcs-grid .bcs-tile{aspect-ratio:1/1}
+  .bcs-gpager button{height:28px}
   .bcs-side{width:auto;flex:1;position:fixed;inset:52px 0 var(--bcs-ctl,66px) 0;background:var(--cb-bg);padding:8px;z-index:30;display:none}
   .bcs-side.open{display:flex}
-  .bcs-tiles{grid-template-columns:repeat(3,1fr)}
-  .bcs-scheme{bottom:76px;left:8px;right:8px}
+  .bcs-scheme{bottom:6px;left:0;right:0}
   /* phones: fixed-size buttons that wrap to a 2nd row instead of running off the screen */
   .bcs-controls{height:auto;min-height:60px;flex-wrap:wrap;gap:6px;padding:6px 6px calc(6px + env(safe-area-inset-bottom))}
-  .bcs-btn{flex:0 0 54px;width:54px;min-width:0;height:48px;font-size:9.5px}.bcs-btn i{font-size:16px}
+  .bcs-controls{gap:5px}
+  .bcs-btn{flex:0 0 52px;width:52px;min-width:0;height:48px;font-size:9.5px}.bcs-btn i{font-size:16px}
   .bcs-btn span{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .bcs-btn.end{flex:0 0 54px;min-width:0;flex-direction:column;font-size:9.5px}
+  .bcs-btn.end{flex:0 0 52px;min-width:0;flex-direction:column;font-size:9.5px}
   .bcs-brand-sm{display:none}
 }
+/* phone held sideways: one low filmstrip row so the host still has room */
+@media (max-width:900px) and (orientation:landscape){
+  .bcs-grid{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .bcs-grid .bcs-tile{aspect-ratio:16/10}
+}
+/* small phones: the brand text ran under the LIVE badge; keep the logo, give the title the room */
+@media (max-width:600px){
+  .bcs-brand-t{display:none}
+  .bcs-ttl{text-align:left}
+}
+
+/* sound / video blocked by the browser until a tap */
+.mt-gate{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);z-index:60;border:0;border-radius:16px;padding:16px 22px;
+  font:800 16px/1.3 'Inter','Noto Sans Devanagari',system-ui,sans-serif;color:#fff;background:#e4121f;box-shadow:0 18px 40px -12px rgba(0,0,0,.6);
+  max-width:calc(100% - 40px);cursor:pointer}
 
 /* top headlines band (news-style, under the header) */
 .bcs-ticker-top{position:relative;flex:none;height:34px;left:auto;right:auto;bottom:auto;

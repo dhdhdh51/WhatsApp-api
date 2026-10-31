@@ -81,7 +81,7 @@ if (!$actor) {
 if ($action === 'meet_status') {
     $m = $actor['type'] === 'bc' ? Meetings::forBc($actor['row']) : Meetings::forCbc((int) $actor['id']);
     out(['ok' => true, 'meeting' => $m ? ['title' => $m['title'], 'room' => $m['room'], 'mode' => $m['mode'],
-        'url' => $m['url'], 'is_broadcast' => !empty($m['is_broadcast'])] : null]);
+        'url' => $m['url'], 'is_broadcast' => !empty($m['is_broadcast']), 'region' => $m['region'] ?? ''] : null]);
 }
 
 // ------------------------------------------------------------------ group meeting join token (BC + staff)
@@ -96,25 +96,27 @@ if ($action === 'meet_token') {
     $ident = ($actor['type'] === 'bc' ? 'bc-' : 'user-') . (int) $actor['id'];
     $mid = (int) ($m['id'] ?? Meetings::idForRoom((string) $m['room']));
     $isBroadcast = !empty($m['is_broadcast']);
-    // admins/supervisors (and a CBC in their own meeting) moderate; in a broadcast everyone
-    // else is view-only until the host promotes them (meeting_speakers)
+    // admins/supervisors (and a CBC in their own meeting) moderate. A broadcast is a group video
+    // call: everyone shows their camera; the mic is for moderators and allowed speakers
+    // (meeting_speakers). can_publish keeps meaning camera + mic for older cached app pages.
     $isHost = $actor['type'] !== 'bc' && (!empty($m['can_moderate']) || App::staffSeesAll($actor['row']));
     $canPublish = !$isBroadcast || $isHost || Meetings::isSpeaker($mid, $ident);
-    $tok = Livekit::token((string) $m['room'], $ident, (string) ($actor['row']['name'] ?? 'User'), $canPublish);
+    $canVideo = ($m['mode'] ?? 'video') === 'video';
+    $meName = $actor['type'] === 'bc' ? (string) ($actor['row']['name'] ?? 'User') : Meetings::displayName($actor['row']);
+    $tok = Livekit::token((string) $m['room'], $ident, $meName, $canPublish || $canVideo, 7200, $canPublish ? null : ['camera']);
     if (!$tok) {
         fail('Meeting server configure nahi hai.', 500);
     }
     if ($mid) {
         Meetings::markJoined($mid, $ident); // stops the "join karein" reminders for this person
     }
-    $mRow = Meetings::byId($mid) ?: [];
-    $hostU = DB::one('SELECT name, role FROM users WHERE id = ?', [(int) (($mRow['created_by'] ?? 0) ?: ($mRow['host_cbc_id'] ?? 0))]);
+    $host = Meetings::hostInfo(Meetings::byId($mid) ?: []);
     out(['ok' => true, 'url' => Livekit::url(), 'token' => $tok, 'room' => $m['room'],
-        'mode' => $m['mode'], 'title' => $m['title'], 'name' => $actor['row']['name'] ?? 'User',
-        'meeting_id' => $mid, 'is_broadcast' => $isBroadcast, 'can_publish' => $canPublish, 'is_host' => $isHost,
+        'mode' => $m['mode'], 'title' => $m['title'], 'name' => $meName,
+        'meeting_id' => $mid, 'is_broadcast' => $isBroadcast, 'can_publish' => $canPublish, 'can_video' => $canVideo, 'is_host' => $isHost,
         'brand' => 'BC Monitoring App', 'bank' => 'Central Bank of India',
         'subtitle' => 'APY, PMJJBY, PMSBY एवं PMJDY की प्रगति समीक्षा',
-        'host_name' => $hostU['name'] ?? 'Host', 'host_role' => $hostU ? \App\Auth::roleLabel((string) $hostU['role']) : '']);
+        'host_name' => $host['name'], 'host_role' => $host['role'], 'host_region' => $host['region'], 'host_identity' => $host['identity']]);
 }
 
 // ------------------------------------------------------------------ scheme progress (broadcast panel)
@@ -168,7 +170,7 @@ if ($action === 'meet_chat') {
         if ($body === '' || mb_strlen($body) > 2000) {
             fail('Message likhein (max 2000 akshar).');
         }
-        Meetings::chatPost($mid, $ident, (string) ($actor['row']['name'] ?? 'User'), $actor['type'] !== 'bc', $body);
+        Meetings::chatPost($mid, $ident, $actor['type'] === 'bc' ? (string) ($actor['row']['name'] ?? 'User') : Meetings::displayName($actor['row']), $actor['type'] !== 'bc', $body);
     }
     $after = (int) ($_GET['after'] ?? 0);
     out(['ok' => true, 'rows' => Meetings::chatFormat(Meetings::chatSince($mid, $after), $ident)]);
@@ -200,7 +202,8 @@ if ($action === 'meet_promote') {
     } else {
         Meetings::revokeSpeak($mid, $who);
     }
-    out(['ok' => Livekit::setCanPublish((string) $m['room'], $who, $allow), 'allow' => $allow]);
+    // a broadcast is a group video call: taking the mic back keeps the person's camera
+    out(['ok' => Livekit::setCanPublish((string) $m['room'], $who, $allow, !empty($m['is_broadcast'])), 'allow' => $allow]);
 }
 
 // ------------------------------------------------------------------ 1:1 calls (BC + CBC)

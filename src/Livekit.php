@@ -28,8 +28,10 @@ final class Livekit
     /**
      * Join token for one participant in one room.
      * @param string $identity unique per participant (e.g. "bc-12" / "user-3")
+     * @param list<string>|null $sources limit what may be published, e.g. ['camera'] = camera but no
+     *                                   microphone (broadcast audience). null = no limit.
      */
-    public static function token(string $room, string $identity, string $name, bool $canPublish = true, int $ttl = 7200): ?string
+    public static function token(string $room, string $identity, string $name, bool $canPublish = true, int $ttl = 7200, ?array $sources = null): ?string
     {
         if (!self::enabled()) {
             return null;
@@ -37,19 +39,23 @@ final class Livekit
         $key = Settings::get('livekit_key');
         $secret = Settings::get('livekit_secret');
         $now = time();
+        $video = [
+            'room' => $room,
+            'roomJoin' => true,
+            'canPublish' => $canPublish,
+            'canSubscribe' => true,
+            'canPublishData' => true,
+        ];
+        if ($canPublish && $sources) {
+            $video['canPublishSources'] = array_values($sources);
+        }
         $payload = [
             'iss' => $key,
             'sub' => $identity,
             'nbf' => $now - 10,
             'exp' => $now + max(300, $ttl),
             'name' => mb_substr($name, 0, 80),
-            'video' => [
-                'room' => $room,
-                'roomJoin' => true,
-                'canPublish' => $canPublish,
-                'canSubscribe' => true,
-                'canPublishData' => true,
-            ],
+            'video' => $video,
         ];
         return self::sign($payload);
     }
@@ -124,21 +130,22 @@ final class Livekit
     }
 
     /**
-     * Host action (broadcast): grant or revoke a participant's permission to publish
-     * audio/video. Used to promote a raised hand to speak, or send them back to view-only.
+     * Host action (broadcast): let a participant speak (microphone + camera), or take the
+     * microphone back. With $keepCamera the participant keeps their camera when the mic is taken
+     * back (a broadcast is a group video call: everyone is seen, only allowed people talk).
      * canPublishData / canSubscribe stay on so chat and watching keep working either way.
      */
-    public static function setCanPublish(string $room, string $identity, bool $canPublish): bool
+    public static function setCanPublish(string $room, string $identity, bool $canPublish, bool $keepCamera = false): bool
     {
-        $r = self::rpc('UpdateParticipant', $room, [
-            'room' => $room,
-            'identity' => $identity,
-            'permission' => [
-                'can_subscribe' => true,
-                'can_publish' => $canPublish,
-                'can_publish_data' => true,
-            ],
-        ]);
+        $perm = [
+            'can_subscribe' => true,
+            'can_publish' => $canPublish || $keepCamera,
+            'can_publish_data' => true,
+        ];
+        if (!$canPublish && $keepCamera) {
+            $perm['can_publish_sources'] = ['CAMERA'];   // empty list = every source allowed
+        }
+        $r = self::rpc('UpdateParticipant', $room, ['room' => $room, 'identity' => $identity, 'permission' => $perm]);
         return $r !== null;
     }
 

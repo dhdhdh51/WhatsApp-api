@@ -121,7 +121,7 @@ final class Meetings
     public static function forBc(array $bc): ?array
     {
         $row = DB::one(
-            "SELECT id, title, room, mode, audience FROM meetings
+            "SELECT id, title, room, mode, audience, region_id FROM meetings
              WHERE is_active = 1 AND (
                  audience IN ('all','bc','broadcast')
                  OR (audience = 'branch'   AND branch_id   = ?)
@@ -135,7 +135,7 @@ final class Meetings
         );
         return $row ? ['id' => (int) $row['id'], 'title' => $row['title'], 'room' => $row['room'],
             'url' => self::url($row['room'], $row['mode']), 'mode' => $row['mode'],
-            'is_broadcast' => $row['audience'] === 'broadcast'] : null;
+            'is_broadcast' => $row['audience'] === 'broadcast', 'region' => self::regionName((int) $row['region_id'])] : null;
     }
 
     /** Latest active meeting a CBC can join/host, or null. */
@@ -168,7 +168,7 @@ final class Meetings
         return ['id' => (int) $row['id'], 'title' => $row['title'], 'room' => $row['room'],
             'url' => self::url($row['room'], $row['mode']),
             'mode' => $row['mode'], 'is_broadcast' => $row['audience'] === 'broadcast',
-            'is_host' => $isHost, 'can_moderate' => $canModerate];
+            'is_host' => $isHost, 'can_moderate' => $canModerate, 'region' => self::regionName((int) $row['region_id'])];
     }
 
     /** BC WHERE clause (uses alias b on the bcs table) for a meeting's audience; null = no BCs. */
@@ -240,7 +240,8 @@ final class Meetings
             $absent = DB::all("SELECT b.id, b.name FROM bcs b
                                WHERE {$w} AND NOT EXISTS (SELECT 1 FROM meeting_joins j WHERE j.meeting_id = ? AND j.actor = CONCAT('bc-', b.id))
                                LIMIT 300", $params);
-            $title = mb_substr('📹 ' . $m['title'], 0, 150);
+            $ro = self::regionName((int) ($m['region_id'] ?? 0));
+            $title = mb_substr((($m['audience'] ?? '') === 'broadcast' ? '📢 ' : '📹 ') . ($ro !== '' ? $ro . ': ' : '') . $m['title'], 0, 150);
             $body = 'Meeting chal rahi hai – app kholkar "Join" dabayein. (Reminder ' . ((int) $m['nudges'] + 1) . ')';
             foreach ($absent as $b) {
                 DB::insert('INSERT INTO app_notifications (bc_id, kind, title, body, created_at) VALUES (?, ?, ?, ?, NOW())',
@@ -267,7 +268,8 @@ final class Meetings
             return;
         }
         $isBroadcast = ($m['audience'] ?? '') === 'broadcast';
-        $title = mb_substr(($isBroadcast ? '📢 ' : '📹 ') . $m['title'], 0, 150);
+        $ro = self::regionName((int) ($m['region_id'] ?? 0));   // "📢 RO Agra: Monthly review"
+        $title = mb_substr(($isBroadcast ? '📢 ' : '📹 ') . ($ro !== '' ? $ro . ': ' : '') . $m['title'], 0, 150);
         $body = $isBroadcast
             ? 'LIVE broadcast shuru ho gaya hai. App kholkar "Join" dabayein.'
             : (($m['mode'] === 'voice' ? 'Voice' : 'Video') . ' meeting shuru ho gayi hai. App kholkar "Join" dabayein.');
@@ -331,6 +333,41 @@ final class Meetings
     public static function isBroadcast(array $m): bool
     {
         return ($m['audience'] ?? '') === 'broadcast';
+    }
+
+    public static function regionName(int $regionId): string
+    {
+        return $regionId > 0 ? (string) DB::val('SELECT name FROM regions WHERE id = ?', [$regionId]) : '';
+    }
+
+    /** Name shown in a meeting for a staff user: a Region Manager also shows their RO, e.g. "Deepak Sharma (RO Agra)". */
+    public static function displayName(array $user): string
+    {
+        $name = (string) ($user['name'] ?? 'User');
+        if (($user['role'] ?? '') === 'supervisor' && (int) ($user['region_id'] ?? 0) > 0) {
+            $rg = self::regionName((int) $user['region_id']);
+            if ($rg !== '') {
+                return $name . ' (' . $rg . ')';
+            }
+        }
+        return $name;
+    }
+
+    /**
+     * Who hosts this meeting, for the screen: LiveKit identity, plain name, role label and RO.
+     * RO = the meeting's region, else the host's own region (a Region Manager); '' = org-wide.
+     * @return array{identity:string,name:string,role:string,region:string}
+     */
+    public static function hostInfo(array $m): array
+    {
+        $hid = (int) (($m['created_by'] ?? 0) ?: ($m['host_cbc_id'] ?? 0));
+        $u = $hid ? DB::one('SELECT id, name, role, region_id FROM users WHERE id = ?', [$hid]) : null;
+        $region = self::regionName((int) ($m['region_id'] ?? 0));
+        if ($region === '' && $u && $u['role'] === 'supervisor') {
+            $region = self::regionName((int) $u['region_id']);
+        }
+        return ['identity' => $u ? 'user-' . (int) $u['id'] : '', 'name' => $u['name'] ?? 'Host',
+            'role' => $u ? Auth::roleLabel((string) $u['role']) : '', 'region' => $region];
     }
 
     public static function byId(int $id): ?array
