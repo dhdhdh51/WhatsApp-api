@@ -11,14 +11,14 @@ use App\Meetings;
 use App\Scope;
 use App\View;
 
-/** Start / end video meetings + broadcasts. Admin = org-wide; a Region Manager = only their own region. */
+/** Start / end video meetings + broadcasts. Admin = org-wide; a BC Supervisor = only their own region. */
 $user = Auth::require();
 $isAdmin = Auth::isAdmin($user);
 $isRM = ($user['role'] ?? '') === 'supervisor';
 if (!$isAdmin && !$isRM) {
     http_response_code(403);
     View::header('Access denied', 'meetings');
-    echo '<div class="alert alert-danger">Only Admin or a Region Manager can open this page. / यह पेज केवल एडमिन या रीजन मैनेजर के लिए है।</div>';
+    echo '<div class="alert alert-danger">Only Admin or a BC Supervisor can open this page. / यह पेज केवल एडमिन या बीसी सुपरवाइज़र के लिए है।</div>';
     View::footer();
     exit;
 }
@@ -31,7 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $title = trim((string) p('title'));
         $audience = (string) p('audience');
         $branchId = p('branch_id') !== '' ? (int) p('branch_id') : null;
-        $regionId = $isRM ? ($myRegion ?: null) : null;   // a Region Manager's meeting is pinned to their region
+        $regionId = $isRM ? ($myRegion ?: null) : null;   // a BC Supervisor's meeting is pinned to their region
         if ($title === '' || mb_strlen($title) > 160) {
             flash('danger', 'Meeting title 1–160 characters');
             redirect('/meetings.php');
@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = (int) p('id');
         if ($isRM && !DB::val('SELECT 1 FROM meetings WHERE id = ? AND region_id = ?', [$id, $myRegion])) {
             http_response_code(403);
-            exit('Not allowed');          // a Region Manager can only end their own region's meeting
+            exit('Not allowed');          // a BC Supervisor can only end their own region's meeting
         }
         Meetings::end($id);
         Audit::log((int) $user['id'], 'meeting_end', 'meeting', $id, []);
@@ -83,7 +83,7 @@ if ($isAdmin) {
     $active = DB::all("SELECT m.*, b.name branch, u.name by_name, rg.name region_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by LEFT JOIN regions rg ON rg.id = m.region_id WHERE m.is_active = 1 ORDER BY m.id DESC");
     $past = DB::all("SELECT m.*, b.name branch, u.name by_name, rg.name region_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by LEFT JOIN regions rg ON rg.id = m.region_id WHERE m.is_active = 0 ORDER BY m.id DESC LIMIT 15");
 } else {
-    // Region Manager: their own region's meetings, plus any org-wide (Admin) meeting they may just view.
+    // BC Supervisor: their own region's meetings, plus any org-wide (Admin) meeting they may just view.
     $branches = DB::all('SELECT id, name, area FROM branches WHERE region_id = ? ORDER BY name', [$myRegion]);
     $active = DB::all("SELECT m.*, b.name branch, u.name by_name, rg.name region_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by LEFT JOIN regions rg ON rg.id = m.region_id WHERE m.is_active = 1 AND (m.region_id = ? OR m.region_id IS NULL) ORDER BY m.id DESC", [$myRegion]);
     $past = DB::all("SELECT m.*, b.name branch, u.name by_name, rg.name region_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by LEFT JOIN regions rg ON rg.id = m.region_id WHERE m.is_active = 0 AND (m.region_id = ? OR m.region_id IS NULL) ORDER BY m.id DESC LIMIT 15", [$myRegion]);

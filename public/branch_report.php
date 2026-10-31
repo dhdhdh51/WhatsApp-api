@@ -18,7 +18,7 @@ use App\View;
 /**
  * Daily branch report (20 parameters).
  *   Branch Manager  – fills today's report for their branch (normally from the app; this page is the fallback).
- *   Region Manager  – sees / corrects the reports of their own region's branches.
+ *   BC Supervisor  – sees / corrects the reports of their own region's branches.
  *   Admin           – sees every region + sets the Branch Manager reminder (call + alarm).
  */
 $user = Auth::require();
@@ -26,7 +26,7 @@ $role = (string) ($user['role'] ?? '');
 if (!in_array($role, ['admin', 'supervisor', 'manager'], true)) {
     http_response_code(403);
     View::header('Access denied', 'branchreport');
-    echo '<div class="alert alert-danger">Only Admin, Region Manager or Branch Manager can open this page. / यह पेज एडमिन, रीजन मैनेजर या ब्रांच मैनेजर के लिए है।</div>';
+    echo '<div class="alert alert-danger">Only Admin, BC Supervisor or Branch Manager can open this page. / यह पेज एडमिन, बीसी सुपरवाइज़र या ब्रांच मैनेजर के लिए है।</div>';
     View::footer();
     exit;
 }
@@ -159,7 +159,7 @@ if ($isBm) {
     $mine = BranchReport::managerBranches((int) $user['id']);
     View::header('Branch Report / शाखा रिपोर्ट', 'branchreport');
     if (!$mine) {
-        echo '<div class="alert alert-warning">Aapko abhi koi branch assign nahi hai. Apne Region Manager / Admin se branch judwayein. / आपको अभी कोई शाखा नहीं दी गई है।</div>';
+        echo '<div class="alert alert-warning">Aapko abhi koi branch assign nahi hai. Apne BC Supervisor / Admin se branch judwayein. / आपको अभी कोई शाखा नहीं दी गई है।</div>';
         View::footer();
         exit;
     }
@@ -185,7 +185,7 @@ if ($isBm) {
   <?php if ($rep): ?><div class="alert alert-success py-2">✅ <?= e($cur['name']) ?> ki aaj ki report jama hai (<?= e(date('h:i A', strtotime((string) $rep['updated_at']))) ?>). Badlav ke liye number badal kar dobara save karein.</div>
   <?php elseif ($off !== null): ?><div class="alert alert-secondary py-2">🏖️ Aaj <?= e(BranchReport::offText($off)) ?> hai – report zaroori nahi. Chahein to bhar sakte hain.</div>
   <?php elseif ($open): ?><div class="alert alert-warning py-2">⏳ Aaj ki branch report abhi baaki hai. Antim samay: <?= e(fmt_time12(Settings::padTime(Settings::get('cutoff_time') ?: '23:59'))) ?></div><?php endif; ?>
-  <?php if (!$open): ?><div class="alert alert-danger py-2">⛔ Aaj ka samay khatam. Ab badlav sirf Admin / Region Manager kar sakte hain.</div><?php endif; ?>
+  <?php if (!$open): ?><div class="alert alert-danger py-2">⛔ Aaj ka samay khatam. Ab badlav sirf Admin / BC Supervisor kar sakte hain.</div><?php endif; ?>
   <div class="card mb-3"><div class="card-header"><i class="bi bi-clipboard-data"></i> <?= e($cur['name']) ?> – <?= e(date('d-m-Y')) ?></div>
     <div class="card-body"><?= $form($bid, $today, $rep, $open) ?></div></div>
   <div class="card"><div class="card-header small"><?= L('Recent reports', 'पिछली रिपोर्ट') ?></div>
@@ -199,7 +199,7 @@ if ($isBm) {
     exit;
 }
 
-// ====================================================================== Admin / Region Manager: correct one branch
+// ====================================================================== Admin / BC Supervisor: correct one branch
 if (q('edit') !== '') {
     $bid = (int) q('branch_id');
     $date = date_or(q('date'), $today);
@@ -223,7 +223,7 @@ if (q('edit') !== '') {
     exit;
 }
 
-// ====================================================================== Admin / Region Manager: overview
+// ====================================================================== Admin / BC Supervisor: overview
 $d = date_or(q('d'), $today);
 $from = date_or(q('from'), date('Y-m-01'));
 $to = date_or(q('to'), $today);

@@ -13,7 +13,7 @@ namespace App;
  */
 final class Scope
 {
-    /** The region a Region Manager (supervisor) owns, 0 = none. */
+    /** The region a BC Supervisor (role supervisor) owns, 0 = none. */
     public static function region(array $user): int
     {
         return ($user['role'] ?? '') === 'supervisor' ? (int) ($user['region_id'] ?? 0) : 0;
@@ -24,7 +24,7 @@ final class Scope
         if (($user['role'] ?? '') === 'admin') {
             return true;
         }
-        // A Region Manager with no region assigned still sees everything (keeps things working until a region is set).
+        // A BC Supervisor with no region assigned still sees everything (keeps things working until a region is set).
         return ($user['role'] ?? '') === 'supervisor' && self::region($user) === 0;
     }
 
@@ -37,7 +37,7 @@ final class Scope
         if (($user['role'] ?? '') === 'cbc') {
             return ["{$alias}.cbc_id = ?", [(int) $user['id']]];
         }
-        if (($user['role'] ?? '') === 'supervisor') {   // Region Manager -> all branches in their region
+        if (($user['role'] ?? '') === 'supervisor') {   // BC Supervisor -> all branches in their region
             return ["{$alias}.branch_id IN (SELECT id FROM branches WHERE region_id = ?)", [self::region($user)]];
         }
         return ["{$alias}.branch_id IN (SELECT ub.branch_id FROM user_branches ub WHERE ub.user_id = ?)", [(int) $user['id']]];
@@ -75,7 +75,7 @@ final class Scope
             return ["{$a}.role = 'cbc'", []];
         }
         $me = (int) $user['id'];
-        // CBCs the Region Manager created, or CBCs who follow up a BC inside their region
+        // CBCs the BC Supervisor created, or CBCs who follow up a BC inside their region
         return ["{$a}.role = 'cbc' AND ({$a}.created_by = ? OR EXISTS (SELECT 1 FROM bcs b WHERE b.cbc_id = {$a}.id AND b.branch_id IN (SELECT id FROM branches WHERE region_id = ?)))", [$me, self::region($user)]];
     }
 
@@ -91,7 +91,7 @@ final class Scope
 
     /**
      * WHERE (alias $a on users) for Branch Manager logins this person may manage.
-     * A Region Manager: Branch Managers whose every branch is inside their region, and who have a
+     * A BC Supervisor: Branch Managers whose every branch is inside their region, and who have a
      * branch there (or were created by them). A BM spanning another region stays with the Admin.
      */
     public static function bmManageWhere(array $user, string $a = 'u'): array
@@ -127,7 +127,7 @@ final class Scope
         if (($user['role'] ?? '') === 'cbc') {
             return DB::all('SELECT DISTINCT br.* FROM branches br JOIN bcs b ON b.branch_id = br.id WHERE b.cbc_id = ? ORDER BY br.name', [(int) $user['id']]);
         }
-        if (($user['role'] ?? '') === 'supervisor') {   // Region Manager -> every branch in their region
+        if (($user['role'] ?? '') === 'supervisor') {   // BC Supervisor -> every branch in their region
             return DB::all('SELECT * FROM branches WHERE region_id = ? ORDER BY name', [self::region($user)]);
         }
         return DB::all(
@@ -138,7 +138,7 @@ final class Scope
 
     /**
      * Regions the user may see, each with its total branch count.
-     * admin / region-less supervisor -> all regions; Region Manager -> only their own;
+     * admin / region-less supervisor -> all regions; BC Supervisor -> only their own;
      * branch manager / cbc -> regions that contain a branch they can see.
      * @return array<int,array{id:int,name:string,branches:int}>
      */

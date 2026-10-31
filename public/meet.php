@@ -26,7 +26,7 @@ if (!$m) {
 $isBroadcast = Meetings::isBroadcast($m);
 $meActor = 'user-' . (int) $user['id'];
 
-// Region isolation. Admin + region-less staff may open any meeting. A Region Manager (supervisor)
+// Region isolation. Admin + region-less staff may open any meeting. A BC Supervisor (role supervisor)
 // may open their own region's meetings, and may view (not moderate) org-wide ones. A CBC host owns theirs.
 $mRegion = (int) ($m['region_id'] ?? 0);
 $seesAll = \App\App::staffSeesAll($user);
@@ -42,7 +42,7 @@ if (!($seesAll || $mRegion === 0 || $sameRegion || $isHostCbc)) {
     flash('danger', 'Ye meeting aapki region ki nahi hai / यह मीटिंग आपके रीजन की नहीं है');
     redirect('/meetings.php');
 }
-$canModerate = Meetings::canModerate($m, $user);   // admin / region-less, the host, or this region's Region Manager
+$canModerate = Meetings::canModerate($m, $user);   // admin / region-less, the host, or this region's BC Supervisor
 
 // ---- persistent in-meeting group chat (session auth; CSRF on POST handled by web.php) ----
 if (q('chat') !== '') {

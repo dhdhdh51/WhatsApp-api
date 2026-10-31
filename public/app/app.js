@@ -466,7 +466,7 @@
     });
   }
 
-  // ------------------------------------------------------------------ staff home: CBC / Region Manager vs Branch Manager
+  // ------------------------------------------------------------------ staff home: CBC / BC Supervisor vs Branch Manager
   function staffHome(roleKey) {
     state.role = roleKey || 'cbc';
     if (state.role === 'manager') renderBm('report'); else renderCbc('status');
@@ -506,7 +506,7 @@
       if (d.report) h += '<div class="ok">✅ Aaj ki branch report jama hai (' + esc(d.updated_at) + '). Badlav ke liye number badal kar dobara Save karein.</div>';
       else if (!d.working) h += '<div class="ok">🏖️ Aaj ' + esc(d.off_text) + ' hai – report zaroori nahi. Chahein to bhar sakte hain.</div>';
       else if (d.open) h += '<div class="warn">⏳ Aaj ki branch report abhi baaki hai. Antim samay: ' + esc(d.cutoff) + '</div>';
-      if (!d.open) h += '<div class="err">⛔ Aaj ka samay khatam. Ab badlav sirf Admin / Region Manager kar sakte hain.</div>';
+      if (!d.open) h += '<div class="err">⛔ Aaj ka samay khatam. Ab badlav sirf Admin / BC Supervisor kar sakte hain.</div>';
       h += '<div class="card"><h2>🏦 ' + esc(d.branch_name) + ' – ' + esc(d.date_text) + '</h2><div id="bmMsg"></div><div class="grid">';
       d.items.forEach(function (f, i) {
         var amt = f.unit === 'amount';

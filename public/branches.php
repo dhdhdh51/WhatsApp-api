@@ -12,16 +12,16 @@ use App\View;
 
 $user = Auth::require();
 
-// Branches are managed only by the Region Manager (supervisor) of a region.
+// Branches are managed only by the BC Supervisor (role supervisor) of a region.
 // The Admin manages Regions instead, so send the Admin to the Regions page.
 if (($user['role'] ?? '') !== 'supervisor') {
     if (Auth::isAdmin($user)) {
-        flash('info', 'Branches ab Region Manager (supervisor) manage karte hain. Admin sirf Regions banata hai. / शाखाएँ अब रीजन मैनेजर संभालते हैं।');
+        flash('info', 'Branches ab BC Supervisor manage karte hain. Admin sirf Regions banata hai. / शाखाएँ अब बीसी सुपरवाइज़र संभालते हैं।');
         redirect('/regions.php');
     }
     http_response_code(403);
     View::header('Access denied', '');
-    echo '<div class="alert alert-danger">Only a Region Manager can open this page. / यह पेज केवल रीजन मैनेजर के लिए है।</div>';
+    echo '<div class="alert alert-danger">Only a BC Supervisor can open this page. / यह पेज केवल बीसी सुपरवाइज़र के लिए है।</div>';
     View::footer();
     exit;
 }
@@ -40,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name = trim((string) p('name'));
     $area = trim((string) p('area'));
 
-    // A Region Manager may only ever touch branches inside their own region.
+    // A BC Supervisor may only ever touch branches inside their own region.
     if ($id && !DB::val('SELECT 1 FROM branches WHERE id = ? AND region_id = ?', [$id, $myRegion])) {
         http_response_code(403);
         exit('Not your branch');
@@ -94,7 +94,7 @@ $rows = DB::all('SELECT br.*,
 ?>
 <div class="alert alert-info py-2 small">
   <i class="bi bi-diagram-3"></i>
-  <?= L('You are the Region Manager of', 'आप इस रीजन के रीजन मैनेजर हैं:') ?> <b><?= e($regionName) ?></b>.
+  <?= L('You are the BC Supervisor of', 'आप इस रीजन के बीसी सुपरवाइज़र हैं:') ?> <b><?= e($regionName) ?></b>.
   <?= L('Add and manage the branches of your region here.', 'अपने रीजन की शाखाएँ यहाँ जोड़ें और संभालें।') ?>
 </div>
 <div class="card mb-3"><div class="card-header"><i class="bi bi-building"></i> <?= L('Add branch to', 'शाखा जोड़ें') ?> <?= e($regionName) ?></div><div class="card-body">

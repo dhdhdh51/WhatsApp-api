@@ -127,7 +127,7 @@ foreach ($todayRows as $r) {
 }
 
 $branchIds = null;
-if (!Scope::seesAll($user)) {   // branch managers, region managers and CBCs only escalate their own branches
+if (!Scope::seesAll($user)) {   // branch managers, BC supervisors and CBCs only escalate their own branches
     $branchIds = array_map('intval', array_column(Scope::branches($user), 'id'));
 }
 if ($region !== '') {           // drill escalations into the selected RO

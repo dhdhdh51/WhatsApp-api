@@ -65,13 +65,13 @@ final class View
     <nav class="app-nav">
       <?php foreach (self::NAV as $key => [$url, $en, $hi, $icon, $adminOnly]):
           $role = $user['role'];
-          // Branches are managed only by the Region Manager (supervisor) of a region; the Admin manages Regions, not branches.
+          // Branches are managed only by the BC Supervisor (role supervisor) of a region; the Admin manages Regions, not branches.
           if ($key === 'branches') {
               if ($role !== 'supervisor') { continue; }
           } elseif ($key === 'branchreport') {
-              if ($role === 'cbc') { continue; }   // Branch Report: Branch Manager fills, Region Manager / Admin review
+              if ($role === 'cbc') { continue; }   // Branch Report: Branch Manager fills, BC Supervisor / Admin review
           } elseif ($adminOnly && $role !== 'admin' && !(in_array($key, ['users', 'meetings'], true) && $role === 'supervisor')) {
-              // Region Managers also get Users (their region's CBC logins) and Meetings (broadcast/video for their region); other admin pages stay admin-only.
+              // BC Supervisors also get Users (their region's CBC logins) and Meetings (broadcast/video for their region); other admin pages stay admin-only.
               continue;
           } ?>
         <a class="app-nav-link <?= $active === $key ? 'active' : '' ?>" href="<?= $url ?>"><i class="bi bi-<?= $icon ?>"></i> <span class="app-nav-label"><?= e($en) ?><small class="app-nav-hi"><?= e($hi) ?></small></span><?php if ($key === 'inbox' && $inboxUnread > 0): ?><span class="badge text-bg-danger rounded-pill"><?= $inboxUnread ?></span><?php endif; ?><?php if ($key === 'chat' && $chatUnread > 0): ?><span class="badge text-bg-danger rounded-pill"><?= $chatUnread ?></span><?php endif; ?></a>

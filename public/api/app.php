@@ -352,7 +352,7 @@ if ($actor['type'] === 'cbc') {
         case 'bm_today':
             $myBranches = BranchReport::managerBranches($uid);
             if (!$myBranches) {
-                fail('Aapko abhi koi branch assign nahi hai. Apne Region Manager / Admin se branch judwayein.');
+                fail('Aapko abhi koi branch assign nahi hai. Apne BC Supervisor / Admin se branch judwayein.');
             }
             $want = (int) ($_GET['branch_id'] ?? 0);
             $cur = $myBranches[0];
@@ -390,7 +390,7 @@ if ($actor['type'] === 'cbc') {
                 fail('Ye branch aapko assign nahi hai.', 403);
             }
             if (!Calendar::isOpen($today)) {
-                fail('Aaj ki report ka samay khatam ho gaya hai. Ab badlav sirf Admin / Region Manager kar sakte hain.');
+                fail('Aaj ki report ka samay khatam ho gaya hai. Ab badlav sirf Admin / BC Supervisor kar sakte hain.');
             }
             [$vals, $err] = BranchReport::parse(is_array($in['values'] ?? null) ? $in['values'] : []);
             if ($vals === null) {

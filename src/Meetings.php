@@ -129,7 +129,7 @@ final class Meetings
     /**
      * May this staff user run this meeting (mute, allow to speak, end it for everyone)?
      * Admin / region-less supervisor: any meeting. Otherwise the CBC host or the creator, or the
-     * Region Manager of the meeting's region.
+     * BC Supervisor of the meeting's region.
      */
     public static function canModerate(array $m, array $user): bool
     {
@@ -173,7 +173,7 @@ final class Meetings
         $params = [$cbcUserId];
         $regionSql = '';
         if (!App::staffSeesAll($u)) {
-            // A region-scoped meeting reaches only staff of that region: its Region Manager, the CBCs of
+            // A region-scoped meeting reaches only staff of that region: its BC Supervisor, the CBCs of
             // its BCs and the Branch Managers of its branches. Org-wide (region_id NULL) reaches everyone.
             $regionSql = ' AND (region_id IS NULL OR region_id = ?
                  OR region_id IN (SELECT br.region_id FROM bcs b JOIN branches br ON br.id = b.branch_id WHERE b.cbc_id = ?)
@@ -190,7 +190,7 @@ final class Meetings
             return null;
         }
         $isHost = (int) $row['host_cbc_id'] === $cbcUserId;   // a CBC's own app meeting (can end it from the app)
-        // moderators: that host, the staff user who created it, or the Region Manager of its region
+        // moderators: that host, the staff user who created it, or the BC Supervisor of its region
         $canModerate = $isHost || (int) $row['created_by'] === $cbcUserId || ($myRegion > 0 && (int) $row['region_id'] === $myRegion);
         return ['id' => (int) $row['id'], 'title' => $row['title'], 'room' => $row['room'],
             'url' => self::url($row['room'], $row['mode']),
@@ -329,7 +329,7 @@ final class Meetings
                 $staffSql = "SELECT DISTINCT u.id FROM users u WHERE u.is_active = 1 AND u.id IN ({$cbcSql})";
                 $staffParams = [$region];
             } elseif ($isBroadcast || $m['audience'] === 'all') {
-                // the region's CBCs + Branch Managers (+ its Region Manager for a broadcast), never the creator
+                // the region's CBCs + Branch Managers (+ its BC Supervisor for a broadcast), never the creator
                 $rmSql = $isBroadcast ? " OR (u.role = 'supervisor' AND u.region_id = ?)" : '';
                 $staffSql = "SELECT DISTINCT u.id FROM users u WHERE u.is_active = 1 AND u.id <> ?
                              AND (u.id IN ({$cbcSql}) OR (u.role = 'manager' AND u.id IN ({$bmSql})){$rmSql})";
@@ -367,7 +367,7 @@ final class Meetings
         return $regionId > 0 ? (string) DB::val('SELECT name FROM regions WHERE id = ?', [$regionId]) : '';
     }
 
-    /** Name shown in a meeting for a staff user: a Region Manager also shows their RO, e.g. "Deepak Sharma (RO Agra)". */
+    /** Name shown in a meeting for a staff user: a BC Supervisor also shows their RO, e.g. "Deepak Sharma (RO Agra)". */
     public static function displayName(array $user): string
     {
         $name = (string) ($user['name'] ?? 'User');
@@ -382,7 +382,7 @@ final class Meetings
 
     /**
      * Who hosts this meeting, for the screen: LiveKit identity, plain name, role label and RO.
-     * RO = the meeting's region, else the host's own region (a Region Manager); '' = org-wide.
+     * RO = the meeting's region, else the host's own region (a BC Supervisor); '' = org-wide.
      * @return array{identity:string,name:string,role:string,region:string}
      */
     public static function hostInfo(array $m): array

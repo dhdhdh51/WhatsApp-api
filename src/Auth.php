@@ -149,7 +149,7 @@ final class Auth
     {
         return match ($role) {
             'admin' => 'Admin',
-            'supervisor' => 'Region Manager',
+            'supervisor' => 'BC Supervisor',
             'manager' => 'Branch Manager',
             'cbc' => 'CBC',
             default => $role,

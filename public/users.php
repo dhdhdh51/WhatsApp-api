@@ -20,7 +20,7 @@ if (!$isAdmin && ($me['role'] ?? '') !== 'supervisor') {
     View::footer();
     exit;
 }
-// A Region Manager (supervisor) may only manage CBC and Branch Manager logins of their own region (never admin/supervisor).
+// A BC Supervisor (role supervisor) may only manage CBC and Branch Manager logins of their own region (never admin/supervisor).
 $editId = (int) q('edit');
 $canManage = static fn (int $uid): bool => $isAdmin || Scope::canManageCbc($me, $uid) || Scope::canManageBm($me, $uid);
 $errors = [];
@@ -71,7 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = strtolower((string) p('username'));
     $role = in_array(p('role'), ['admin', 'supervisor', 'manager', 'cbc'], true) ? (string) p('role') : 'manager';
     if (!$isAdmin) {
-        // a Region Manager can only create/edit CBC and Branch Manager logins (never escalate the role)
+        // a BC Supervisor can only create/edit CBC and Branch Manager logins (never escalate the role)
         $role = p('role') === 'manager' ? 'manager' : 'cbc';
         if ($id && !$canManage($id)) {
             http_response_code(403);
@@ -104,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($appLogin && $phone && DB::val("SELECT COUNT(*) FROM users WHERE phone = ? AND id <> ? AND is_active = 1 AND role IN ('cbc','manager','supervisor','admin')", [$phone, $id])) {
         $errors[] = 'Ye number pehle se kisi aur staff login ka hai — alag number dein (ek number sirf ek login) / यह नंबर पहले से किसी और लॉगिन का है';
     }
-    if (!$isAdmin && $role === 'manager' && Scope::region($me) > 0) {   // Region Manager: only branches of their own region
+    if (!$isAdmin && $role === 'manager' && Scope::region($me) > 0) {   // BC Supervisor: only branches of their own region
         $okIds = array_map('intval', array_column(DB::all('SELECT id FROM branches WHERE region_id = ?', [Scope::region($me)]), 'id'));
         if (array_diff($branches, $okIds)) {
             $errors[] = 'Sirf apni region ki branch chunein / केवल अपने रीजन की शाखा चुनें';
@@ -128,7 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!$errors) {
         $creatorId = (int) $me['id'];
-        // A Region Manager (supervisor) owns a region; Branch Managers use individual branches.
+        // A BC Supervisor (role supervisor) owns a region; Branch Managers use individual branches.
         $regionId = ($role === 'supervisor' && p('region_id') !== '' && DB::val('SELECT 1 FROM regions WHERE id = ?', [(int) p('region_id')])) ? (int) p('region_id') : null;
         DB::tx(static function () use (&$id, $name, $username, $role, $phone, $summary, $active, $pass, $branches, $creatorId, $regionId): void {
             if ($id) {
@@ -142,7 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     [$name, $username, password_hash($pass, PASSWORD_DEFAULT), $role, $creatorId, $regionId, $phone, $summary, $active]);
             }
             DB::exec('DELETE FROM user_branches WHERE user_id = ?', [$id]);
-            if ($role === 'manager') {   // Branch Manager -> individual branches; Region Manager uses region_id
+            if ($role === 'manager') {   // Branch Manager -> individual branches; BC Supervisor uses region_id
                 foreach (array_unique($branches) as $b) {
                     DB::exec('INSERT IGNORE INTO user_branches (user_id, branch_id) SELECT ?, id FROM branches WHERE id = ?', [$id, $b]);
                 }
@@ -181,7 +181,7 @@ if ($errors) {
     $editBranches = array_map('intval', (array) ($_POST['branches'] ?? []));
 }
 $allBranches = DB::all('SELECT * FROM branches ORDER BY name');
-// Branches offered for a Branch Manager: every branch for the Admin, only their own region's for a Region Manager.
+// Branches offered for a Branch Manager: every branch for the Admin, only their own region's for a BC Supervisor.
 $branchChoices = ($isAdmin || Scope::region($me) === 0) ? $allBranches : DB::all('SELECT * FROM branches WHERE region_id = ? ORDER BY name', [Scope::region($me)]);
 $allRegions = DB::all('SELECT * FROM regions ORDER BY name');
 $editRegion = (int) ($edit['region_id'] ?? 0);
@@ -215,7 +215,7 @@ View::header($isAdmin ? 'Users / यूज़र' : 'CBC & Branch Manager logins
     <div class="col-6"><label class="form-label small"><?= L('Name', 'नाम') ?></label><input name="name" class="form-control form-control-sm" required value="<?= e($edit['name'] ?? '') ?>"></div>
     <div class="col-6"><label class="form-label small">Username</label><input name="username" class="form-control form-control-sm" required value="<?= e($edit['username'] ?? '') ?>"></div>
     <div class="col-6"><label class="form-label small">Role</label><select name="role" class="form-select form-select-sm">
-      <?php foreach (($isAdmin ? ['cbc' => 'CBC (own BCs)', 'supervisor' => 'Region Manager (whole region)', 'manager' => 'Branch Manager (chosen branches)', 'admin' => 'Admin (everything)'] : ['cbc' => 'CBC', 'manager' => 'Branch Manager (apni region ki branch)']) as $rk => $rl): ?>
+      <?php foreach (($isAdmin ? ['cbc' => 'CBC (own BCs)', 'supervisor' => 'BC Supervisor (whole region)', 'manager' => 'Branch Manager (chosen branches)', 'admin' => 'Admin (everything)'] : ['cbc' => 'CBC', 'manager' => 'Branch Manager (apni region ki branch)']) as $rk => $rl): ?>
         <option value="<?= $rk ?>" <?= ($edit['role'] ?? 'cbc') === $rk ? 'selected' : '' ?>><?= e($rl) ?></option>
       <?php endforeach; ?></select></div>
     <div class="col-6"><label class="form-label small"><?= L('Password', 'पासवर्ड') ?></label><input type="password" name="password" class="form-control form-control-sm" minlength="10" placeholder="<?= !empty($edit['id']) ? 'leave empty = unchanged' : 'min 10 chars' ?>"></div>
@@ -226,10 +226,10 @@ View::header($isAdmin ? 'Users / यूज़र' : 'CBC & Branch Manager logins
       <div class="form-check"><input class="form-check-input" type="checkbox" name="receive_summary" value="1" id="rs" <?= !empty($edit['receive_summary']) ? 'checked' : '' ?>><label class="form-check-label small" for="rs">WhatsApp summary 9 PM (pending list of own BCs)</label></div>
       <div class="form-check"><input class="form-check-input" type="checkbox" name="is_active" value="1" id="ia" <?= !isset($edit['is_active']) || $edit['is_active'] ? 'checked' : '' ?>><label class="form-check-label small" for="ia">Active</label></div></div>
     <?php if ($isAdmin): ?>
-    <div class="col-12" data-role-field="supervisor"><label class="form-label small"><?= L('Region (for Region Manager)', 'रीजन (रीजन मैनेजर के लिए)') ?></label>
+    <div class="col-12" data-role-field="supervisor"><label class="form-label small"><?= L('Region (for BC Supervisor)', 'रीजन (बीसी सुपरवाइज़र के लिए)') ?></label>
       <select name="region_id" class="form-select form-select-sm"><option value="">— none (sees all BCs) —</option>
         <?php foreach ($allRegions as $rg): ?><option value="<?= (int) $rg['id'] ?>" <?= $editRegion === (int) $rg['id'] ? 'selected' : '' ?>><?= e($rg['name']) ?></option><?php endforeach; ?>
-      </select><div class="form-text">Region Manager poore region (saari branches) ko dekhega/manage karega. Khud apni branches add karega. Region banane ke liye <a href="/regions.php">Regions page</a>.</div></div>
+      </select><div class="form-text">BC Supervisor poore region (saari branches) ko dekhega/manage karega. Khud apni branches add karega. Region banane ke liye <a href="/regions.php">Regions page</a>.</div></div>
     <?php endif; ?>
     <div class="col-12" data-role-field="manager"><label class="form-label small"><?= L('Branch (for Branch Manager)', 'शाखा (ब्रांच मैनेजर के लिए)') ?></label>
       <select name="branches[]" multiple class="form-select form-select-sm" size="5">

@@ -53,10 +53,10 @@ View::header('Regions / रीजन', 'regions');
     <div class="col-md-6"><label class="form-label small"><?= L('New region name', 'नया रीजन नाम') ?></label><input name="name" class="form-control form-control-sm" required maxlength="120" placeholder="e.g. RO Agra"></div>
     <div class="col-md-2"><button class="btn btn-sm btn-success w-100"><?= L('Add region', 'रीजन जोड़ें') ?></button></div>
   </form>
-  <p class="small text-muted mt-2 mb-0"><?= L('Admin creates regions here. Branches inside a region are added by that region\'s Region Manager. Assign a Region Manager on the Users page.', 'एडमिन यहाँ रीजन बनाता है। रीजन की शाखाएँ उस रीजन का रीजन मैनेजर जोड़ता है। रीजन मैनेजर Users पेज से assign करें।') ?></p>
+  <p class="small text-muted mt-2 mb-0"><?= L('Admin creates regions here. Branches inside a region are added by that region\'s BC Supervisor. Assign a BC Supervisor on the Users page.', 'एडमिन यहाँ रीजन बनाता है। रीजन की शाखाएँ उस रीजन का बीसी सुपरवाइज़र जोड़ता है। बीसी सुपरवाइज़र Users पेज से assign करें।') ?></p>
 </div></div>
 <div class="table-responsive"><table class="table table-sm align-middle">
-  <thead><tr><th><?= L('Region', 'रीजन') ?></th><th>Branches</th><th>Active BCs</th><th><?= L('Region Manager(s)', 'रीजन मैनेजर') ?></th><th></th></tr></thead>
+  <thead><tr><th><?= L('Region', 'रीजन') ?></th><th>Branches</th><th>Active BCs</th><th><?= L('BC Supervisor(s)', 'बीसी सुपरवाइज़र') ?></th><th></th></tr></thead>
   <tbody><?php foreach ($rows as $r): ?>
   <tr>
     <td style="min-width:220px"><form method="post" class="d-flex gap-1" id="rf<?= (int) $r['id'] ?>"><?= Csrf::field() ?><input type="hidden" name="id" value="<?= (int) $r['id'] ?>"><input name="name" value="<?= e($r['name']) ?>" class="form-control form-control-sm" required></td>
