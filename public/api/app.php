@@ -9,6 +9,7 @@ declare(strict_types=1);
 require __DIR__ . '/../../src/bootstrap.php';
 
 use App\App;
+use App\BranchReport;
 use App\Calendar;
 use App\Calls;
 use App\DB;
@@ -62,7 +63,7 @@ if ($action === 'login') {
         fail($r['error'], 401);
     }
     if (($r['type'] ?? 'bc') === 'cbc') {
-        out(['ok' => true, 'type' => 'cbc', 'token' => $r['token'], 'must_change' => false, 'name' => $r['user']['name']]);
+        out(['ok' => true, 'type' => 'cbc', 'role_key' => (string) $r['user']['role'], 'token' => $r['token'], 'must_change' => false, 'name' => $r['user']['name']]);
     }
     out(['ok' => true, 'type' => 'bc', 'token' => $r['token'], 'must_change' => $r['must_change'], 'name' => $r['bc']['name'],
         'last_notification' => (int) DB::val('SELECT COALESCE(MAX(id),0) FROM app_notifications WHERE bc_id = ?', [$r['bc']['id']])]);
@@ -79,7 +80,8 @@ if (!$actor) {
 // ------------------------------------------------------------------ is a meeting live for me? (does NOT count as joining)
 if ($action === 'meet_status') {
     $m = $actor['type'] === 'bc' ? Meetings::forBc($actor['row']) : Meetings::forCbc((int) $actor['id']);
-    out(['ok' => true, 'meeting' => $m ? ['title' => $m['title'], 'room' => $m['room'], 'mode' => $m['mode'], 'url' => $m['url']] : null]);
+    out(['ok' => true, 'meeting' => $m ? ['title' => $m['title'], 'room' => $m['room'], 'mode' => $m['mode'],
+        'url' => $m['url'], 'is_broadcast' => !empty($m['is_broadcast']), 'region' => $m['region'] ?? ''] : null]);
 }
 
 // ------------------------------------------------------------------ group meeting join token (BC + staff)
@@ -88,22 +90,38 @@ if ($action === 'meet_token') {
         ? Meetings::forBc($actor['row'])
         : Meetings::forCbc((int) $actor['id']);
     if (!$m || empty($m['room'])) {
-        fail('Abhi koi meeting live nahi hai.');
+        out(['ok' => false, 'ended' => true, 'error' => 'Ye meeting / broadcast khatam ho chuki hai. Abhi koi meeting live nahi hai.'], 410);
     }
     // same identity as the panel (user-N) so one person never joins twice and echoes
     $ident = ($actor['type'] === 'bc' ? 'bc-' : 'user-') . (int) $actor['id'];
-    $tok = Livekit::token($m['room'], $ident, (string) ($actor['row']['name'] ?? 'User'));
+    $mid = (int) ($m['id'] ?? Meetings::idForRoom((string) $m['room']));
+    $isBroadcast = !empty($m['is_broadcast']);
+    // admins/supervisors (and a CBC in their own meeting) moderate. A broadcast is a group video
+    // call: everyone shows their camera; the mic is for moderators and allowed speakers
+    // (meeting_speakers). can_publish keeps meaning camera + mic for older cached app pages.
+    $isHost = $actor['type'] !== 'bc' && (!empty($m['can_moderate']) || App::staffSeesAll($actor['row']));
+    $canPublish = !$isBroadcast || $isHost || Meetings::isSpeaker($mid, $ident);
+    $canVideo = ($m['mode'] ?? 'video') === 'video';
+    $meName = $actor['type'] === 'bc' ? (string) ($actor['row']['name'] ?? 'User') : Meetings::displayName($actor['row']);
+    $tok = Livekit::token((string) $m['room'], $ident, $meName, $canPublish || $canVideo, 7200, $canPublish ? null : ['camera']);
     if (!$tok) {
         fail('Meeting server configure nahi hai.', 500);
     }
-    $isHost = $actor['type'] !== 'bc' && (!empty($m['is_host']) || App::staffSeesAll($actor['row']));
-    $mid = (int) ($m['id'] ?? Meetings::idForRoom((string) $m['room']));
     if ($mid) {
         Meetings::markJoined($mid, $ident); // stops the "join karein" reminders for this person
     }
+    $host = Meetings::hostInfo(Meetings::byId($mid) ?: []);
     out(['ok' => true, 'url' => Livekit::url(), 'token' => $tok, 'room' => $m['room'],
-        'mode' => $m['mode'], 'title' => $m['title'], 'name' => $actor['row']['name'] ?? 'User',
-        'is_host' => $isHost]);
+        'mode' => $m['mode'], 'title' => $m['title'], 'name' => $meName,
+        'meeting_id' => $mid, 'is_broadcast' => $isBroadcast, 'can_publish' => $canPublish, 'can_video' => $canVideo, 'is_host' => $isHost,
+        'brand' => 'BC Monitoring App', 'bank' => 'Central Bank of India',
+        'subtitle' => 'APY, PMJJBY, PMSBY एवं PMJDY की प्रगति समीक्षा',
+        'host_name' => $host['name'], 'host_role' => $host['role'], 'host_region' => $host['region'], 'host_identity' => $host['identity']]);
+}
+
+// ------------------------------------------------------------------ scheme progress (broadcast panel)
+if ($action === 'meet_summary') {
+    out(['ok' => true, 'rows' => Meetings::schemeSummary()]);
 }
 
 // ------------------------------------------------------------------ host moderation: mute / unmute
@@ -118,25 +136,100 @@ if ($action === 'meet_mute') {
     if (!$m || empty($m['room'])) {
         fail('Koi meeting live nahi hai.');
     }
-    if (empty($m['is_host']) && !App::staffSeesAll($actor['row'])) {
+    if (empty($m['can_moderate']) && !App::staffSeesAll($actor['row'])) {
         fail('Sirf host mute kar sakta hai.', 403);
     }
     $muted = !empty($in['muted']);
     $who = trim((string) ($in['identity'] ?? ''));
-    if ($who === '*') { // mute everyone except me
-        $me = 'user-' . (int) $actor['id'];
-        $n = 0;
-        foreach (Livekit::participants((string) $m['room']) as $p) {
-            if ($p['identity'] !== $me && Livekit::setMuted((string) $m['room'], $p['identity'], $muted)) {
-                $n++;
-            }
-        }
-        out(['ok' => true, 'changed' => $n]);
+    if ($who === '*') { // everyone except me; in a broadcast, allowed speakers also lose the mic (camera stays)
+        out(['ok' => true, 'changed' => Meetings::muteAll(Meetings::byId((int) $m['id']) ?: [], 'user-' . (int) $actor['id'])]);
     }
     if ($who === '') {
         fail('identity chahiye');
     }
     out(['ok' => Livekit::setMuted((string) $m['room'], $who, $muted)]);
+}
+
+// ------------------------------------------------------------------ host: end the meeting / broadcast for everyone
+if ($action === 'meet_end') {
+    if ($method !== 'POST') {
+        fail('POST required', 405);
+    }
+    if ($actor['type'] === 'bc') {
+        fail('Sirf host meeting band kar sakta hai.', 403);
+    }
+    $want = (int) ($in['meeting_id'] ?? 0);
+    $mRow = $want ? Meetings::byId($want) : null;
+    if (!$mRow) {
+        $live = Meetings::forCbc((int) $actor['id']);
+        $mRow = $live ? Meetings::byId((int) $live['id']) : null;
+    }
+    if (!$mRow || (int) $mRow['is_active'] !== 1) {
+        out(['ok' => true, 'ended' => true]);   // already over
+    }
+    if (!Meetings::canModerate($mRow, $actor['row'])) {
+        fail('Sirf host meeting band kar sakta hai.', 403);
+    }
+    Meetings::end((int) $mRow['id']);
+    \App\Audit::log((int) $actor['id'], 'meeting_end', 'meeting', (int) $mRow['id'], ['from' => 'app']);
+    out(['ok' => true]);
+}
+
+// ------------------------------------------------------------------ a browser error on the meeting screen (goes to our log)
+if ($action === 'meet_log') {
+    if ($method === 'POST') {
+        Meetings::clientLog((int) ($in['meeting_id'] ?? 0), ($actor['type'] === 'bc' ? 'bc-' : 'user-') . (int) $actor['id'], $in);
+    }
+    out(['ok' => true]);
+}
+
+// ------------------------------------------------------------------ in-meeting group chat (persistent)
+if ($action === 'meet_chat') {
+    $m = $actor['type'] === 'bc' ? Meetings::forBc($actor['row']) : Meetings::forCbc((int) $actor['id']);
+    if (!$m || empty($m['room'])) {
+        out(['ok' => false, 'ended' => true, 'error' => 'Meeting khatam ho chuki hai.'], 410);   // the screen leaves the meeting
+    }
+    $mid = (int) ($m['id'] ?? Meetings::idForRoom((string) $m['room']));
+    $ident = ($actor['type'] === 'bc' ? 'bc-' : 'user-') . (int) $actor['id'];
+    if ($method === 'POST') {
+        $body = trim(str_replace("\r\n", "\n", (string) ($in['body'] ?? '')));
+        if ($body === '' || mb_strlen($body) > 2000) {
+            fail('Message likhein (max 2000 akshar).');
+        }
+        Meetings::chatPost($mid, $ident, $actor['type'] === 'bc' ? (string) ($actor['row']['name'] ?? 'User') : Meetings::displayName($actor['row']), $actor['type'] !== 'bc', $body);
+    }
+    $after = (int) ($_GET['after'] ?? 0);
+    out(['ok' => true, 'rows' => Meetings::chatFormat(Meetings::chatSince($mid, $after), $ident)]);
+}
+
+// ------------------------------------------------------------------ broadcast: host promotes a raised hand to speak
+if ($action === 'meet_promote') {
+    if ($method !== 'POST') {
+        fail('POST required', 405);
+    }
+    if ($actor['type'] === 'bc') {
+        fail('Sirf host kar sakta hai.', 403);
+    }
+    $m = Meetings::forCbc((int) $actor['id']);
+    if (!$m || empty($m['room'])) {
+        fail('Koi meeting live nahi hai.');
+    }
+    if (empty($m['can_moderate']) && !App::staffSeesAll($actor['row'])) {
+        fail('Sirf host kar sakta hai.', 403);
+    }
+    $mid = (int) ($m['id'] ?? Meetings::idForRoom((string) $m['room']));
+    $who = trim((string) ($in['identity'] ?? ''));
+    $allow = !empty($in['allow']);
+    if ($who === '') {
+        fail('identity chahiye');
+    }
+    if ($allow) {
+        Meetings::allowSpeak($mid, $who);
+    } else {
+        Meetings::revokeSpeak($mid, $who);
+    }
+    // a broadcast is a group video call: taking the mic back keeps the person's camera
+    out(['ok' => Livekit::setCanPublish((string) $m['room'], $who, $allow, !empty($m['is_broadcast'])), 'allow' => $allow]);
 }
 
 // ------------------------------------------------------------------ 1:1 calls (BC + CBC)
@@ -237,23 +330,92 @@ if (str_starts_with($action, 'call_')) {
 if ($actor['type'] === 'cbc') {
     $u = $actor['row'];
     $uid = (int) $actor['id'];
-    $seesAll = App::staffSeesAll($u);                 // admin / supervisor -> every BC
-    $bcFilter = $seesAll ? [] : ['cbc_id' => $uid];
+    $seesAll = App::staffSeesAll($u);                 // admin / region-less supervisor -> every BC
+    [$scopeW, $scopeP] = \App\Scope::bc($u);          // 1=1 (all) | cbc_id (cbc) | branch IN (regional supervisor)
     $today = Calendar::today();
+    $isBm = ($u['role'] ?? '') === 'manager';         // Branch Manager: fills the daily branch report
+    if (str_starts_with($action, 'bm_') && !$isBm) {
+        fail('Ye sirf Branch Manager ke liye hai.', 403);
+    }
     switch ($action) {
         case 'logout':
             DB::exec('DELETE FROM cbc_app_tokens WHERE token_hash = ?', [hash('sha256', $token)]);
             out(['ok' => true]);
 
         case 'me':
-            out(['ok' => true, 'type' => 'cbc', 'role' => $seesAll ? ucfirst((string) $u['role']) : 'CBC',
+            out(['ok' => true, 'type' => 'cbc', 'role' => \App\Auth::roleLabel((string) ($u['role'] ?? 'cbc')), 'role_key' => (string) ($u['role'] ?? 'cbc'),
                 'name' => $u['name'], 'phone' => $u['phone'],
-                'bc_count' => (int) ($seesAll
-                    ? DB::val('SELECT COUNT(*) FROM bcs WHERE is_active = 1')
-                    : DB::val('SELECT COUNT(*) FROM bcs WHERE cbc_id = ? AND is_active = 1', [$uid]))]);
+                'branches' => $isBm ? array_column(BranchReport::managerBranches($uid), 'name') : [],
+                'bc_count' => (int) DB::val("SELECT COUNT(*) FROM bcs b WHERE {$scopeW} AND b.is_active = 1", $scopeP)]);
+
+        // ---------------------------------------------------------- Branch Manager: daily branch report
+        case 'bm_today':
+            $myBranches = BranchReport::managerBranches($uid);
+            if (!$myBranches) {
+                fail('Aapko abhi koi branch assign nahi hai. Apne BC Supervisor / Admin se branch judwayein.');
+            }
+            $want = (int) ($_GET['branch_id'] ?? 0);
+            $cur = $myBranches[0];
+            foreach ($myBranches as $b) {
+                if ((int) $b['id'] === $want) {
+                    $cur = $b;
+                }
+            }
+            $bid = (int) $cur['id'];
+            $rep = BranchReport::find($bid, $today);
+            $off = BranchReport::offReason($today, $bid);
+            $month = date('Y-m-01');
+            $mon = DB::one('SELECT COUNT(*) days, ' . BranchReport::sumSql('r') . ' FROM branch_reports r WHERE r.branch_id = ? AND r.report_date BETWEEN ? AND ?', [$bid, $month, $today]);
+            $list = [];
+            foreach ($myBranches as $b) {
+                $st = BranchReport::find((int) $b['id'], $today) ? 'submitted' : (BranchReport::offReason($today, (int) $b['id']) ?? 'pending');
+                $list[] = ['id' => (int) $b['id'], 'name' => $b['name'], 'status' => $st];
+            }
+            out(['ok' => true, 'date' => $today, 'date_text' => date('d-m-Y'), 'open' => Calendar::isOpen($today),
+                'cutoff' => fmt_time12(Settings::padTime(Settings::get('cutoff_time') ?: '23:59')),
+                'working' => $off === null, 'off_text' => BranchReport::offText($off),
+                'branches' => $list, 'branch_id' => $bid, 'branch_name' => $cur['name'],
+                'items' => BranchReport::itemList(), 'report' => BranchReport::values($rep),
+                'updated_at' => $rep ? date('h:i A', strtotime((string) $rep['updated_at'])) : null,
+                'month_text' => date('M Y'), 'month_days' => (int) ($mon['days'] ?? 0),
+                'month' => (int) ($mon['days'] ?? 0) > 0 ? BranchReport::values($mon) : null,
+                'meeting' => Meetings::forCbc($uid)]);
+
+        case 'bm_report':
+            if ($method !== 'POST') {
+                fail('POST required', 405);
+            }
+            $bid = (int) ($in['branch_id'] ?? 0);
+            if (!$bid || !in_array($bid, array_map('intval', array_column(BranchReport::managerBranches($uid), 'id')), true)) {
+                fail('Ye branch aapko assign nahi hai.', 403);
+            }
+            if (!Calendar::isOpen($today)) {
+                fail('Aaj ki report ka samay khatam ho gaya hai. Ab badlav sirf Admin / BC Supervisor kar sakte hain.');
+            }
+            [$vals, $err] = BranchReport::parse(is_array($in['values'] ?? null) ? $in['values'] : []);
+            if ($vals === null) {
+                fail($err);
+            }
+            $saved = BranchReport::save($bid, $today, $vals, $uid, 'app');
+            \App\Audit::log($uid, $saved['updated'] ? 'branch_report_update' : 'branch_report_submit', 'branch', $bid, ['date' => $today, 'source' => 'app']);
+            out(['ok' => true, 'updated' => $saved['updated'], 'all_done' => BranchReport::pendingFor($uid, $today) === [],
+                'message' => $saved['updated'] ? 'Branch report update ho gayi ✅' : 'Branch report mil gayi ✅ Dhanyavaad!']);
+
+        case 'bm_history':
+            $ids = array_map('intval', array_column(BranchReport::managerBranches($uid), 'id'));
+            if (!$ids) {
+                out(['ok' => true, 'items' => BranchReport::itemList(), 'rows' => []]);
+            }
+            $hp = [];
+            $in2 = DB::in($ids, $hp);
+            $rows = DB::all("SELECT r.*, br.name AS branch_name FROM branch_reports r JOIN branches br ON br.id = r.branch_id
+                             WHERE r.branch_id IN ({$in2}) ORDER BY r.report_date DESC, br.name LIMIT 60", $hp);
+            out(['ok' => true, 'items' => BranchReport::itemList(), 'multi' => count($ids) > 1,
+                'rows' => array_map(static fn ($r) => ['date_text' => date('d-m-Y', strtotime((string) $r['report_date'])),
+                    'branch' => $r['branch_name'], 'values' => BranchReport::values($r)], $rows)]);
 
         case 'status':
-            $rows = Calendar::dayRows($today, null, $bcFilter);
+            $rows = Calendar::dayRows($today, $u, []);
             $counts = ['submitted' => 0, 'pending' => 0, 'off' => 0];
             $bcs = [];
             foreach ($rows as $r) {
@@ -293,11 +455,12 @@ if ($actor['type'] === 'cbc') {
             Meetings::endByCbc($uid);
             out(['ok' => true]);
 
-        case 'alarm_check':
-            out(['ok' => true, 'ring' => App::shouldRingCbc($uid), 'config' => App::alarmConfigCbc()]);
+        case 'alarm_check':   // Branch Manager: rings while the branch report is pending; CBC: while a BC is pending
+            out(['ok' => true, 'ring' => $isBm ? BranchReport::shouldRing($uid) : App::shouldRingCbc($uid),
+                'config' => $isBm ? BranchReport::alarmConfig() : App::alarmConfigCbc()]);
 
         case 'report_done': // native uses this name; for a CBC "done" = no BC left pending
-            out(['ok' => true, 'done' => !App::shouldRingCbc($uid)]);
+            out(['ok' => true, 'done' => $isBm ? BranchReport::pendingFor($uid, $today) === [] : !App::shouldRingCbc($uid)]);
 
         case 'poll':
             $th = hash('sha256', $token);
@@ -309,7 +472,7 @@ if ($actor['type'] === 'cbc') {
                 $notifs[] = ['id' => $seq, 'kind' => $row['test_mode'] === 'call' ? 'ring_call' : 'ring_alarm',
                     'title' => 'Test', 'body' => 'Admin test'];
             }
-            out(['ok' => true, 'alarm' => App::alarmConfigCbc(), 'last' => $seq, 'notifications' => $notifs]);
+            out(['ok' => true, 'alarm' => $isBm ? BranchReport::alarmConfig() : App::alarmConfigCbc(), 'last' => $seq, 'notifications' => $notifs]);
 
         case 'fcm':
             $ft = trim((string) ($in['token'] ?? ''));

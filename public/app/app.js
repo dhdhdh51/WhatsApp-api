@@ -13,10 +13,12 @@
   function toast(t) { var el = document.getElementById('toast'); el.textContent = t; el.className = 'toast show'; setTimeout(function () { el.className = 'toast'; }, 2600); }
   function meetBanner(m) {
     if (!m || !m.url) return '';
-    var icon = m.mode === 'voice' ? '🎙️' : '📹';
-    return '<a class="meet-banner" target="_blank" rel="noopener" href="' + esc(m.url) + '">' +
+    var bc = !!m.is_broadcast;
+    var icon = bc ? '📢' : (m.mode === 'voice' ? '🎙️' : '📹');
+    var sub = (m.region ? m.region + ' · ' : '') + (bc ? 'LIVE Broadcast – tap karke judein' : ((m.mode === 'voice' ? 'Voice' : 'Video') + ' meeting live hai – tap karke judein'));
+    return '<a class="meet-banner' + (bc ? ' broadcast' : '') + '" target="_blank" rel="noopener" href="' + esc(m.url) + '">' +
       '<div class="mb-info"><div class="mb-title">' + icon + ' ' + esc(m.title || 'Meeting') + '</div>' +
-      '<div class="mb-sub">' + (m.mode === 'voice' ? 'Voice' : 'Video') + ' meeting live hai – tap karke judein</div></div><span class="mb-join">Join</span></a>';
+      '<div class="mb-sub">' + sub + '</div></div><span class="mb-join">Join</span></a>';
   }
   function openExt(url) {
     var a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener';
@@ -109,9 +111,11 @@
   function ringMeeting(m) {
     var d = document.createElement('div');
     d.className = 'meet-ring';
-    d.innerHTML = '<div class="mr-box"><div class="mr-ic">' + (m.mode === 'voice' ? '🎙️' : '📹') + '</div>' +
-      '<div class="mr-t">' + esc(m.title || 'Meeting') + '</div>' +
-      '<div class="mr-s">' + (m.mode === 'voice' ? 'Voice' : 'Video') + ' meeting shuru ho gayi hai – judein</div>' +
+    var bc = !!m.is_broadcast;
+    d.innerHTML = '<div class="mr-box"><div class="mr-ic">' + (bc ? '📢' : (m.mode === 'voice' ? '🎙️' : '📹')) + '</div>' +
+      '<div class="mr-t">' + esc(m.title || (bc ? 'Broadcast' : 'Meeting')) + '</div>' +
+      (m.region ? '<div class="mr-s"><b>' + esc(m.region) + '</b></div>' : '') +
+      '<div class="mr-s">' + (bc ? 'LIVE Broadcast shuru ho gaya hai – camera ke saath judein' : ((m.mode === 'voice' ? 'Voice' : 'Video') + ' meeting shuru ho gayi hai – judein')) + '</div>' +
       '<a class="btn" id="mrJoin" target="_blank" rel="noopener" href="' + esc(m.url) + '">Join karein</a>' +
       '<button class="btn light" id="mrLater">Baad mein</button></div>';
     document.body.appendChild(d);
@@ -166,7 +170,7 @@
           if (!j.ok) { renderLogin(j.error); return; }
           saveSession(j.token, j.last_notification);
           startCallWatch();
-          if (j.type === 'cbc') { renderCbc('status'); return; }
+          if (j.type === 'cbc') { staffHome(j.role_key); return; }
           if (j.must_change) renderPassword(true); else show('home');
         });
     };
@@ -462,13 +466,132 @@
     });
   }
 
+  // ------------------------------------------------------------------ staff home: CBC / BC Supervisor vs Branch Manager
+  function staffHome(roleKey) {
+    state.role = roleKey || 'cbc';
+    if (state.role === 'manager') renderBm('report'); else renderCbc('status');
+  }
+
+  // ------------------------------------------------------------------ Branch Manager view (daily branch report)
+  function bmTabs() {
+    var t = state.bmTab;
+    function b(k, i, l) { return '<button data-btab="' + k + '" class="' + (t === k ? 'on' : '') + '"><b>' + i + '</b>' + l + '</button>'; }
+    return '<div class="tabs">' + b('report', 'R', 'Report') + b('history', 'H', 'History') + b('bcs', 'B', 'BC Status') + b('more', 'M', 'More') + '</div>';
+  }
+  function renderBm(sub) {
+    stopChat();
+    state.tab = ''; state.bmTab = sub || 'report';
+    var head = { report: ['Branch Report', 'Aaj ki shakha report'], history: ['Meri reports', 'Pichhli branch reports'],
+      bcs: ['BC Status', 'Branch ke BC ki aaj ki report'], more: ['Profile', 'Branch Manager'] }[state.bmTab];
+    $app.innerHTML = top(head[0], head[1]) + '<div class="page"><div class="card muted">Load ho raha hai…</div></div>' + bmTabs();
+    Array.prototype.forEach.call(document.querySelectorAll('[data-btab]'), function (el) { el.onclick = function () { renderBm(el.getAttribute('data-btab')); }; });
+    ({ report: bmReport, history: bmHistory, bcs: bmBcs, more: bmMore })[state.bmTab]();
+  }
+  function bmPage(html) { var pg = $app.querySelector('.page'); if (pg) pg.innerHTML = html; return pg; }
+  function bmNum(f, v) {
+    if (v === null || v === undefined || v === '') return '';
+    return f.unit === 'amount' ? String(Math.round(parseFloat(v) * 100) / 100) : String(parseInt(v, 10));
+  }
+  function bmReport() {
+    api('bm_today', { qs: state.bmBranch ? '&branch_id=' + state.bmBranch : '' }).then(function (d) {
+      if (!d.ok) { bmPage('<div class="err">' + esc(d.error || 'Error') + '</div>'); return; }
+      state.bmBranch = d.branch_id;
+      var h = meetBanner(d.meeting);
+      if (d.branches.length > 1) {
+        h += '<div class="card"><div class="field"><label>Branch chunein</label><select id="bmBr" class="bm-sel">' + d.branches.map(function (b) {
+          var mark = b.status === 'submitted' ? ' ✅' : (b.status === 'pending' ? ' ⏳' : '');
+          return '<option value="' + b.id + '"' + (b.id === d.branch_id ? ' selected' : '') + '>' + esc(b.name) + mark + '</option>';
+        }).join('') + '</select></div></div>';
+      }
+      if (d.report) h += '<div class="ok">✅ Aaj ki branch report jama hai (' + esc(d.updated_at) + '). Badlav ke liye number badal kar dobara Save karein.</div>';
+      else if (!d.working) h += '<div class="ok">🏖️ Aaj ' + esc(d.off_text) + ' hai – report zaroori nahi. Chahein to bhar sakte hain.</div>';
+      else if (d.open) h += '<div class="warn">⏳ Aaj ki branch report abhi baaki hai. Antim samay: ' + esc(d.cutoff) + '</div>';
+      if (!d.open) h += '<div class="err">⛔ Aaj ka samay khatam. Ab badlav sirf Admin / BC Supervisor kar sakte hain.</div>';
+      h += '<div class="card"><h2>🏦 ' + esc(d.branch_name) + ' – ' + esc(d.date_text) + '</h2><div id="bmMsg"></div><div class="grid">';
+      d.items.forEach(function (f, i) {
+        var amt = f.unit === 'amount';
+        h += '<div class="field' + (amt ? ' amt' : '') + '"><label>' + (i + 1) + '. ' + esc(f.label) + (amt ? ' <span class="unit">₹ लाख</span>' : '') + '</label>' +
+          '<input type="number" min="0" step="' + (amt ? '0.01' : '1') + '" inputmode="' + (amt ? 'decimal' : 'numeric') + '" data-bk="' + f.key + '" data-amt="' + (amt ? 1 : 0) + '"' +
+          ' value="' + esc(d.report ? bmNum(f, d.report[f.key]) : '') + '" placeholder="0"' + (d.open ? '' : ' disabled') + '></div>';
+      });
+      h += '</div>' + (d.open ? '<button class="btn" id="bmSave">' + (d.report ? 'Update karein' : 'Report bhejein') + '</button>' : '') +
+        '<p class="muted">Kuch nahi hua to khali chhod dein ya 0 likhein. ₹ wale khane <b>lakh</b> mein (2.5 = ₹2.5 lakh).</p></div>';
+      if (d.month) {
+        var rows = d.items.filter(function (f) { return parseFloat(d.month[f.key]) > 0; });
+        h += '<div class="card"><h2>📈 ' + esc(d.month_text) + ' – ab tak (' + d.month_days + ' din)</h2>' + (rows.length ? '<table>' + rows.map(function (f) {
+          return '<tr><td>' + esc(f.label) + '</td><td class="n"><b>' + esc(bmNum(f, d.month[f.key])) + '</b>' + (f.unit === 'amount' ? ' <span class="muted">₹ लाख</span>' : '') + '</td></tr>';
+        }).join('') + '</table>' : '<p class="muted">Abhi sab 0 hai.</p>') + '</div>';
+      }
+      var pg = bmPage(h);
+      var sel = document.getElementById('bmBr'); if (sel) sel.onchange = function () { state.bmBranch = parseInt(sel.value, 10); renderBm('report'); };
+      var sb = document.getElementById('bmSave'); if (sb) sb.onclick = function () { bmSubmit(d, pg); };
+    });
+  }
+  function bmSubmit(d, pg) {
+    var vals = {}, bad = '';
+    Array.prototype.forEach.call(pg.querySelectorAll('input[data-bk]'), function (i) {
+      var v = i.value.trim(), amt = i.getAttribute('data-amt') === '1';
+      if (v !== '' && !(amt ? /^\d+(\.\d{1,2})?$/ : /^\d+$/).test(v)) bad = amt ? '₹ wale khane mein sahi number likhein (jaise 2.5)' : 'Sankhya wale khane mein sirf poore number likhein (0, 1, 2 …)';
+      vals[i.getAttribute('data-bk')] = v === '' ? '0' : v;
+    });
+    var m = document.getElementById('bmMsg');
+    if (bad) { m.innerHTML = '<div class="err">' + esc(bad) + '</div>'; m.scrollIntoView({ block: 'center' }); return; }
+    var sb = document.getElementById('bmSave'); sb.disabled = true;
+    api('bm_report', { body: { branch_id: state.bmBranch, values: vals } }).then(function (j) {
+      sb.disabled = false;
+      if (!j.ok) { m.innerHTML = '<div class="err">' + esc(j.error || 'Error') + '</div>'; m.scrollIntoView({ block: 'center' }); return; }
+      if (j.all_done && native && native.setReportDone) native.setReportDone(d.date); // stop today's call / alarm
+      toast(j.message); renderBm('report');
+    });
+  }
+  function bmHistory() {
+    api('bm_history').then(function (d) {
+      if (!d.ok) { bmPage('<div class="err">' + esc(d.error || 'Error') + '</div>'); return; }
+      if (!d.rows.length) { bmPage('<div class="card muted">Abhi koi report nahi.</div>'); return; }
+      bmPage(d.rows.map(function (r) {
+        var filled = d.items.filter(function (f) { return parseFloat(r.values[f.key]) > 0; });
+        return '<div class="card"><h2>' + esc(r.date_text) + (d.multi ? ' <span class="muted">· ' + esc(r.branch) + '</span>' : '') + '</h2>' +
+          (filled.length ? '<table>' + filled.map(function (f) {
+            return '<tr><td>' + esc(f.label) + '</td><td class="n">' + esc(bmNum(f, r.values[f.key])) + (f.unit === 'amount' ? ' <span class="muted">₹ लाख</span>' : '') + '</td></tr>';
+          }).join('') + '</table>' : '<p class="muted">Sab 0</p>') + '</div>';
+      }).join(''));
+    });
+  }
+  function bmBcs() {
+    api('status').then(function (d) {
+      if (!d.ok) { bmPage('<div class="err">' + esc(d.error || 'Error') + '</div>'); return; }
+      var c = d.counts, h = '<div class="cbc-sum">' +
+        '<div class="cbc-stat r"><b>' + c.pending + '</b><span>Baaki</span></div>' +
+        '<div class="cbc-stat g"><b>' + c.submitted + '</b><span>Jama</span></div>' +
+        '<div class="cbc-stat n"><b>' + c.off + '</b><span>Chhutti/Off</span></div></div>';
+      h += '<div class="card"><h2>📋 BC list – ' + esc(d.date_text) + '</h2>';
+      if (!d.bcs.length) h += '<p class="muted">Aapki branch mein koi active BC nahi hai.</p>';
+      d.bcs.forEach(function (b) {
+        var ph = String(b.phone || '').replace(/\D/g, '');
+        var act = (b.status === 'pending' && ph) ? '<div class="cbc-act"><a class="rbtn call" href="tel:+91' + esc(ph) + '">📞 Phone</a>' +
+          '<a class="rbtn wa" target="_blank" rel="noopener" href="https://wa.me/91' + esc(ph) + '">WhatsApp</a></div>' : '';
+        h += '<div class="cbc-row"><div class="cbc-head"><div class="cbc-name">' + esc(b.name) + ' <span class="muted">' + esc(b.bc_code || '') + '</span></div>' +
+          statusChip(b.status) + '</div>' + (b.branch ? '<div class="muted sm">' + esc(b.branch) + '</div>' : '') + act + '</div>';
+      });
+      bmPage(h + '</div>');
+    });
+  }
+  function bmMore() {
+    api('me').then(function (d) {
+      if (!d.ok) return;
+      bmPage('<div class="card"><h2>' + esc(d.name || 'Branch Manager') + '</h2><p class="muted">Role: ' + esc(d.role || 'Branch Manager') +
+        '<br>Mobile: ' + esc(d.phone || '') + '<br>Branch: ' + esc((d.branches || []).join(', ') || '—') + '<br>BC: ' + (d.bc_count || 0) + '</p></div>' +
+        '<div class="card"><p class="muted">Jab tak aaj ki branch report baaki hai, app samay par call aur alarm bajayega (internet chahiye). Report bhejte hi band ho jayega.</p></div>');
+    });
+  }
+
   // ------------------------------------------------------------------ start
   if (!token()) { renderLogin(''); return; }
   api('me').then(function (d) {
     if (!d.ok) return;
     if (native && native.setSession) native.setSession(token(), location.origin, '');
     startCallWatch();
-    if (d.type === 'cbc') { renderCbc('status'); return; }
+    if (d.type === 'cbc') { staffHome(d.role_key); return; }
     if (d.must_change) renderPassword(true); else show(location.hash === '#chat' ? 'chat' : location.hash === '#notices' ? 'notices' : 'home');
   });
 })();

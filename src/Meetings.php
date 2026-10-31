@@ -35,14 +35,14 @@ final class Meetings
     }
 
     /** Admin-created meeting. */
-    public static function create(string $title, string $audience, string $mode, ?int $branchId, ?int $by): int
+    public static function create(string $title, string $audience, string $mode, ?int $branchId, ?int $by, ?int $regionId = null): int
     {
-        $audience = in_array($audience, ['all', 'bc', 'cbc', 'branch'], true) ? $audience : 'all';
+        $audience = in_array($audience, ['all', 'bc', 'cbc', 'branch', 'broadcast'], true) ? $audience : 'all';
         $mode = $mode === 'voice' ? 'voice' : 'video';
         $room = 'BCReport-' . bin2hex(random_bytes(6));
         return DB::insert(
-            'INSERT INTO meetings (title, room, audience, mode, branch_id, created_by, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, NOW())',
-            [mb_substr($title, 0, 160), $room, $audience, $mode, $audience === 'branch' ? $branchId : null, $by]
+            'INSERT INTO meetings (title, room, audience, mode, branch_id, region_id, created_by, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW())',
+            [mb_substr($title, 0, 160), $room, $audience, $mode, $audience === 'branch' ? $branchId : null, $regionId ?: null, $by]
         );
     }
 
@@ -107,45 +107,95 @@ final class Meetings
             'invited' => $audience === 'selected' ? count($validIds) : null];
     }
 
+    /** End a meeting for everyone: mark it over and close its LiveKit room, so every screen leaves it. */
     public static function end(int $id): void
     {
+        $room = (string) DB::val('SELECT room FROM meetings WHERE id = ? AND is_active = 1', [$id]);
         DB::exec('UPDATE meetings SET is_active = 0, ended_at = NOW() WHERE id = ? AND is_active = 1', [$id]);
+        if ($room !== '') {
+            Livekit::deleteRoom($room);
+        }
     }
 
     public static function endByCbc(int $cbcUserId): void
     {
+        $rooms = array_column(DB::all('SELECT room FROM meetings WHERE host_cbc_id = ? AND is_active = 1', [$cbcUserId]), 'room');
         DB::exec('UPDATE meetings SET is_active = 0, ended_at = NOW() WHERE host_cbc_id = ? AND is_active = 1', [$cbcUserId]);
+        foreach ($rooms as $room) {
+            Livekit::deleteRoom((string) $room);
+        }
+    }
+
+    /**
+     * May this staff user run this meeting (mute, allow to speak, end it for everyone)?
+     * Admin / region-less supervisor: any meeting. Otherwise the CBC host or the creator, or the
+     * BC Supervisor of the meeting's region.
+     */
+    public static function canModerate(array $m, array $user): bool
+    {
+        if (App::staffSeesAll($user)) {
+            return true;
+        }
+        $uid = (int) ($user['id'] ?? 0);
+        if ($uid > 0 && ((int) ($m['host_cbc_id'] ?? 0) === $uid || (int) ($m['created_by'] ?? 0) === $uid)) {
+            return true;
+        }
+        return ($user['role'] ?? '') === 'supervisor' && (int) ($user['region_id'] ?? 0) > 0
+            && (int) ($m['region_id'] ?? 0) === (int) $user['region_id'];
     }
 
     /** Latest active meeting a BC can join, or null. */
     public static function forBc(array $bc): ?array
     {
         $row = DB::one(
-            "SELECT title, room, mode FROM meetings
+            "SELECT id, title, room, mode, audience, region_id FROM meetings
              WHERE is_active = 1 AND (
-                 audience IN ('all','bc')
+                 audience IN ('all','bc','broadcast')
                  OR (audience = 'branch'   AND branch_id   = ?)
                  OR (audience = 'cbc_bcs'  AND host_cbc_id = ?)
                  OR (audience = 'one_bc'   AND target_bc_id = ?)
                  OR (audience = 'selected' AND EXISTS (SELECT 1 FROM meeting_invites mi WHERE mi.meeting_id = meetings.id AND mi.bc_id = ?))
-             ) ORDER BY id DESC LIMIT 1",
-            [(int) ($bc['branch_id'] ?? 0), (int) ($bc['cbc_id'] ?? 0), (int) ($bc['id'] ?? 0), (int) ($bc['id'] ?? 0)]
+             )
+             AND (region_id IS NULL OR region_id = (SELECT region_id FROM branches WHERE id = ?))
+             ORDER BY id DESC LIMIT 1",
+            [(int) ($bc['branch_id'] ?? 0), (int) ($bc['cbc_id'] ?? 0), (int) ($bc['id'] ?? 0), (int) ($bc['id'] ?? 0), (int) ($bc['branch_id'] ?? 0)]
         );
-        return $row ? ['title' => $row['title'], 'room' => $row['room'], 'url' => self::url($row['room'], $row['mode']), 'mode' => $row['mode']] : null;
+        return $row ? ['id' => (int) $row['id'], 'title' => $row['title'], 'room' => $row['room'],
+            'url' => self::url($row['room'], $row['mode']), 'mode' => $row['mode'],
+            'is_broadcast' => $row['audience'] === 'broadcast', 'region' => self::regionName((int) $row['region_id'])] : null;
     }
 
     /** Latest active meeting a CBC can join/host, or null. */
     public static function forCbc(int $cbcUserId): ?array
     {
+        $u = DB::one('SELECT id, role, region_id FROM users WHERE id = ?', [$cbcUserId]) ?: [];
+        $myRegion = ($u['role'] ?? '') === 'supervisor' ? (int) ($u['region_id'] ?? 0) : 0;
+        $params = [$cbcUserId];
+        $regionSql = '';
+        if (!App::staffSeesAll($u)) {
+            // A region-scoped meeting reaches only staff of that region: its BC Supervisor, the CBCs of
+            // its BCs and the Branch Managers of its branches. Org-wide (region_id NULL) reaches everyone.
+            $regionSql = ' AND (region_id IS NULL OR region_id = ?
+                 OR region_id IN (SELECT br.region_id FROM bcs b JOIN branches br ON br.id = b.branch_id WHERE b.cbc_id = ?)
+                 OR region_id IN (SELECT br2.region_id FROM user_branches ub JOIN branches br2 ON br2.id = ub.branch_id WHERE ub.user_id = ?))';
+            array_push($params, $myRegion, $cbcUserId, $cbcUserId);
+        }
         $row = DB::one(
-            "SELECT id, title, room, mode, host_cbc_id FROM meetings
-             WHERE is_active = 1 AND (audience IN ('all','cbc') OR host_cbc_id = ?)
+            "SELECT id, title, room, mode, audience, host_cbc_id, created_by, region_id FROM meetings
+             WHERE is_active = 1 AND (audience IN ('all','cbc','broadcast') OR host_cbc_id = ?){$regionSql}
              ORDER BY id DESC LIMIT 1",
-            [$cbcUserId]
+            $params
         );
-        return $row ? ['id' => (int) $row['id'], 'title' => $row['title'], 'room' => $row['room'],
+        if (!$row) {
+            return null;
+        }
+        $isHost = (int) $row['host_cbc_id'] === $cbcUserId;   // a CBC's own app meeting (can end it from the app)
+        // moderators: that host, the staff user who created it, or the BC Supervisor of its region
+        $canModerate = $isHost || (int) $row['created_by'] === $cbcUserId || ($myRegion > 0 && (int) $row['region_id'] === $myRegion);
+        return ['id' => (int) $row['id'], 'title' => $row['title'], 'room' => $row['room'],
             'url' => self::url($row['room'], $row['mode']),
-            'mode' => $row['mode'], 'is_host' => ((int) $row['host_cbc_id'] === $cbcUserId)] : null;
+            'mode' => $row['mode'], 'is_broadcast' => $row['audience'] === 'broadcast',
+            'is_host' => $isHost, 'can_moderate' => $canModerate, 'region' => self::regionName((int) $row['region_id'])];
     }
 
     /** BC WHERE clause (uses alias b on the bcs table) for a meeting's audience; null = no BCs. */
@@ -154,21 +204,33 @@ final class Meetings
         switch ($m['audience']) {
             case 'all':
             case 'bc':
-                return 'b.is_active = 1';
+            case 'broadcast':   // broadcast reaches every active BC
+                $w = 'b.is_active = 1';
+                break;
             case 'branch':
                 $params[] = (int) $m['branch_id'];
-                return 'b.is_active = 1 AND b.branch_id = ?';
+                $w = 'b.is_active = 1 AND b.branch_id = ?';
+                break;
             case 'cbc_bcs':
                 $params[] = (int) $m['host_cbc_id'];
-                return 'b.is_active = 1 AND b.cbc_id = ?';
+                $w = 'b.is_active = 1 AND b.cbc_id = ?';
+                break;
             case 'one_bc':
                 $params[] = (int) $m['target_bc_id'];
-                return 'b.is_active = 1 AND b.id = ?';
+                $w = 'b.is_active = 1 AND b.id = ?';
+                break;
             case 'selected':
                 $params[] = (int) $m['id'];
-                return 'b.is_active = 1 AND EXISTS (SELECT 1 FROM meeting_invites mi WHERE mi.meeting_id = ? AND mi.bc_id = b.id)';
+                $w = 'b.is_active = 1 AND EXISTS (SELECT 1 FROM meeting_invites mi WHERE mi.meeting_id = ? AND mi.bc_id = b.id)';
+                break;
+            default:
+                return null; // 'cbc' -> staff only
         }
-        return null; // 'cbc' -> staff only
+        if ((int) ($m['region_id'] ?? 0) > 0) {   // region-scoped meeting -> only BCs whose branch is in that region
+            $w .= ' AND b.branch_id IN (SELECT id FROM branches WHERE region_id = ?)';
+            $params[] = (int) $m['region_id'];
+        }
+        return $w;
     }
 
     /** Remember that someone opened the meeting screen (used to stop nudging them). */
@@ -205,7 +267,8 @@ final class Meetings
             $absent = DB::all("SELECT b.id, b.name FROM bcs b
                                WHERE {$w} AND NOT EXISTS (SELECT 1 FROM meeting_joins j WHERE j.meeting_id = ? AND j.actor = CONCAT('bc-', b.id))
                                LIMIT 300", $params);
-            $title = mb_substr('📹 ' . $m['title'], 0, 150);
+            $ro = self::regionName((int) ($m['region_id'] ?? 0));
+            $title = mb_substr((($m['audience'] ?? '') === 'broadcast' ? '📢 ' : '📹 ') . ($ro !== '' ? $ro . ': ' : '') . $m['title'], 0, 150);
             $body = 'Meeting chal rahi hai – app kholkar "Join" dabayein. (Reminder ' . ((int) $m['nudges'] + 1) . ')';
             foreach ($absent as $b) {
                 DB::insert('INSERT INTO app_notifications (bc_id, kind, title, body, created_at) VALUES (?, ?, ?, ?, NOW())',
@@ -231,8 +294,12 @@ final class Meetings
         if (!$m) {
             return;
         }
-        $title = mb_substr('📹 ' . $m['title'], 0, 150);
-        $body = ($m['mode'] === 'voice' ? 'Voice' : 'Video') . ' meeting shuru ho gayi hai. App kholkar "Join" dabayein.';
+        $isBroadcast = ($m['audience'] ?? '') === 'broadcast';
+        $ro = self::regionName((int) ($m['region_id'] ?? 0));   // "📢 RO Agra: Monthly review"
+        $title = mb_substr(($isBroadcast ? '📢 ' : '📹 ') . ($ro !== '' ? $ro . ': ' : '') . $m['title'], 0, 150);
+        $body = $isBroadcast
+            ? 'LIVE broadcast shuru ho gaya hai. App kholkar "Join" dabayein.'
+            : (($m['mode'] === 'voice' ? 'Voice' : 'Video') . ' meeting shuru ho gayi hai. App kholkar "Join" dabayein.');
 
         $params = [];
         $w = self::bcWhere($m, $params);
@@ -249,14 +316,284 @@ final class Meetings
                 }
             }
         }
-        if (in_array($m['audience'], ['all', 'cbc'], true)) {
-            foreach (DB::all("SELECT id FROM users WHERE role = 'cbc' AND is_active = 1") as $u) {
+        // Staff ring. Org-wide: a broadcast rings EVERY active staff member; a normal 'all'/'cbc'
+        // meeting rings only CBC supervisors. Region-scoped (region_id set): ring only the CBCs
+        // tied to that region (keeps one RO's meeting inside that RO).
+        $region = (int) ($m['region_id'] ?? 0);
+        $staffSql = null;
+        $staffParams = [];
+        if ($region > 0) {
+            $cbcSql = 'SELECT b.cbc_id FROM bcs b JOIN branches br ON br.id = b.branch_id WHERE br.region_id = ? AND b.cbc_id IS NOT NULL';
+            $bmSql = 'SELECT ub.user_id FROM user_branches ub JOIN branches br2 ON br2.id = ub.branch_id WHERE br2.region_id = ?';
+            if ($m['audience'] === 'cbc') {          // the region's CBCs only
+                $staffSql = "SELECT DISTINCT u.id FROM users u WHERE u.is_active = 1 AND u.id IN ({$cbcSql})";
+                $staffParams = [$region];
+            } elseif ($isBroadcast || $m['audience'] === 'all') {
+                // the region's CBCs + Branch Managers (+ its BC Supervisor for a broadcast), never the creator
+                $rmSql = $isBroadcast ? " OR (u.role = 'supervisor' AND u.region_id = ?)" : '';
+                $staffSql = "SELECT DISTINCT u.id FROM users u WHERE u.is_active = 1 AND u.id <> ?
+                             AND (u.id IN ({$cbcSql}) OR (u.role = 'manager' AND u.id IN ({$bmSql})){$rmSql})";
+                $staffParams = [(int) ($m['created_by'] ?? 0), $region, $region];
+                if ($isBroadcast) {
+                    $staffParams[] = $region;
+                }
+            }
+        } else {
+            $staffSql = $isBroadcast
+                ? 'SELECT id FROM users WHERE is_active = 1'
+                : (in_array($m['audience'], ['all', 'cbc'], true) ? "SELECT id FROM users WHERE role = 'cbc' AND is_active = 1" : null);
+        }
+        if ($staffSql !== null) {
+            foreach (DB::all($staffSql, $staffParams) as $u) {
                 try {
-                    Fcm::pushToCbc((int) $u['id'], ['id' => 0, 'kind' => 'meeting', 'title' => $title, 'body' => $body]);
+                    Fcm::pushToCbc((int) $u['id'], ['id' => 0, 'kind' => 'meeting', 'title' => $title, 'body' => $body,
+                        'meeting' => '1', 'ring' => '1']);
                 } catch (\Throwable $e) {
-                    Logger::warn('meeting FCM(cbc) failed: ' . $e->getMessage());
+                    Logger::warn('meeting FCM(staff) failed: ' . $e->getMessage());
                 }
             }
         }
+    }
+
+    // ------------------------------------------------------------------ broadcast helpers
+
+    public static function isBroadcast(array $m): bool
+    {
+        return ($m['audience'] ?? '') === 'broadcast';
+    }
+
+    public static function regionName(int $regionId): string
+    {
+        return $regionId > 0 ? (string) DB::val('SELECT name FROM regions WHERE id = ?', [$regionId]) : '';
+    }
+
+    /** Name shown in a meeting for a staff user: a BC Supervisor also shows their RO, e.g. "Deepak Sharma (RO Agra)". */
+    public static function displayName(array $user): string
+    {
+        $name = (string) ($user['name'] ?? 'User');
+        if (($user['role'] ?? '') === 'supervisor' && (int) ($user['region_id'] ?? 0) > 0) {
+            $rg = self::regionName((int) $user['region_id']);
+            if ($rg !== '') {
+                return $name . ' (' . $rg . ')';
+            }
+        }
+        return $name;
+    }
+
+    /**
+     * Who hosts this meeting, for the screen: LiveKit identity, plain name, role label and RO.
+     * RO = the meeting's region, else the host's own region (a BC Supervisor); '' = org-wide.
+     * @return array{identity:string,name:string,role:string,region:string}
+     */
+    public static function hostInfo(array $m): array
+    {
+        $hid = (int) (($m['created_by'] ?? 0) ?: ($m['host_cbc_id'] ?? 0));
+        $u = $hid ? DB::one('SELECT id, name, role, region_id FROM users WHERE id = ?', [$hid]) : null;
+        $region = self::regionName((int) ($m['region_id'] ?? 0));
+        if ($region === '' && $u && $u['role'] === 'supervisor') {
+            $region = self::regionName((int) $u['region_id']);
+        }
+        return ['identity' => $u ? 'user-' . (int) $u['id'] : '', 'name' => $u['name'] ?? 'Host',
+            'role' => $u ? Auth::roleLabel((string) $u['role']) : '', 'region' => $region];
+    }
+
+    public static function byId(int $id): ?array
+    {
+        return $id ? DB::one('SELECT * FROM meetings WHERE id = ?', [$id]) : null;
+    }
+
+    public static function byRoom(string $room): ?array
+    {
+        return $room !== '' ? DB::one('SELECT * FROM meetings WHERE room = ? ORDER BY id DESC LIMIT 1', [$room]) : null;
+    }
+
+    /** May this actor join / read the chat of this meeting? Server-side audience enforcement. */
+    public static function canAccess(array $m, string $type, int $id, array $row): bool
+    {
+        if ((int) ($m['is_active'] ?? 0) !== 1) {
+            return false;
+        }
+        $aud = (string) ($m['audience'] ?? '');
+        $mRegion = (int) ($m['region_id'] ?? 0);
+        if ($type === 'bc') {
+            switch ($aud) {
+                case 'all':
+                case 'bc':
+                case 'broadcast':
+                    $ok = true;
+                    break;
+                case 'branch':
+                    $ok = (int) ($row['branch_id'] ?? 0) === (int) $m['branch_id'];
+                    break;
+                case 'cbc_bcs':
+                    $ok = (int) ($row['cbc_id'] ?? 0) === (int) $m['host_cbc_id'];
+                    break;
+                case 'one_bc':
+                    $ok = (int) ($row['id'] ?? 0) === (int) $m['target_bc_id'];
+                    break;
+                case 'selected':
+                    $ok = (bool) DB::val('SELECT 1 FROM meeting_invites WHERE meeting_id = ? AND bc_id = ?', [(int) $m['id'], (int) ($row['id'] ?? 0)]);
+                    break;
+                default:
+                    $ok = false; // 'cbc' => staff only
+            }
+            if ($ok && $mRegion > 0) {   // region-scoped: the BC's branch must be in that region
+                $ok = (int) DB::val('SELECT region_id FROM branches WHERE id = ?', [(int) ($row['branch_id'] ?? 0)]) === $mRegion;
+            }
+            return $ok;
+        }
+        if (App::staffSeesAll($row)) {
+            return true;   // admin / region-less supervisor
+        }
+        if ($mRegion > 0) {   // region-scoped meeting: only staff who belong to that region, or the CBC host
+            $belongs = ((($row['role'] ?? '') === 'supervisor') && (int) ($row['region_id'] ?? 0) === $mRegion)
+                || (int) ($m['host_cbc_id'] ?? 0) === $id
+                || (bool) DB::val('SELECT 1 FROM bcs b JOIN branches br ON br.id = b.branch_id WHERE br.region_id = ? AND b.cbc_id = ? LIMIT 1', [$mRegion, $id])
+                || ((($row['role'] ?? '') === 'manager')
+                    && (bool) DB::val('SELECT 1 FROM user_branches ub JOIN branches br ON br.id = ub.branch_id WHERE ub.user_id = ? AND br.region_id = ? LIMIT 1', [$id, $mRegion]));
+            return $belongs && (in_array($aud, ['all', 'cbc', 'broadcast'], true) || (int) ($m['host_cbc_id'] ?? 0) === $id);
+        }
+        return in_array($aud, ['all', 'cbc', 'broadcast'], true) || (int) ($m['host_cbc_id'] ?? 0) === $id;
+    }
+
+    /**
+     * May this actor publish audio/video in this meeting?
+     * Normal meeting: everyone. Broadcast: only moderators (admin/supervisor or the host) and
+     * participants the host has promoted (meeting_speakers). Everyone else is view-only.
+     */
+    public static function canPublishFor(array $m, string $type, int $id, array $row, string $actor): bool
+    {
+        if (!self::isBroadcast($m)) {
+            return true;
+        }
+        $isMod = $type !== 'bc' && (App::staffSeesAll($row) || (int) ($m['host_cbc_id'] ?? 0) === $id);
+        return $isMod || self::isSpeaker((int) $m['id'], $actor);
+    }
+
+    /**
+     * Host "All mute": silence every other microphone in the room. In a broadcast the people the
+     * host allowed to speak also lose the mic (their camera stays), so they cannot unmute again.
+     * @return int people actually silenced (0 = nobody else had a live mic)
+     */
+    public static function muteAll(array $m, string $exceptActor): int
+    {
+        $room = (string) ($m['room'] ?? '');
+        $speakers = self::isBroadcast($m)
+            ? array_column(DB::all('SELECT actor FROM meeting_speakers WHERE meeting_id = ?', [(int) $m['id']]), 'actor') : [];
+        $n = 0;
+        foreach (Livekit::participants($room) as $p) {
+            $who = (string) $p['identity'];
+            if ($who === '' || $who === $exceptActor) {
+                continue;
+            }
+            if (in_array($who, $speakers, true)) {   // allowed speaker -> back to camera only
+                self::revokeSpeak((int) $m['id'], $who);
+                if (Livekit::setCanPublish($room, $who, false, true)) {
+                    $n++;
+                }
+            } elseif (!$p['muted'] && Livekit::setMuted($room, $who, true)) {
+                $n++;
+            }
+        }
+        return $n;
+    }
+
+    /** A browser error from the meeting screen, written to the app log (trimmed; tokens removed). */
+    public static function clientLog(int $meetingId, string $actor, array $in): void
+    {
+        $clean = static function ($v, int $max): string {
+            $s = preg_replace('/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/', '[jwt]', (string) $v);
+            $s = preg_replace('/(access_token|token)=[^&\s"\']+/i', '$1=[x]', (string) $s);
+            return mb_substr(trim((string) $s), 0, $max);
+        };
+        $msg = $clean(is_scalar($in['msg'] ?? null) ? $in['msg'] : '', 300);
+        if ($msg === '') {
+            return;
+        }
+        Logger::warn('Meeting screen error', ['meeting' => $meetingId, 'actor' => mb_substr($actor, 0, 24), 'msg' => $msg,
+            'where' => $clean(is_scalar($in['where'] ?? null) ? $in['where'] : '', 160),
+            'ua' => mb_substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 140)]);
+    }
+
+    public static function isSpeaker(int $meetingId, string $actor): bool
+    {
+        return (bool) DB::val('SELECT 1 FROM meeting_speakers WHERE meeting_id = ? AND actor = ?', [$meetingId, $actor]);
+    }
+
+    public static function allowSpeak(int $meetingId, string $actor): void
+    {
+        DB::exec('INSERT IGNORE INTO meeting_speakers (meeting_id, actor, granted_at) VALUES (?, ?, NOW())', [$meetingId, mb_substr($actor, 0, 24)]);
+    }
+
+    public static function revokeSpeak(int $meetingId, string $actor): void
+    {
+        DB::exec('DELETE FROM meeting_speakers WHERE meeting_id = ? AND actor = ?', [$meetingId, $actor]);
+    }
+
+    // ------------------------------------------------------------------ in-meeting group chat (persistent)
+
+    public static function chatPost(int $meetingId, string $actor, string $name, bool $isStaff, string $body): int
+    {
+        return DB::insert(
+            'INSERT INTO meeting_messages (meeting_id, actor, name, is_staff, body, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
+            [$meetingId, mb_substr($actor, 0, 24), mb_substr($name, 0, 80), $isStaff ? 1 : 0, mb_substr($body, 0, 2000)]
+        );
+    }
+
+    /**
+     * Messages for a meeting. $afterId <= 0 returns the latest $limit (oldest-first);
+     * $afterId > 0 returns messages newer than that id (for polling).
+     * @return list<array>
+     */
+    public static function chatSince(int $meetingId, int $afterId, int $limit = 80): array
+    {
+        $limit = max(1, min(100, $limit));
+        if ($afterId <= 0) {
+            $rows = DB::all(
+                'SELECT id, actor, name, is_staff, body, created_at FROM meeting_messages WHERE meeting_id = ? ORDER BY id DESC LIMIT ' . $limit,
+                [$meetingId]
+            );
+            return array_reverse($rows);
+        }
+        return DB::all(
+            'SELECT id, actor, name, is_staff, body, created_at FROM meeting_messages WHERE meeting_id = ? AND id > ? ORDER BY id ASC LIMIT ' . $limit,
+            [$meetingId, $afterId]
+        );
+    }
+
+    /** Format chat rows for a specific viewer (adds "mine"); strips nothing else. */
+    public static function chatFormat(array $rows, string $viewerActor): array
+    {
+        return array_map(static function (array $r) use ($viewerActor): array {
+            return [
+                'id' => (int) $r['id'],
+                'name' => (string) $r['name'],
+                'body' => (string) $r['body'],
+                'staff' => (int) $r['is_staff'] === 1,
+                'mine' => (string) $r['actor'] === $viewerActor,
+                'time' => date('h:i A', strtotime((string) $r['created_at'])),
+            ];
+        }, $rows);
+    }
+
+    /** Org-wide per-scheme target vs achievement for the current month (broadcast "आज की प्रस्तुति" panel). */
+    public static function schemeSummary(): array
+    {
+        $month = date('Y-m-01');
+        $today = Calendar::today();
+        $schemes = array_values(array_diff(ReportParser::SCHEMES, ReportParser::OFFLINE)); // apy, pmjjby, pmsby, pmjdy
+        $labels = ReportParser::LABELS;
+        $tgtCols = implode(', ', array_map(static fn ($k) => "COALESCE(SUM({$k}_target),0) {$k}", $schemes));
+        $doneCols = implode(', ', array_map(static fn ($k) => "COALESCE(SUM({$k}),0) {$k}", $schemes));
+        $tgt = DB::one("SELECT {$tgtCols} FROM targets WHERE month = ?", [$month]) ?: [];
+        $done = DB::one("SELECT {$doneCols} FROM reports WHERE report_date >= ? AND report_date <= ?", [$month, $today]) ?: [];
+        $rows = [];
+        foreach ($schemes as $k) {
+            $t = (int) ($tgt[$k] ?? 0);
+            $d = (int) ($done[$k] ?? 0);
+            $rows[] = ['key' => $k, 'label' => $labels[$k] ?? strtoupper((string) $k), 'target' => $t, 'done' => $d,
+                'pct' => $t > 0 ? (int) round($d * 100 / $t) : 0, 'remaining' => max(0, $t - $d)];
+        }
+        return $rows;
     }
 }

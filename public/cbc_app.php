@@ -18,8 +18,8 @@ $user = Auth::require();
 $status = in_array(q('status'), ['all', 'logged_in', 'logged_out', 'never', 'active'], true) ? q('status') : 'all';
 $search = (string) q('search');
 
-// Visibility: admins/supervisors see every CBC; others only CBCs of BCs they can see.
-if (in_array($user['role'], ['admin', 'supervisor'], true)) {
+// Visibility: admin (and a region-less supervisor) see every CBC; a regional supervisor / manager only CBCs of BCs they can see.
+if (Scope::seesAll($user)) {
     $scopeWhere = '1=1';
     $scopeParams = [];
 } else {

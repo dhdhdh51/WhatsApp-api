@@ -45,6 +45,15 @@ final class Settings
         'cbc_alarm_text'             => 'ध्यान दें! आपके कुछ बीसी की आज की रिपोर्ट अभी भी बाकी है। कृपया तुरंत ऐप खोलकर देखें और उन बीसी से आज की रिपोर्ट भिजवाएँ। धन्यवाद।',
         'cbc_alarm_audio'            => '',
         'cbc_alarm_version'          => '1',
+        // Branch Manager app alarm: rings a Branch Manager's phone while their branch report is pending
+        'bm_alarm_enabled'           => '1',
+        'bm_call_time'               => '17:30',
+        'bm_alarm_time'              => '18:30',
+        'bm_call_text'               => 'नमस्ते, यह बीसी रिपोर्ट की ओर से ब्रांच मैनेजर के लिए संदेश है। आपकी शाखा की आज की रिपोर्ट अभी तक नहीं आई है। कृपया अभी ऐप खोलकर आज की शाखा रिपोर्ट भरें। धन्यवाद।',
+        'bm_alarm_text'              => 'ध्यान दें! आपकी शाखा की आज की रिपोर्ट अभी भी बाकी है। कृपया तुरंत ऐप खोलकर शाखा रिपोर्ट भेजें। धन्यवाद।',
+        'bm_alarm_version'           => '1',
+        'bm_weekly_off_days'         => '0',   // branches: Sunday off (0 = Sunday … 6 = Saturday)
+        'bm_skip_2nd_4th_sat'        => '1',   // banks are closed on the 2nd and 4th Saturday
         // Video meetings (Jitsi). Change to a self-hosted Jitsi base to leave the public server.
         'meeting_base_url'           => 'https://meet.jit.si/',
         'webrtc_ice'                 => '', // JSON ICE servers (STUN/TURN) for in-app calls; set in DB (has TURN secret)
