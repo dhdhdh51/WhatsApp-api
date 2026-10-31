@@ -22,6 +22,7 @@
   var S = {};                 // studio DOM refs
   var G = {};                 // studio gallery tiles: key -> { el, vid, track, allow }
   var gpage = 0, stagePin = null, stageId = null, stageIsCam = false;
+  var stageGuests = [], STAGE_MAX = 2, missingOpen = false;   // people the host brought onto the stage (identities, room metadata)
   var ready = false, ended = false, endingAll = false, phase = 'start', sidePanel = '', sunread = 0;   // ready = connected to the room
   var canShare = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);   // phones: no screen share
   var PER = Math.max(1, Math.min(12, parseInt((location.search.match(/[?&]per=(\d+)/) || [])[1] || '6', 10) || 6));
@@ -84,8 +85,9 @@
   function kind() { return broadcastMode ? 'Broadcast' : 'Meeting'; }
   function endChoice() {
     if (!isHost) { leave(); return; }
-    var old = document.getElementById('mtSheet'); if (old) { old.remove(); return; }
-    var d = document.createElement('div'); d.id = 'mtSheet'; d.className = 'mt-sheet';
+    var old = document.getElementById('mtSheet');
+    if (old) { var wasEnd = old.getAttribute('data-kind') === 'end'; old.remove(); if (wasEnd) return; }   // End again = close
+    var d = document.createElement('div'); d.id = 'mtSheet'; d.className = 'mt-sheet'; d.setAttribute('data-kind', 'end');
     d.innerHTML = '<div class="mt-sheet-box" role="dialog"><div class="mt-sheet-t">' + kind() + ' band karein?</div>' +
       '<button type="button" class="mt-sheet-btn red" data-a="all">⏹ Sabke liye band karein</button>' +
       '<button type="button" class="mt-sheet-btn" data-a="me">🚪 Sirf main niklun (baaki log jude rahenge)</button>' +
@@ -315,7 +317,7 @@
       myHand = false; try { quiet(room.localParticipant.setAttributes({ hand: '' })); } catch (e) {}
       upsert('me', cfg.name || 'आप', true).hand = false;
       enableLocalMedia().then(refreshAll);
-      setStatus('✅ Aap ab bol sakte hain');
+      setStatus(stageGuests.indexOf(localId()) >= 0 ? '⭐ Host ने आपको मंच पर बुलाया – अब आप बोल सकते हैं' : '✅ Aap ab bol sakte hain');
     } else {   // mic taken back; the camera stays if still allowed
       micOn = false; quiet(room.localParticipant.setMicrophoneEnabled(false)); unpublishMic();
       if (P['me']) P['me'].micOff = true;
@@ -452,35 +454,51 @@
     return (P[k] && P[k].name) || (parts[k] && parts[k].name) || k;
   }
   function inRoom(k) { return k === 'me' ? !!room : !!(P[k] || parts[k]); }
-  function hostLine() { return (cfg.host_name || 'Host') + (cfg.host_region && cfg.host_role ? ' · ' + cfg.host_role : ''); }
+  function metaOf(x) { try { var j = JSON.parse((x && x.metadata) || '{}'); return j && typeof j === 'object' ? j : {}; } catch (e) { return {}; } }
+  function partFrom(rp) { return { name: rp.name || rp.identity, role: metaOf(rp).role || '' }; }
+  function keyOf(identity) { return identity && identity === localId() ? 'me' : identity; }
+  function idOf(k) { return k === 'me' ? localId() : k; }
+  function roleOf(k) { var x = parts[idOf(k)]; return (x && x.role) || ''; }
+  function isBcId(id) { return /^bc-\d+$/.test(id || ''); }
+  function canStage() { return isHost && broadcastMode; }
+  // "BC 12/28 जुड़े": BCs in the room / BCs this meeting is for
+  function bcNums() { var n = Object.keys(parts).filter(isBcId).length, t = cfg.bc_total | 0; return n + (t ? '/' + t : '') + ' जुड़े'; }
+  function bcText() { return 'BC ' + bcNums(); }
+  // the strip under the video: [LIVE] [RO Agra] [Deepak Sharma / BC Supervisor] – wraps instead of being cut
+  function setLT(tag, name, sub) { S.ltRole.textContent = tag || ''; S.ltName.textContent = name || ''; S.ltSub.textContent = sub || ''; S.ltSub.style.display = sub ? '' : 'none'; }
+  function tickerSpeed(el, pxPerSec) {   // long notices scroll at a readable speed
+    setTimeout(function () { var w = el.scrollWidth || el.offsetWidth; if (w > 0) el.style.animationDuration = Math.max(20, Math.round(w / pxPerSec)) + 's'; }, 300);
+  }
   function buildStudio() {
     root = document.getElementById('meet') || document.body;
     var brand = cfg.brand || 'BC Monitoring App', bank = cfg.bank || 'Central Bank of India';
     var title = cfg.title || 'BC समन्वय बैठक', sub = cfg.subtitle || 'APY, PMJJBY, PMSBY एवं PMJDY की प्रगति समीक्षा';
     var ro = cfg.host_region || '', who = (cfg.host_name || 'Host') + (cfg.host_role ? ' (' + cfg.host_role + ')' : '');
     root.innerHTML = '<div class="bcs">' +
-      '<header class="bcs-top"><div class="bcs-brand"><div class="bcs-logo">' + (cfg.logo ? '<img src="' + esc(cfg.logo) + '" alt="">' : 'CBI') + '</div><div class="bcs-brand-t"><b>' + esc(brand) + '</b><span>' + esc(bank) + '</span></div></div>' +
+      '<header class="bcs-top"><div class="bcs-brand"><div class="bcs-logo' + (cfg.logo ? ' img' : '') + '">' + (cfg.logo ? '<img src="' + esc(cfg.logo) + '" alt="' + esc(bank) + '">' : 'CBI') + '</div>' +
+        '<div class="bcs-brand-t"><b>' + esc(brand) + '</b>' + (cfg.logo ? '' : '<span>' + esc(bank) + '</span>') + '</div></div>' +
       '<div class="bcs-live">LIVE</div><div class="bcs-ttl"><b>' + esc(title) + '</b><span>' + esc((ro ? ro + ' · ' : '') + sub) + '</span></div>' +
       '<div class="bcs-clock"><b class="bcs-date"></b><span class="bcs-time"></span></div></header>' +
-      '<div class="bcs-ticker bcs-ticker-top"><span class="bcs-ticker-tag">● सुर्खियाँ</span><div class="bcs-ticker-wrap"><div class="bcs-ticker-move bcs-ticker-top-move"></div></div></div>' +
+      '<div class="bcs-ticker bcs-ticker-top"><span class="bcs-ticker-tag">' + esc(cfg.headlines_tag || 'ध्यान रहे') + '</span><div class="bcs-ticker-wrap"><div class="bcs-ticker-move bcs-ticker-top-move"></div></div></div>' +
       '<div class="bcs-body"><div class="bcs-main">' +
-        '<main class="bcs-stage"><video class="bcs-stagevid" autoplay playsinline muted></video>' +
-          '<div class="bcs-stage-ph"><div class="av">●</div><div class="nm"></div><div class="sub">Host connect ho raha hai…</div></div>' +
-          '<div class="bcs-pin"></div><div class="bcs-toast"></div>' +
-          '<div class="bcs-lt"><span class="bcs-lt-live">LIVE</span><span class="bcs-lt-role"></span><span class="bcs-lt-main"></span></div>' +
+        '<main class="bcs-stage"><div class="bcs-slots"><div class="bcs-slot main"><video class="bcs-stagevid" autoplay playsinline muted></video>' +
+          '<div class="bcs-stage-ph"><div class="av">●</div><div class="nm"></div><div class="sub">Host connect ho raha hai…</div></div></div></div>' +
+          '<div class="bcs-ov"><div class="bcs-count" title="कितने BC जुड़े हैं"></div><div class="bcs-pin"></div></div><div class="bcs-toast"></div>' +
+          '<div class="bcs-lt"><span class="bcs-lt-live">LIVE</span><span class="bcs-lt-role"></span><span class="bcs-lt-main"><b class="bcs-lt-name"></b><small class="bcs-lt-sub"></small></span></div>' +
           '<div class="bcs-ticker"><span class="bcs-ticker-tag">सूचना</span><div class="bcs-ticker-wrap"><div class="bcs-ticker-move bcs-ticker-bottom-move"></div></div></div></main>' +
         '<section class="bcs-gallery" aria-label="सभी की वीडियो"><div class="bcs-grid"></div><div class="bcs-gpager"></div></section>' +
         '<div class="bcs-scheme"></div></div>' +
       '<aside class="bcs-side"><button type="button" class="bcs-close">× Band karein</button>' +
         '<div class="bcs-card bcs-info"><h4>📋 मीटिंग जानकारी</h4><ul><li><b>विषय</b><span>' + esc(title) + '</span></li>' +
           (ro ? '<li><b>RO</b><span>' + esc(ro) + '</span></li>' : '') +
-          '<li><b>समय</b><span class="bcs-itime"></span></li><li><b>आयोजक</b><span>' + esc(who) + '</span></li></ul></div>' +
-        '<div class="bcs-card bcs-plist"><h4>👥 प्रतिभागी (<span class="bcs-pc">0</span>)</h4><div class="bcs-parts"></div></div>' +
+          '<li><b>समय</b><span class="bcs-itime"></span></li><li><b>आयोजक</b><span>' + esc(who) + '</span></li><li><b>BC</b><span class="bcs-ibc"></span></li></ul></div>' +
+        '<div class="bcs-card bcs-plist"><h4>👥 प्रतिभागी (<span class="bcs-pc">0</span>) <span class="bcs-pbc"></span></h4><div class="bcs-parts"></div></div>' +
         '<div class="bcs-card bcs-chat"><h4>💬 चैट</h4><div class="bcs-chatlog"></div><div class="bcs-chatin"><input type="text" maxlength="500" placeholder="संदेश लिखें…"><button>➤</button></div></div></aside></div>' +
       '<footer class="bcs-controls"></footer></div>';
     S.main = q('.bcs-main'); S.stage = q('.bcs-stage'); S.vid = q('.bcs-stagevid'); S.ph = q('.bcs-stage-ph');
     S.phName = S.ph.querySelector('.nm'); S.phSub = S.ph.querySelector('.sub'); S.phAv = S.ph.querySelector('.av');
-    S.pin = q('.bcs-pin'); S.toast = q('.bcs-toast'); S.ltRole = q('.bcs-lt-role'); S.ltMain = q('.bcs-lt-main');
+    S.pin = q('.bcs-pin'); S.toast = q('.bcs-toast'); S.ltRole = q('.bcs-lt-role'); S.ltName = q('.bcs-lt-name'); S.ltSub = q('.bcs-lt-sub');
+    S.slots = q('.bcs-slots'); S.gslots = {}; S.onStage = []; S.pbc = q('.bcs-pbc'); S.ibc = q('.bcs-ibc'); S.count = q('.bcs-count');
     S.gallery = q('.bcs-gallery'); S.grid = q('.bcs-grid'); S.gpager = q('.bcs-gpager');
     S.parts = q('.bcs-parts'); S.pc = q('.bcs-pc'); S.chatlog = q('.bcs-chatlog'); S.chatin = q('.bcs-chatin input');
     S.date = q('.bcs-date'); S.time = q('.bcs-time'); S.itime = q('.bcs-itime');
@@ -488,21 +506,20 @@
     q('.bcs-chatin button').onclick = safe(sendChat, 'send'); S.chatin.onkeydown = function (e) { if (e.key === 'Enter') sendChat(); };
     q('.bcs-close').onclick = closeSide;
     S.stage.onclick = function () { if (stagePin) { stagePin = null; studioRender(); } };   // tap the stage = back to the host
-    S.ltRole.textContent = ro || cfg.host_role || 'Host'; S.ltMain.textContent = hostLine();
+    setLT(ro || cfg.host_role || 'Host', cfg.host_name || 'Host', ro ? (cfg.host_role || '') : '');
     var notice = cfg.ticker || 'सभी BC साथी अपने-अपने क्षेत्र में योजनाओं की प्रगति रिपोर्ट समय पर अपडेट करें';
     q('.bcs-ticker-bottom-move').innerHTML = esc(notice) + ' &nbsp;&nbsp; <b>APY</b> • <b>PMJJBY</b> • <b>PMSBY</b> • <b>PMJDY</b> &nbsp;&nbsp; ' + esc(notice);
     var head = cfg.headlines || ('🔴 LIVE: ' + (ro ? ro + ' – ' : '') + title + '  •  ' + sub + '  •  ' + (ro ? ro + ' के ' : '') + 'सभी प्रतिभागी कैमरा चालू रखें और अपने क्षेत्र के आँकड़े तैयार रखें');
-    q('.bcs-ticker-top-move').innerHTML = esc(head) + ' &nbsp;&nbsp; • &nbsp;&nbsp; ' + esc(head);
+    var topT = q('.bcs-ticker-top-move'); topT.innerHTML = esc(head) + ' &nbsp;&nbsp; • &nbsp;&nbsp; ' + esc(head); tickerSpeed(topT, 55);
     if (S.itime) S.itime.textContent = t12(new Date());
     clockTick(); setInterval(clockTick, 20000);
     window.addEventListener('resize', function () { fitControls(); studioGallery(); });
   }
 
-  // ----- stage: the host big (screen share > pinned > host camera > a speaker > host avatar > anyone) -----
-  function pickStage() {
+  // ----- stage. A screen share fills it; a tile I tapped shows big only on my screen; otherwise the host,
+  //       plus the people the host brought onto the stage (everyone sees them next to the host). -----
+  function pickMain() {
     var ids = Object.keys(P), h = hostKey();
-    var ss = ids.find(function (id) { return P[id].screen; }); if (ss) return ss;
-    if (stagePin && inRoom(stagePin)) return stagePin;
     if (h && vidOf(P[h])) return h;
     var sp = ids.find(function (id) { return id !== 'me' && P[id].speaking && P[id].audioEl && vidOf(P[id]); }); if (sp) return sp;
     if (h && inRoom(h)) return h;
@@ -511,9 +528,24 @@
     if (P.me && (h === 'me' || (!h && canPublish))) return 'me';   // I am the host
     return null;                                                    // "Host connect ho raha hai…"
   }
+  function stageKeys() {
+    var ids = Object.keys(P);
+    var ss = ids.find(function (id) { return P[id].screen; }); if (ss) return [ss];
+    if (stagePin && inRoom(stagePin)) return [stagePin];
+    var guests = stageGuests.map(keyOf).filter(function (k) { return k && inRoom(k); });
+    if (guests.length) {
+      var h = hostKey(), keys = h && inRoom(h) ? [h] : [];
+      guests.forEach(function (k) { if (keys.indexOf(k) < 0) keys.push(k); });
+      return keys.slice(0, 1 + STAGE_MAX);
+    }
+    var main = pickMain();
+    return main ? [main] : [];
+  }
   function studioStage() {
-    var id = pickStage(), p = id ? P[id] : null, tr = p ? (p.screen || vidOf(p)) : null;
-    stageId = id; stageIsCam = !!tr && !p.screen;
+    var keys = stageKeys(), id = keys[0] || null, p = id ? P[id] : null, tr = p ? (p.screen || vidOf(p)) : null;
+    S.onStage = keys; stageId = id; stageIsCam = !!tr && !(p && p.screen);
+    S.stage.classList.toggle('multi', keys.length > 1);
+    S.stage.style.setProperty('--n', String(Math.max(1, keys.length)));
     if (tr !== S.stageTrack) {   // detach the old picture first, or its stream keeps coming at full size
       if (S.stageTrack) { try { S.stageTrack.detach(S.vid); } catch (e) {} }
       if (tr) { try { tr.attach(S.vid); } catch (e) {} }
@@ -528,10 +560,84 @@
       S.phName.textContent = id ? nameOf(id) : '';
       S.phSub.textContent = !id ? 'Host connect ho raha hai…' : (isH && cfg.host_region ? cfg.host_region + ' · camera band hai' : 'camera band hai');
     }
-    if (isH) { S.ltRole.textContent = cfg.host_region || cfg.host_role || 'Host'; S.ltMain.textContent = hostLine(); }
-    else { S.ltRole.textContent = p && p.screen ? '🖥️ Screen' : (stagePin === id ? '📌 Pin' : (p && p.speaking ? '🎤 बोल रहे हैं' : '👤')); S.ltMain.textContent = nameOf(id); }
+    if (isH) setLT(cfg.host_region || cfg.host_role || 'Host', cfg.host_name || 'Host', cfg.host_region ? (cfg.host_role || '') : '');
+    else setLT(p && p.screen ? '🖥️ Screen' : (stagePin === id ? '📌 Pin' : (p && p.speaking ? '🎤 बोल रहे हैं' : '👤')), nameOf(id), roleOf(id));
+    // the people the host brought next to him: one box each, beside the host
+    var want = keys.slice(1);
+    Object.keys(S.gslots).forEach(function (k) { if (want.indexOf(k) < 0) dropSlot(k); });
+    want.forEach(function (k, i) { var t = S.gslots[k] || makeSlot(k); paintSlot(k); if (S.slots.children[i + 1] !== t.el) S.slots.insertBefore(t.el, S.slots.children[i + 1] || null); });
     S.pin.textContent = stagePin && stagePin === id ? '📌 ' + nameOf(id) + ' · tap karke host par wapas' : '';
     S.pin.style.display = S.pin.textContent ? 'block' : 'none';
+  }
+  function makeSlot(k) {
+    var el = document.createElement('div'); el.className = 'bcs-slot guest';
+    el.innerHTML = '<video autoplay playsinline muted></video><div class="av"></div><div class="gl"><span class="gt"><b class="gn"></b><small class="gr"></small></span></div>';
+    var t = { el: el, vid: el.querySelector('video'), track: null };
+    if (canStage() && k !== 'me') {   // host: take this person off the stage (not shown on your own box)
+      var x = document.createElement('button'); x.type = 'button'; x.className = 'gx'; x.title = 'मंच से हटाएँ'; x.setAttribute('aria-label', 'मंच से हटाएँ'); x.textContent = '×';
+      x.onclick = safe(function (e) { e.stopPropagation(); return setStage(k, false); }, 'stage off'); el.querySelector('.gl').appendChild(x);
+    }
+    S.gslots[k] = t; return t;
+  }
+  function dropSlot(k) { var t = S.gslots[k]; if (!t) return; if (t.track) { try { t.track.detach(t.vid); } catch (e) {} } t.el.remove(); delete S.gslots[k]; }
+  function paintSlot(k) {
+    var t = S.gslots[k], p = P[k], tr = vidOf(p), nm = nameOf(k), r = roleOf(k);
+    if (t.track !== tr) { if (t.track) { try { t.track.detach(t.vid); } catch (e) {} } if (tr) { try { tr.attach(t.vid); } catch (e) {} } t.track = tr; }
+    t.el.classList.toggle('has-video', !!tr); t.el.classList.toggle('me', k === 'me');
+    t.el.classList.toggle('speaking', !!(p && p.speaking && (k === 'me' ? micOn : (p.audioEl && !p.micOff))));
+    t.el.querySelector('.av').textContent = (nm || '?').charAt(0).toUpperCase();
+    t.el.querySelector('.gn').textContent = '⭐ ' + nm + (k === 'me' ? ' (आप)' : '');
+    var gr = t.el.querySelector('.gr'); gr.textContent = r; gr.style.display = r ? '' : 'none';
+  }
+  // what the host may do with one person: bring onto / take off the stage, let speak, take the mic back, or just enlarge locally
+  function personSheet(k) {
+    var old = document.getElementById('mtSheet'); if (old) old.remove();
+    var id = idOf(k), on = stageGuests.indexOf(id) >= 0, p = P[k], hasMic = !!(p && p.audioEl), nm = nameOf(k), r = roleOf(k);
+    var full = !on && stageGuests.length >= STAGE_MAX;
+    var b = function (a, cls, txt) { return '<button type="button" class="mt-sheet-btn' + (cls ? ' ' + cls : '') + '" data-a="' + a + '">' + esc(txt) + '</button>'; };
+    var d = document.createElement('div'); d.id = 'mtSheet'; d.className = 'mt-sheet'; d.setAttribute('data-kind', 'person');
+    d.innerHTML = '<div class="mt-sheet-box" role="dialog"><div class="mt-sheet-t">' + esc(nm) + (r ? ' <small>· ' + esc(r) + '</small>' : '') + '</div>' +
+      (on ? b('off', '', '⬇️ मंच से हटाएँ') : b('on', 'blue', '⭐ मंच पर लाएँ – सबको आपके साथ दिखेंगे' + (full ? ' (मंच भरा है)' : ''))) +
+      (!on && !hasMic ? b('speak', '', '🎤 बोलने दें') : '') +
+      (!on && hasMic && id !== cfg.host_identity ? b('mute', '', '🔇 Mic वापस लें (कैमरा चालू रहेगा)') : '') +
+      b('pin', '', stagePin === k ? '🔍 बड़ा करना बंद करें' : '🔍 सिर्फ़ मेरी स्क्रीन पर बड़ा करें') +
+      b('no', 'light', 'Wapas') + '</div>';
+    d.onclick = safe(function (e) {
+      var t = e.target, a = t && t.getAttribute ? t.getAttribute('data-a') : null;
+      if (t === d || a === 'no') { d.remove(); return null; }
+      if (!a) return null;
+      d.remove();
+      if (a === 'on') return setStage(k, true);
+      if (a === 'off') return setStage(k, false);
+      if (a === 'speak') return promote(id, true);
+      if (a === 'mute') return promote(id, false);
+      stagePin = stagePin === k ? null : k; studioRender(); return null;
+    }, 'person');
+    document.body.appendChild(d);
+  }
+  function setStage(k, on) {
+    var id = idOf(k);
+    if (on && stageGuests.indexOf(id) < 0 && stageGuests.length >= STAGE_MAX) { setStatus('मंच भरा है – host के साथ ज़्यादा से ज़्यादा ' + STAGE_MAX + ' लोग। पहले किसी को हटाएँ।'); return null; }
+    var h = { 'Content-Type': 'application/json', Accept: 'application/json' }, url;
+    if (cfg.stage_url) { url = cfg.stage_url; if (cfg.csrf) h['X-CSRF-TOKEN'] = cfg.csrf; }
+    else { url = '/api/app.php?a=meet_stage'; var tk = localStorage.getItem('bc_token'); if (tk) h.Authorization = 'Bearer ' + tk; }
+    setStatus(on ? '⭐ ' + nameOf(k) + ' को मंच पर ला रहे हैं…' : nameOf(k) + ' को मंच से हटा रहे हैं…');
+    return fetch(url, { method: 'POST', headers: h, body: JSON.stringify({ identity: id, on: !!on }) }).then(function (r) { return r.json(); }).then(function (r) {
+      if (r && r.ended) { onServerEnded(); return; }
+      if (r && r.ok) { stageGuests = r.stage || stageGuests; studioRender(); setStatus(on ? '⭐ ' + nameOf(k) + ' अब सबको आपके साथ दिख रहे हैं' : nameOf(k) + ' मंच से हट गए'); return; }
+      setStatus(r && r.error === 'full' ? 'मंच भरा है – पहले किसी को हटाएँ' : 'मंच नहीं बदला – दोबारा कोशिश करें');
+    }).catch(function () { setStatus('Internet problem – dobara try karein'); });
+  }
+  // the stage list arrives in the room metadata: on join, and whenever the host changes it
+  function readStage(md) {
+    var j = {}; try { j = JSON.parse(md || '{}') || {}; } catch (e) {}
+    var list = Array.isArray(j.stage) ? j.stage.filter(function (x) { return typeof x === 'string' && /^(bc|user)-\d+$/.test(x); }).slice(0, STAGE_MAX) : [];
+    var me = localId(), was = stageGuests.indexOf(me) >= 0, now = list.indexOf(me) >= 0;
+    if (list.join(',') !== stageGuests.join(',')) stagePin = null;   // the host's stage replaces my own enlarged view
+    stageGuests = list;
+    if (now && !was && ready) setStatus('⭐ Host ने आपको मंच पर बुलाया – सब आपको host के साथ देख रहे हैं');
+    else if (was && !now && ready) setStatus('आप मंच से वापस आ गए');
+    if (studio && S.grid) refreshSafe();
   }
 
   // ----- gallery: everyone's camera, like a video call (paged; only visible tiles use data) -----
@@ -539,7 +645,8 @@
   function gKeys() {
     var lid = localId(), keys = room ? ['me'] : [], h = hostKey();
     Object.keys(parts).forEach(function (id) { if (id !== lid) keys.push(id); });
-    if (stageIsCam && stageId) keys = keys.filter(function (k) { return k !== stageId; });
+    var onStage = S.onStage || [];
+    keys = keys.filter(function (k) { return onStage.indexOf(k) < 0; });   // people on the stage are shown there, not twice
     function rank(k) { var p = P[k]; if (k === 'me') return 0; if (k === h) return 1; if (hands[k]) return 2; if (p && p.audioEl) return 3; if (vidOf(p)) return 4; return 5; }
     keys.sort(function (a, b) { return (rank(a) - rank(b)) || String(nameOf(a)).localeCompare(String(nameOf(b))); });
     return keys;
@@ -552,7 +659,8 @@
       var b = document.createElement('button'); b.type = 'button'; b.className = 'allow'; b.textContent = '🎤 Allow';
       b.onclick = function (e) { e.stopPropagation(); promote(k, true); }; el.appendChild(b); t.allow = b;
     }
-    el.onclick = function () { stagePin = (stagePin === k) ? null : k; studioRender(); };   // tap = show this person big
+    // host: tap = what to do with this person (मंच पर लाएँ …); everyone else: tap = show this person big on my screen
+    el.onclick = safe(function () { if (canStage() && k !== 'me') { personSheet(k); return; } stagePin = (stagePin === k) ? null : k; studioRender(); }, 'tile');
     G[k] = t; return t;
   }
   function dropGTile(k) { var t = G[k]; if (!t) return; if (t.track) { try { t.track.detach(t.vid); } catch (e) {} } t.el.remove(); delete G[k]; }
@@ -577,7 +685,8 @@
     vis.forEach(function (k, i) { var t = G[k] || makeGTile(k); paintGTile(k); if (S.grid.children[i] !== t.el) S.grid.insertBefore(t.el, S.grid.children[i] || null); });
     S.gallery.classList.toggle('empty', !vis.length);
     var total = Object.keys(parts).length || (room ? 1 : 0);
-    S.gpager.innerHTML = '<span class="cnt">👥 ' + total + ' जुड़े</span>';
+    S.gpager.innerHTML = '<span class="cnt"><b>👥 ' + esc(bcText()) + '</b> · कुल ' + total + '</span>';
+    if (S.count) S.count.textContent = '👥 ' + bcText();
     if (pages > 1) {
       var mk = function (txt, to, dis) { var b = document.createElement('button'); b.type = 'button'; b.textContent = txt; b.disabled = !!dis; b.onclick = function () { gpage = to; studioGallery(); }; S.gpager.appendChild(b); };
       mk('‹', gpage - 1, gpage === 0);
@@ -587,26 +696,44 @@
   }
   function studioParts() {
     if (!S.parts) return;
-    var lid = localId(), hid = cfg.host_identity, ids = Object.keys(parts);
+    var lid = localId(), hid = cfg.host_identity, ids = Object.keys(parts), bt = bcText();
     if (S.pc) S.pc.textContent = ids.length;
-    ids.sort(function (a, b) { return ((b === hid ? 1 : 0) - (a === hid ? 1 : 0)) || ((hands[b] ? 1 : 0) - (hands[a] ? 1 : 0)) || String(parts[a].name).localeCompare(String(parts[b].name)); });
+    if (S.pbc) S.pbc.textContent = '· ' + bt;
+    if (S.ibc) S.ibc.textContent = bcNums();
+    var grp = function (id) { return id === hid ? 0 : (isBcId(id) ? 2 : 1); };
+    ids.sort(function (a, b) { return (grp(a) - grp(b)) || ((hands[b] ? 1 : 0) - (hands[a] ? 1 : 0)) || String(parts[a].name).localeCompare(String(parts[b].name)); });
+    var nBc = ids.filter(isBcId).length, nStaff = ids.length - nBc, last = -1;
     S.parts.innerHTML = '';
-    ids.slice(0, 100).forEach(function (id) {
-      var me = id === lid, p = me ? P.me : P[id], nm = me ? nameOf('me') : nameOf(id);
-      var talking = me ? (canPublish && micOn) : !!(p && p.audioEl && !p.micOff), raised = me ? myHand : !!hands[id];
-      var row = document.createElement('div'); row.className = 'bcs-prow';
+    ids.slice(0, 150).forEach(function (id) {
+      var g = isBcId(id) ? 2 : 1;
+      if (g !== last) { last = g; var sec = document.createElement('div'); sec.className = 'bcs-psec'; sec.textContent = g === 2 ? 'BC (' + nBc + ')' : 'स्टाफ़ / अधिकारी (' + nStaff + ')'; S.parts.appendChild(sec); }
+      var me = id === lid, k = me ? 'me' : id, p = P[k], nm = nameOf(k), role = (parts[id] && parts[id].role) || '';
+      var talking = me ? (canPublish && micOn) : !!(p && p.audioEl && !p.micOff), raised = me ? myHand : !!hands[id], st = stageGuests.indexOf(id) >= 0;
+      var row = document.createElement('div'); row.className = 'bcs-prow' + (canStage() && !me ? ' tap' : '');
       row.innerHTML = '<span class="pav">' + esc((nm || '?').charAt(0).toUpperCase()) + '</span><span class="pn">' + esc(nm) + (me ? ' (आप)' : '') +
-        (id === hid ? ' <span class="host-b">HOST</span>' : '') + (raised ? ' ✋' : '') + '</span>';
+        (id === hid ? ' <span class="host-b">HOST</span>' : '') + (st ? ' <span class="stage-b">⭐ मंच</span>' : '') + (raised ? ' ✋' : '') +
+        (role && !isBcId(id) ? '<small class="pr">' + esc(role) + '</small>' : '') + '</span>';
       if (isHost && !me && raised) {
-        var b = document.createElement('button'); b.type = 'button'; b.className = 'pallow'; b.textContent = 'Allow'; b.onclick = function () { promote(id, true); }; row.appendChild(b);
+        var b = document.createElement('button'); b.type = 'button'; b.className = 'pallow'; b.textContent = 'Allow'; b.onclick = function (e) { e.stopPropagation(); promote(id, true); }; row.appendChild(b);
       } else {
         var mi = document.createElement('span'); mi.className = 'pm ' + (talking ? 'on' : 'off'); mi.textContent = (vidOf(p) ? '📹' : '') + (talking ? '🎤' : '🔇'); row.appendChild(mi);
-        if (isHost && !me && broadcastMode && p && p.audioEl && id !== hid) {   // take the mic back (camera stays)
-          var d = document.createElement('button'); d.type = 'button'; d.className = 'pdemote'; d.title = 'Mic wapas lein'; d.textContent = '⬇️'; d.onclick = function () { promote(id, false); }; row.appendChild(d);
+        if (isHost && !me && broadcastMode && p && p.audioEl && id !== hid && !st) {   // take the mic back (camera stays)
+          var d = document.createElement('button'); d.type = 'button'; d.className = 'pdemote'; d.title = 'Mic wapas lein'; d.textContent = '⬇️'; d.onclick = function (e) { e.stopPropagation(); promote(id, false); }; row.appendChild(d);
         }
       }
+      if (canStage() && !me) row.onclick = safe(function () { personSheet(k); }, 'person');   // host: tap a name = the same menu as a tile
       S.parts.appendChild(row);
     });
+    // the host also sees which BCs have not joined yet
+    var roster = isHost && cfg.bc_roster ? cfg.bc_roster : [];
+    if (roster.length) {
+      var miss = roster.filter(function (r) { return !parts[r.id]; });
+      var det = document.createElement('details'); det.className = 'bcs-missing'; det.open = missingOpen;
+      det.innerHTML = '<summary>' + (miss.length ? '❌ अभी नहीं जुड़े (' + miss.length + ')' : '✅ सभी BC जुड़ गए') + '</summary>' +
+        miss.map(function (r) { return '<div class="mrow">' + esc(r.name) + '</div>'; }).join('');
+      det.addEventListener('toggle', function () { missingOpen = det.open; });
+      S.parts.appendChild(det);
+    }
   }
   function studioRender() { if (!S.grid) return; studioStage(); studioGallery(); studioParts(); }
   function sbtn(ic, label, cls, fn, badge) {
@@ -754,7 +881,7 @@
     var LK = window.LivekitClient; room = commonRoom();
     var SS = SRC().ScreenShare;
     room.on(LK.RoomEvent.TrackSubscribed, function (track, pub, rp) {
-      var p = upsert(rp.identity, rp.name || rp.identity, false); if (!parts[rp.identity]) parts[rp.identity] = { name: p.name };
+      var p = upsert(rp.identity, rp.name || rp.identity, false); if (!parts[rp.identity]) parts[rp.identity] = partFrom(rp);
       if (track.kind === 'video') {
         if (pub.source === SS || track.source === SS) p.screen = track; else { p.videoTrack = track; p.camOff = !!pub.isMuted; }
       } else {
@@ -772,7 +899,8 @@
     // a camera turned off arrives as "muted": show the avatar instead of a frozen picture
     room.on(LK.RoomEvent.TrackMuted, function (pub, rp) { var p = P[rp.identity]; if (!p) return; if (pub.kind === 'audio') p.micOff = true; else if (pub.source !== SS) p.camOff = true; studioRender(); });
     room.on(LK.RoomEvent.TrackUnmuted, function (pub, rp) { var p = P[rp.identity]; if (!p) return; if (pub.kind === 'audio') p.micOff = false; else if (pub.source !== SS) p.camOff = false; studioRender(); });
-    room.on(LK.RoomEvent.ParticipantConnected, function (rp) { parts[rp.identity] = { name: rp.name || rp.identity }; studioRender(); });
+    room.on(LK.RoomEvent.ParticipantConnected, function (rp) { parts[rp.identity] = partFrom(rp); studioRender(); });
+    if (LK.RoomEvent.RoomMetadataChanged) room.on(LK.RoomEvent.RoomMetadataChanged, readStage);   // host changed the stage
     room.on(LK.RoomEvent.ParticipantDisconnected, function (rp) {
       var p = P[rp.identity]; if (p && p.audioEl) p.audioEl.remove();
       delete parts[rp.identity]; delete hands[rp.identity]; delete P[rp.identity]; if (stagePin === rp.identity) stagePin = null; studioRender(); studioControls();
@@ -788,10 +916,11 @@
     setStatus('Connect ho raha hai…');
     room.connect(cfg.url, cfg.token).then(function () {
       ready = true; phase = 'live';
-      parts[room.localParticipant.identity] = { name: cfg.name || 'आप', local: true };
+      parts[room.localParticipant.identity] = { name: cfg.name || 'आप', local: true, role: metaOf(room.localParticipant).role || '' };
       // people already in the room before I joined (ParticipantConnected only fires for later joiners)
-      room.remoteParticipants.forEach(function (rp) { if (!parts[rp.identity]) parts[rp.identity] = { name: rp.name || rp.identity }; });
+      room.remoteParticipants.forEach(function (rp) { if (!parts[rp.identity]) parts[rp.identity] = partFrom(rp); });
       upsert('me', cfg.name || 'आप', true);
+      readStage(room.metadata);   // who the host already put on the stage
       refreshSafe(); startChat();
       // host / moderators / allowed speakers: mic + camera; everyone else: camera on, like a video call.
       // A camera that is slow or refused never holds up the buttons.

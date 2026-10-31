@@ -13,7 +13,7 @@ $user = Auth::require();
 $id = (int) q('id');
 $m = $id ? DB::one('SELECT * FROM meetings WHERE id = ? AND is_active = 1', [$id]) : null;
 if (!$m) {
-    if (q('chat') !== '' || q('speak') !== '' || q('mute') !== '' || q('end') !== '' || q('summary') !== '' || q('log') !== '') {
+    if (q('chat') !== '' || q('speak') !== '' || q('mute') !== '' || q('end') !== '' || q('summary') !== '' || q('log') !== '' || q('stage') !== '') {
         header('Content-Type: application/json; charset=utf-8');
         http_response_code(410);
         echo json_encode(['ok' => false, 'ended' => true, 'error' => 'ended']);   // the screen leaves the meeting
@@ -33,7 +33,7 @@ $seesAll = \App\App::staffSeesAll($user);
 $sameRegion = $mRegion > 0 && ($user['role'] ?? '') === 'supervisor' && (int) ($user['region_id'] ?? 0) === $mRegion;
 $isHostCbc = (int) ($m['host_cbc_id'] ?? 0) === (int) $user['id'];
 if (!($seesAll || $mRegion === 0 || $sameRegion || $isHostCbc)) {
-    if (q('chat') !== '' || q('speak') !== '' || q('mute') !== '' || q('summary') !== '' || q('end') !== '' || q('log') !== '') {
+    if (q('chat') !== '' || q('speak') !== '' || q('mute') !== '' || q('summary') !== '' || q('end') !== '' || q('log') !== '' || q('stage') !== '') {
         header('Content-Type: application/json; charset=utf-8');
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => 'forbidden']);
@@ -120,6 +120,24 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && q('end') !== '') {
     exit;
 }
 
+// ---- host: bring someone onto the stage next to the host (everyone sees them together), or take them off ----
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && q('stage') !== '') {
+    header('Content-Type: application/json; charset=utf-8');
+    if (!$canModerate || !$isBroadcast) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'error' => 'not host']);
+        exit;
+    }
+    $in = json_decode((string) file_get_contents('php://input', false, null, 0, 4096), true) ?: [];
+    $who = trim((string) ($in['identity'] ?? ''));
+    $res = $who === $meActor ? ['ok' => false, 'error' => 'host'] : Meetings::setStage($m, $who, !empty($in['on']));
+    if ($res['ok']) {
+        App\Audit::log((int) $user['id'], !empty($in['on']) ? 'meeting_stage_add' : 'meeting_stage_remove', 'meeting', $id, ['who' => $who]);
+    }
+    echo json_encode($res);
+    exit;
+}
+
 // ---- a browser error on the meeting screen (so problems on phones show up in our log) ----
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && q('log') !== '') {
     header('Content-Type: application/json; charset=utf-8');
@@ -142,12 +160,14 @@ if (q('summary') !== '') {
 $canPublish = !$isBroadcast || $canModerate || Meetings::isSpeaker($id, $meActor);
 $canVideo = ($m['mode'] ?? 'video') === 'video';
 $meName = Meetings::displayName($user);            // "Deepak Sharma (RO Agra)"
-$token = Livekit::token((string) $m['room'], $meActor, $meName, $canPublish || $canVideo, 7200, $canPublish ? null : ['camera']);
+$token = Livekit::token((string) $m['room'], $meActor, $meName, $canPublish || $canVideo, 7200, $canPublish ? null : ['camera'],
+    ['role' => Auth::roleLabel((string) $user['role'])]);
 if (!$token) {
     flash('danger', 'Meeting server configure nahi hai (livekit settings)');
     redirect('/meetings.php');
 }
 $host = Meetings::hostInfo($m);
+$expected = $isBroadcast ? Meetings::expectedBcs($m) : [];
 $cfg = [
     'ok' => true,
     'url' => Livekit::url(),
@@ -169,6 +189,13 @@ $cfg = [
     'host_role' => $host['role'],
     'host_region' => $host['region'],
     'host_identity' => $host['identity'],
+    'logo' => App\Settings::get('bank_logo'),
+    'headlines_tag' => App\Settings::get('broadcast_notice_title'),
+    'headlines' => App\Settings::get('broadcast_notice'),
+    // "BC 12/28 जुड़े": how many BCs this meeting is for; the host also gets the names (who has not joined)
+    'bc_total' => count($expected),
+    'bc_roster' => $canModerate ? $expected : null,
+    'stage_url' => $canModerate && $isBroadcast ? '/meet.php?id=' . $id . '&stage=1' : null,
     'mute_url' => '/meet.php?id=' . $id . '&mute=1',
     'chat_url' => '/meet.php?id=' . $id . '&chat=1',
     'promote_url' => $canModerate ? '/meet.php?id=' . $id . '&speak=1' : null,
@@ -186,12 +213,12 @@ header('Cache-Control: no-store');
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title><?= e($m['title']) ?> · <?= $isBroadcast ? 'Broadcast' : 'Meeting' ?></title>
-<link rel="stylesheet" href="/app/meet.css?v=10">
+<link rel="stylesheet" href="/app/meet.css?v=11">
 </head>
 <body>
 <div id="meet"></div>
 <script>window.MEET_CONFIG = <?= json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;</script>
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js" crossorigin="anonymous"></script>
-<script src="/app/meet.js?v=10"></script>
+<script src="/app/meet.js?v=11"></script>
 </body>
 </html>

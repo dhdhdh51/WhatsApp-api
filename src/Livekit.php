@@ -30,8 +30,9 @@ final class Livekit
      * @param string $identity unique per participant (e.g. "bc-12" / "user-3")
      * @param list<string>|null $sources limit what may be published, e.g. ['camera'] = camera but no
      *                                   microphone (broadcast audience). null = no limit.
+     * @param array|null $meta shown to everyone in the room as this participant's metadata, e.g. ['role' => 'Admin']
      */
-    public static function token(string $room, string $identity, string $name, bool $canPublish = true, int $ttl = 7200, ?array $sources = null): ?string
+    public static function token(string $room, string $identity, string $name, bool $canPublish = true, int $ttl = 7200, ?array $sources = null, ?array $meta = null): ?string
     {
         if (!self::enabled()) {
             return null;
@@ -57,11 +58,14 @@ final class Livekit
             'name' => mb_substr($name, 0, 80),
             'video' => $video,
         ];
+        if ($meta) {
+            $payload['metadata'] = json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
         return self::sign($payload);
     }
 
-    /** Short-lived admin token for the server-side RoomService API ($create: DeleteRoom needs roomCreate). */
-    private static function adminToken(string $room, bool $create = false): ?string
+    /** Short-lived admin token for the server-side RoomService API ($extra grants, e.g. roomCreate for DeleteRoom, roomList for ListRooms). */
+    private static function adminToken(string $room, array $extra = []): ?string
     {
         if (!self::enabled()) {
             return null;
@@ -72,8 +76,34 @@ final class Livekit
             'sub' => 'server',
             'nbf' => $now - 10,
             'exp' => $now + 120,
-            'video' => ['room' => $room, 'roomAdmin' => true] + ($create ? ['roomCreate' => true] : []),
+            'video' => ['room' => $room, 'roomAdmin' => true] + $extra,
         ]);
+    }
+
+    /** The room's metadata (JSON object) as an array; [] when the room has none or does not exist. */
+    public static function roomMeta(string $room): array
+    {
+        if ($room === '' || !self::enabled()) {
+            return [];
+        }
+        $r = self::rpc('ListRooms', $room, ['names' => [$room]], ['roomList' => true]);
+        foreach ($r['rooms'] ?? [] as $rm) {
+            if ((string) ($rm['name'] ?? '') === $room) {
+                $j = json_decode((string) ($rm['metadata'] ?? ''), true);
+                return is_array($j) ? $j : [];
+            }
+        }
+        return [];
+    }
+
+    /** Replace the room's metadata; every participant gets it at once (and late joiners on join). */
+    public static function setRoomMeta(string $room, array $meta): bool
+    {
+        if ($room === '' || !self::enabled()) {
+            return false;
+        }
+        return self::rpc('UpdateRoomMetadata', $room, ['room' => $room,
+            'metadata' => json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]) !== null;
     }
 
     private static function sign(array $payload): string
@@ -94,13 +124,13 @@ final class Livekit
         if ($room === '' || !self::enabled()) {
             return false;
         }
-        return self::rpc('DeleteRoom', $room, ['room' => $room], true, [404]) !== null;
+        return self::rpc('DeleteRoom', $room, ['room' => $room], ['roomCreate' => true], [404]) !== null;
     }
 
     /** Call the local LiveKit RoomService (Twirp). Returns decoded JSON or null. $quiet = HTTP codes that are not an error. */
-    private static function rpc(string $method, string $room, array $body, bool $create = false, array $quiet = []): ?array
+    private static function rpc(string $method, string $room, array $body, array $extra = [], array $quiet = []): ?array
     {
-        $tok = self::adminToken($room, $create);
+        $tok = self::adminToken($room, $extra);
         if (!$tok) {
             return null;
         }

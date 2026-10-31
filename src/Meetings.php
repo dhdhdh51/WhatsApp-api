@@ -498,6 +498,79 @@ final class Meetings
         return $n;
     }
 
+    /** People the host may put on the stage next to himself (so the stage shows at most 3). */
+    public const STAGE_MAX = 2;
+
+    public static function validActor(string $a): bool
+    {
+        return (bool) preg_match('/^(bc|user)-\d{1,10}$/', $a);
+    }
+
+    /**
+     * Host: bring a participant onto the stage next to the host, so everyone sees them together
+     * (e.g. an officer), or take them off. On the stage they may speak. Taken off, a BC / plain
+     * viewer goes back to camera only; a moderator keeps the mic. The list lives in the LiveKit
+     * room metadata, so every screen (and anyone who joins later) shows the same stage.
+     * @return array{ok:bool, stage?:list<string>, error?:string}
+     */
+    public static function setStage(array $m, string $identity, bool $on): array
+    {
+        if (!self::isBroadcast($m) || !self::validActor($identity)) {
+            return ['ok' => false, 'error' => 'bad identity'];
+        }
+        if ($identity === self::hostInfo($m)['identity']) {
+            return ['ok' => false, 'error' => 'host'];   // the host is always on the stage
+        }
+        $room = (string) $m['room'];
+        $meta = Livekit::roomMeta($room);
+        $list = array_values(array_filter(array_map('strval', (array) ($meta['stage'] ?? [])), [self::class, 'validActor']));
+        $list = array_values(array_diff($list, [$identity]));
+        if ($on) {
+            if (count($list) >= self::STAGE_MAX) {
+                return ['ok' => false, 'error' => 'full', 'stage' => $list];
+            }
+            $list[] = $identity;
+        }
+        $meta['stage'] = $list;
+        if (!Livekit::setRoomMeta($room, $meta)) {
+            return ['ok' => false, 'error' => 'room'];
+        }
+        if ($on) {
+            self::allowSpeak((int) $m['id'], $identity);
+            Livekit::setCanPublish($room, $identity, true);
+        } elseif (!self::actorModerates($m, $identity)) {
+            self::revokeSpeak((int) $m['id'], $identity);
+            Livekit::setCanPublish($room, $identity, false, true);
+        }
+        return ['ok' => true, 'stage' => $list];
+    }
+
+    /** Is this meeting identity ("user-5") a staff user who moderates the meeting? BCs never do. */
+    private static function actorModerates(array $m, string $identity): bool
+    {
+        if (!preg_match('/^user-(\d+)$/', $identity, $mm)) {
+            return false;
+        }
+        $u = DB::one('SELECT id, role, region_id FROM users WHERE id = ? AND is_active = 1', [(int) $mm[1]]);
+        return $u !== null && self::canModerate($m, $u);
+    }
+
+    /**
+     * Active BCs this meeting is meant for (its audience): [{id:'bc-12', name}]. The screen shows
+     * "BC 12/28 जुड़े" from this, and the host sees who has not joined yet.
+     * @return list<array{id:string,name:string}>
+     */
+    public static function expectedBcs(array $m): array
+    {
+        $params = [];
+        $w = self::bcWhere($m, $params);
+        if ($w === null) {
+            return [];
+        }
+        return array_map(static fn ($r) => ['id' => 'bc-' . (int) $r['id'], 'name' => (string) $r['name']],
+            DB::all("SELECT b.id, b.name FROM bcs b WHERE {$w} ORDER BY b.name LIMIT 2000", $params));
+    }
+
     /** A browser error from the meeting screen, written to the app log (trimmed; tokens removed). */
     public static function clientLog(int $meetingId, string $actor, array $in): void
     {

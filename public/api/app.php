@@ -103,20 +103,26 @@ if ($action === 'meet_token') {
     $canPublish = !$isBroadcast || $isHost || Meetings::isSpeaker($mid, $ident);
     $canVideo = ($m['mode'] ?? 'video') === 'video';
     $meName = $actor['type'] === 'bc' ? (string) ($actor['row']['name'] ?? 'User') : Meetings::displayName($actor['row']);
-    $tok = Livekit::token((string) $m['room'], $ident, $meName, $canPublish || $canVideo, 7200, $canPublish ? null : ['camera']);
+    $tok = Livekit::token((string) $m['room'], $ident, $meName, $canPublish || $canVideo, 7200, $canPublish ? null : ['camera'],
+        ['role' => $actor['type'] === 'bc' ? 'BC' : \App\Auth::roleLabel((string) ($actor['row']['role'] ?? 'cbc'))]);
     if (!$tok) {
         fail('Meeting server configure nahi hai.', 500);
     }
     if ($mid) {
         Meetings::markJoined($mid, $ident); // stops the "join karein" reminders for this person
     }
-    $host = Meetings::hostInfo(Meetings::byId($mid) ?: []);
+    $mRow = Meetings::byId($mid) ?: [];
+    $host = Meetings::hostInfo($mRow);
+    $expected = $isBroadcast ? Meetings::expectedBcs($mRow) : [];
     out(['ok' => true, 'url' => Livekit::url(), 'token' => $tok, 'room' => $m['room'],
         'mode' => $m['mode'], 'title' => $m['title'], 'name' => $meName,
         'meeting_id' => $mid, 'is_broadcast' => $isBroadcast, 'can_publish' => $canPublish, 'can_video' => $canVideo, 'is_host' => $isHost,
         'brand' => 'BC Monitoring App', 'bank' => 'Central Bank of India',
         'subtitle' => 'APY, PMJJBY, PMSBY एवं PMJDY की प्रगति समीक्षा',
-        'host_name' => $host['name'], 'host_role' => $host['role'], 'host_region' => $host['region'], 'host_identity' => $host['identity']]);
+        'host_name' => $host['name'], 'host_role' => $host['role'], 'host_region' => $host['region'], 'host_identity' => $host['identity'],
+        'logo' => Settings::get('bank_logo'), 'headlines_tag' => Settings::get('broadcast_notice_title'), 'headlines' => Settings::get('broadcast_notice'),
+        // "BC 12/28 जुड़े": how many BCs this meeting is for; the host also gets the names (who has not joined)
+        'bc_total' => count($expected), 'bc_roster' => $isHost ? $expected : null]);
 }
 
 // ------------------------------------------------------------------ scheme progress (broadcast panel)
@@ -173,6 +179,30 @@ if ($action === 'meet_end') {
     Meetings::end((int) $mRow['id']);
     \App\Audit::log((int) $actor['id'], 'meeting_end', 'meeting', (int) $mRow['id'], ['from' => 'app']);
     out(['ok' => true]);
+}
+
+// ------------------------------------------------------------------ host: bring someone onto the stage next to the host, or take them off
+if ($action === 'meet_stage') {
+    if ($method !== 'POST') {
+        fail('POST required', 405);
+    }
+    if ($actor['type'] === 'bc') {
+        fail('Sirf host kar sakta hai.', 403);
+    }
+    $live = Meetings::forCbc((int) $actor['id']);
+    $mRow = $live ? Meetings::byId((int) $live['id']) : null;
+    if (!$mRow || (int) $mRow['is_active'] !== 1) {
+        out(['ok' => false, 'ended' => true, 'error' => 'Meeting khatam ho chuki hai.'], 410);
+    }
+    if (!Meetings::isBroadcast($mRow) || !Meetings::canModerate($mRow, $actor['row'])) {
+        fail('Sirf host kar sakta hai.', 403);
+    }
+    $who = trim((string) ($in['identity'] ?? ''));
+    $res = $who === 'user-' . (int) $actor['id'] ? ['ok' => false, 'error' => 'host'] : Meetings::setStage($mRow, $who, !empty($in['on']));
+    if ($res['ok']) {
+        \App\Audit::log((int) $actor['id'], !empty($in['on']) ? 'meeting_stage_add' : 'meeting_stage_remove', 'meeting', (int) $mRow['id'], ['who' => $who, 'from' => 'app']);
+    }
+    out($res);
 }
 
 // ------------------------------------------------------------------ a browser error on the meeting screen (goes to our log)

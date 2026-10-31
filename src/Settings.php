@@ -45,6 +45,10 @@ final class Settings
         'cbc_alarm_text'             => 'ध्यान दें! आपके कुछ बीसी की आज की रिपोर्ट अभी भी बाकी है। कृपया तुरंत ऐप खोलकर देखें और उन बीसी से आज की रिपोर्ट भिजवाएँ। धन्यवाद।',
         'cbc_alarm_audio'            => '',
         'cbc_alarm_version'          => '1',
+        // Broadcast screen: notice band under the header (title + scrolling text) and the bank logo
+        'broadcast_notice_title'     => 'ध्यान रहे',
+        'broadcast_notice'           => 'सभी BCs साथी ध्यान दें कि कोई भी ऐसा अनैतिक कार्य न करें जिससे बैंक शाखा या आपकी छवि ख़राब हो। और सभी साथी अपना कैमरा चालू रखें कोई भी साथी मीटिंग छोड़ कर ना जाएँ। धन्यवाद',
+        'bank_logo'                  => '/app/bank-logo.png',
         // Branch Manager app alarm: rings a Branch Manager's phone while their branch report is pending
         'bm_alarm_enabled'           => '1',
         'bm_call_time'               => '17:30',
