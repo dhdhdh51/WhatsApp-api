@@ -107,14 +107,41 @@ final class Meetings
             'invited' => $audience === 'selected' ? count($validIds) : null];
     }
 
+    /** End a meeting for everyone: mark it over and close its LiveKit room, so every screen leaves it. */
     public static function end(int $id): void
     {
+        $room = (string) DB::val('SELECT room FROM meetings WHERE id = ? AND is_active = 1', [$id]);
         DB::exec('UPDATE meetings SET is_active = 0, ended_at = NOW() WHERE id = ? AND is_active = 1', [$id]);
+        if ($room !== '') {
+            Livekit::deleteRoom($room);
+        }
     }
 
     public static function endByCbc(int $cbcUserId): void
     {
+        $rooms = array_column(DB::all('SELECT room FROM meetings WHERE host_cbc_id = ? AND is_active = 1', [$cbcUserId]), 'room');
         DB::exec('UPDATE meetings SET is_active = 0, ended_at = NOW() WHERE host_cbc_id = ? AND is_active = 1', [$cbcUserId]);
+        foreach ($rooms as $room) {
+            Livekit::deleteRoom((string) $room);
+        }
+    }
+
+    /**
+     * May this staff user run this meeting (mute, allow to speak, end it for everyone)?
+     * Admin / region-less supervisor: any meeting. Otherwise the CBC host or the creator, or the
+     * Region Manager of the meeting's region.
+     */
+    public static function canModerate(array $m, array $user): bool
+    {
+        if (App::staffSeesAll($user)) {
+            return true;
+        }
+        $uid = (int) ($user['id'] ?? 0);
+        if ($uid > 0 && ((int) ($m['host_cbc_id'] ?? 0) === $uid || (int) ($m['created_by'] ?? 0) === $uid)) {
+            return true;
+        }
+        return ($user['role'] ?? '') === 'supervisor' && (int) ($user['region_id'] ?? 0) > 0
+            && (int) ($m['region_id'] ?? 0) === (int) $user['region_id'];
     }
 
     /** Latest active meeting a BC can join, or null. */
@@ -441,6 +468,51 @@ final class Meetings
         }
         $isMod = $type !== 'bc' && (App::staffSeesAll($row) || (int) ($m['host_cbc_id'] ?? 0) === $id);
         return $isMod || self::isSpeaker((int) $m['id'], $actor);
+    }
+
+    /**
+     * Host "All mute": silence every other microphone in the room. In a broadcast the people the
+     * host allowed to speak also lose the mic (their camera stays), so they cannot unmute again.
+     * @return int people actually silenced (0 = nobody else had a live mic)
+     */
+    public static function muteAll(array $m, string $exceptActor): int
+    {
+        $room = (string) ($m['room'] ?? '');
+        $speakers = self::isBroadcast($m)
+            ? array_column(DB::all('SELECT actor FROM meeting_speakers WHERE meeting_id = ?', [(int) $m['id']]), 'actor') : [];
+        $n = 0;
+        foreach (Livekit::participants($room) as $p) {
+            $who = (string) $p['identity'];
+            if ($who === '' || $who === $exceptActor) {
+                continue;
+            }
+            if (in_array($who, $speakers, true)) {   // allowed speaker -> back to camera only
+                self::revokeSpeak((int) $m['id'], $who);
+                if (Livekit::setCanPublish($room, $who, false, true)) {
+                    $n++;
+                }
+            } elseif (!$p['muted'] && Livekit::setMuted($room, $who, true)) {
+                $n++;
+            }
+        }
+        return $n;
+    }
+
+    /** A browser error from the meeting screen, written to the app log (trimmed; tokens removed). */
+    public static function clientLog(int $meetingId, string $actor, array $in): void
+    {
+        $clean = static function ($v, int $max): string {
+            $s = preg_replace('/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/', '[jwt]', (string) $v);
+            $s = preg_replace('/(access_token|token)=[^&\s"\']+/i', '$1=[x]', (string) $s);
+            return mb_substr(trim((string) $s), 0, $max);
+        };
+        $msg = $clean(is_scalar($in['msg'] ?? null) ? $in['msg'] : '', 300);
+        if ($msg === '') {
+            return;
+        }
+        Logger::warn('Meeting screen error', ['meeting' => $meetingId, 'actor' => mb_substr($actor, 0, 24), 'msg' => $msg,
+            'where' => $clean(is_scalar($in['where'] ?? null) ? $in['where'] : '', 160),
+            'ua' => mb_substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 140)]);
     }
 
     public static function isSpeaker(int $meetingId, string $actor): bool

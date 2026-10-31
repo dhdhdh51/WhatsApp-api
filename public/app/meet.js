@@ -22,12 +22,42 @@
   var S = {};                 // studio DOM refs
   var G = {};                 // studio gallery tiles: key -> { el, vid, track, allow }
   var gpage = 0, stagePin = null, stageId = null, stageIsCam = false;
+  var ready = false, ended = false, endingAll = false, phase = 'start', sidePanel = '', sunread = 0;   // ready = connected to the room
+  var canShare = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);   // phones: no screen share
   var PER = Math.max(1, Math.min(12, parseInt((location.search.match(/[?&]per=(\d+)/) || [])[1] || '6', 10) || 6));
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function enc(o) { return new TextEncoder().encode(JSON.stringify(o)); }
   function q(s) { return root.querySelector(s); }
   function quiet(p) { if (p && typeof p.catch === 'function') p.catch(function () {}); }
+
+  // ---- browser errors on this screen go to our server log (max 5 per visit), so a problem on a phone can be seen ----
+  var errSent = 0;
+  function report(msg, where) {
+    if (errSent >= 5 || !msg) return; errSent++;
+    try {
+      var c = cfg || window.MEET_CONFIG || null, h = { 'Content-Type': 'application/json', Accept: 'application/json' }, url;
+      if (c && c.log_url) { url = c.log_url; if (c.csrf) h['X-CSRF-TOKEN'] = c.csrf; }
+      else { var t = localStorage.getItem('bc_token'); if (!t) return; url = '/api/app.php?a=meet_log'; h.Authorization = 'Bearer ' + t; }
+      fetch(url, { method: 'POST', headers: h, body: JSON.stringify({ msg: String(msg).slice(0, 300), where: String(where || '').slice(0, 160) + ' [' + phase + ']',
+        meeting_id: (c && c.meeting_id) || 0 }) }).catch(function () {});
+    } catch (e) {}
+  }
+  function stackOf(err) { return err && err.stack ? String(err.stack).split('\n').slice(1, 3).map(function (l) { return l.trim().replace(/^at /, ''); }).join(' < ') : ''; }
+  window.addEventListener('error', function (e) {
+    if (e.message === 'Script error.' && !e.lineno) return;   // details hidden by the browser: nothing useful to send
+    report(e.message || 'error', (e.filename || '').split('/').pop().split('?')[0] + ':' + (e.lineno || 0) + ' ' + stackOf(e.error));
+  });
+  window.addEventListener('unhandledrejection', function (e) { var r = e.reason; report((r && (r.message || r.name)) || String(r), 'promise ' + stackOf(r)); });
+  // every button: an exception is reported and shown, never a silent dead button
+  function safe(fn, label) {
+    return function (ev) {
+      var oops = function (e) { report((e && e.message) || String(e), 'button ' + label); setStatus('Kuch gadbad hui – dobara try karein'); };
+      try { var r = fn(ev); if (r && typeof r.catch === 'function') r.catch(oops); } catch (e) { oops(e); }
+    };
+  }
+  // media buttons need a live connection; before that they say so instead of doing nothing
+  function live(fn) { return function () { if (!ready) { setStatus('Abhi connect ho raha hai… thoda rukein'); return null; } return fn.apply(this, arguments); }; }
   function setStatus(t) {
     if (statusEl) { statusEl.textContent = t; return; }
     if (!studio || !S.toast) return;
@@ -48,7 +78,65 @@
       window.addEventListener('pagehide', function () { clearTimeout(t); }, { once: true });
     } else location.replace(to);
   }
-  function leave() { try { room.disconnect(); } catch (e) { goBack(); } }
+  function leave() { if (!room || !ready) { goBack(); return; } try { room.disconnect(); } catch (e) { goBack(); } }
+
+  // ---- End: the host chooses "end for everyone" or "only I leave"; everyone else just leaves ----
+  function kind() { return broadcastMode ? 'Broadcast' : 'Meeting'; }
+  function endChoice() {
+    if (!isHost) { leave(); return; }
+    var old = document.getElementById('mtSheet'); if (old) { old.remove(); return; }
+    var d = document.createElement('div'); d.id = 'mtSheet'; d.className = 'mt-sheet';
+    d.innerHTML = '<div class="mt-sheet-box" role="dialog"><div class="mt-sheet-t">' + kind() + ' band karein?</div>' +
+      '<button type="button" class="mt-sheet-btn red" data-a="all">⏹ Sabke liye band karein</button>' +
+      '<button type="button" class="mt-sheet-btn" data-a="me">🚪 Sirf main niklun (baaki log jude rahenge)</button>' +
+      '<button type="button" class="mt-sheet-btn light" data-a="no">Wapas</button></div>';
+    d.onclick = function (e) {
+      var t = e.target, a = t && t.getAttribute ? t.getAttribute('data-a') : null;
+      if (t === d || a === 'no') { d.remove(); return; }
+      if (a === 'me') { d.remove(); leave(); return; }
+      if (a === 'all') {
+        t.disabled = true; t.textContent = 'Band ho raha hai…'; endingAll = true;
+        endForAll().then(function (ok) { if (!ok) { endingAll = false; d.remove(); setStatus('Band nahi hua – dobara koshish karein'); } });
+      }
+    };
+    document.body.appendChild(d);
+  }
+  function endForAll() {
+    var h = { 'Content-Type': 'application/json', Accept: 'application/json' }, url;
+    if (cfg.end_url) { url = cfg.end_url; if (cfg.csrf) h['X-CSRF-TOKEN'] = cfg.csrf; }
+    else { url = '/api/app.php?a=meet_end'; var t = localStorage.getItem('bc_token'); if (t) h.Authorization = 'Bearer ' + t; }
+    return fetch(url, { method: 'POST', headers: h, body: JSON.stringify({ meeting_id: cfg.meeting_id || 0 }) })
+      .then(function (r) { return r.json(); }).then(function (r) {
+        if (!r || !r.ok) return false;
+        showEnded('⏹ ' + kind() + ' sabke liye band kar diya gaya');   // the server closed the room: everyone is out
+        try { room.disconnect(); } catch (e) {}
+        return true;
+      }).catch(function () { return false; });
+  }
+  // a clear full screen message, then back to the previous page
+  function showEnded(msg, delay) {
+    if (ended) return; ended = true; phase = 'ended'; ready = false;
+    if (chatTimer) { clearInterval(chatTimer); chatTimer = null; }
+    ['mtSheet', 'mtGate'].forEach(function (id) { var x = document.getElementById(id); if (x) x.remove(); });
+    var d = document.createElement('div'); d.className = 'mt-ended';
+    d.innerHTML = '<div class="mt-ended-box"><div class="mt-ended-ic">' + (broadcastMode ? '📢' : '📹') + '</div><div class="mt-ended-t">' + esc(msg) + '</div>' +
+      '<button type="button" class="mt-sheet-btn" id="mtEndedBack">Wapas jayein</button></div>';
+    document.body.appendChild(d);
+    document.getElementById('mtEndedBack').onclick = goBack;
+    setTimeout(goBack, delay || 2500);
+  }
+  function onDisconnected(reason) {
+    var DR = (window.LivekitClient && window.LivekitClient.DisconnectReason) || {};
+    var is = function (n) { return DR[n] !== undefined && reason === DR[n]; };
+    if (endingAll) showEnded('⏹ ' + kind() + ' sabke liye band kar diya gaya');   // I closed it for everyone
+    else if (is('ROOM_DELETED')) showEnded('📢 ' + kind() + ' khatam ho gaya');
+    else if (is('DUPLICATE_IDENTITY')) showEnded('Aap doosre phone / tab se jud gaye, isliye yahan se nikal gaye');
+    else if (is('PARTICIPANT_REMOVED')) showEnded('Host ne aapko ' + kind().toLowerCase() + ' se hata diya');
+    else if (is('CLIENT_INITIATED')) showEnded('Aap ' + kind().toLowerCase() + ' se nikal gaye', 900);
+    else showEnded('Connection toot gaya – ' + kind().toLowerCase() + ' se bahar aa gaye');
+  }
+  // the server says this meeting is over (chat / mute / allow answered "ended")
+  function onServerEnded() { if (ended) return; showEnded('📢 ' + kind() + ' khatam ho gaya'); try { room.disconnect(); } catch (e) {} }
 
   function upsert(identity, name, isLocal) {
     if (!P[identity]) P[identity] = { name: name || identity, isLocal: !!isLocal, videoTrack: null, camOff: false, screen: null, el: null, speaking: false, micOff: false, hand: false };
@@ -73,17 +161,25 @@
     if (studio) {
       var d = document.createElement('div'); d.className = 'bcs-msg' + (m.mine ? ' mine' : '');
       d.innerHTML = '<span class="who' + (m.staff ? ' staff' : '') + '">' + esc(m.name) + '</span><span class="tm">' + esc(m.time || '') + '</span><div class="bd">' + esc(m.body) + '</div>';
-      S.chatlog.appendChild(d); S.chatlog.scrollTop = S.chatlog.scrollHeight; return;
+      S.chatlog.appendChild(d); S.chatlog.scrollTop = S.chatlog.scrollHeight;
+      if (!m.mine && !chatVisible()) { sunread++; studioControls(); }   // red count on the Chat button
+      return;
     }
     var e = document.createElement('div'); e.className = 'mt-msg' + (m.mine ? ' mine' : '') + (m.staff ? ' staff' : '');
     e.innerHTML = '<b>' + esc(m.name) + '</b> ' + esc(m.body) + '<i class="mt-t">' + esc(m.time || '') + '</i>';
     chatLog.appendChild(e); chatLog.scrollTop = chatLog.scrollHeight;
     if (!chatOpen && !m.mine) { unread++; paintChatBtn(); }
   }
-  function chatPoll() { chatReq('GET', '&after=' + lastChatId).then(function (r) { if (r && r.ok && r.rows) r.rows.forEach(renderMsg); }); }
+  function chatPoll() {
+    if (ended) return;
+    chatReq('GET', '&after=' + lastChatId).then(function (r) { if (r && r.ended) { onServerEnded(); return; } if (r && r.ok && r.rows) r.rows.forEach(renderMsg); });
+  }
   function sendChat() {
     var input = studio ? S.chatin : chatIn, t = (input.value || '').trim(); if (!t) return; input.value = '';
-    chatReq('POST', '&after=' + lastChatId, { body: t }).then(function (r) { if (r && r.ok && r.rows) r.rows.forEach(renderMsg); else setStatus('Message nahi gaya'); });
+    chatReq('POST', '&after=' + lastChatId, { body: t }).then(function (r) {
+      if (r && r.ended) { onServerEnded(); return; }
+      if (r && r.ok && r.rows) r.rows.forEach(renderMsg); else { input.value = t; setStatus('Message nahi gaya – dobara bhejein'); }
+    });
   }
   function startChat() { chatPoll(); chatTimer = setInterval(chatPoll, 3000); }
   function paintChatBtn() {
@@ -103,9 +199,10 @@
   }
   function handRaised(identity, name, up) {
     if (!identity) return;
+    if (up && !hands[identity] && isHost && broadcastMode) setStatus('✋ ' + (name || 'Koi') + ' bolna chahte hain – unke video par "🎤 Allow" dabayein');
     if (up) hands[identity] = name || (parts[identity] && parts[identity].name) || 'Koi'; else delete hands[identity];
     if (P[identity]) { P[identity].hand = !!up; }
-    if (studio) { studioParts(); studioGallery(); } else { if (P[identity]) updateTile(identity); updateHandsBadge(); renderTray(); }
+    if (studio) { studioParts(); studioGallery(); studioControls(); } else { if (P[identity]) updateTile(identity); updateHandsBadge(); renderTray(); }
   }
   function promote(identity, allow) {
     var headers = { 'Content-Type': 'application/json', Accept: 'application/json' }, url;
@@ -116,11 +213,12 @@
         if (r && r.ok) {
           try { quiet(room.localParticipant.publishData(enc({ t: 'promote', id: identity, allow: allow }), { reliable: true })); } catch (e) {}
           if (allow) { delete hands[identity]; if (P[identity]) P[identity].hand = false; }
-          if (studio) { studioParts(); studioGallery(); } else { updateHandsBadge(); renderTray(); }
+          if (studio) { studioParts(); studioGallery(); studioControls(); } else { updateHandsBadge(); renderTray(); }
           setStatus(allow ? 'Bolne ki permission de di' : (broadcastMode ? 'Mic wapas le liya (camera chalu rahega)' : 'Wapas view-only'));
-        } else setStatus('Permission badal nahi payi');
+        } else if (r && r.ended) onServerEnded();
+        else setStatus('Permission badal nahi payi – wo shayad nikal gaye');
         return r;
-      }).catch(function () { return { ok: false }; });
+      }).catch(function () { setStatus('Internet problem – dobara try karein'); return { ok: false }; });
   }
   function setMuted(identity, muted) {
     if (!isHost) return;
@@ -130,7 +228,13 @@
   }
   function muteAll() {
     if (!isHost) return;
-    api('meet_mute', { identity: '*', muted: true }).then(function (r) { setStatus(r && r.ok ? ((r.changed || 0) + ' logon ko mute kiya') : 'Mute nahi hua'); });
+    setStatus('Sabka mic band kar rahe hain…');
+    api('meet_mute', { identity: '*', muted: true }).then(function (r) {
+      if (r && r.ended) { onServerEnded(); return; }
+      if (!r || !r.ok) { setStatus('Mute nahi hua – dobara koshish karein'); return; }
+      var n = r.changed || 0;
+      setStatus(n ? ('🔇 ' + n + ' logon ka mic band kar diya') : (broadcastMode ? 'Kisi aur ka mic chalu nahi hai – BC sirf camera se jude hain' : 'Kisi aur ka mic chalu nahi tha'));
+    });
   }
   function api(action, body) {
     var h = { 'Content-Type': 'application/json', Accept: 'application/json' };
@@ -321,7 +425,7 @@
   }
   function btn(icon, label, onClick, cls) {
     var b = document.createElement('button'); b.type = 'button'; b.className = 'mt-btn' + (cls ? ' ' + cls : '');
-    b.onclick = onClick; setBtn(b, icon, label); bar.appendChild(b); return b;
+    b.onclick = safe(onClick, label); setBtn(b, icon, label); bar.appendChild(b); return b;
   }
   function paintMic() { setBtn(micBtn, micOn ? '🎤' : '🔇', 'Mic', micOn ? '' : 'off'); }
   function paintCam() { setBtn(camBtn, '📷', 'Camera', camOn ? '' : 'off'); }
@@ -329,13 +433,13 @@
   function renderBar() {
     bar.innerHTML = ''; micBtn = camBtn = null;
     if (canPublish) {
-      micBtn = btn('🎤', 'Mic', toggleMic, 'mic-btn'); paintMic();
-      if (mode === 'video') { camBtn = btn('📷', 'Camera', toggleCam, 'cam-btn'); paintCam(); }
+      micBtn = btn('🎤', 'Mic', live(toggleMic), 'mic-btn'); paintMic();
+      if (mode === 'video') { camBtn = btn('📷', 'Camera', live(toggleCam), 'cam-btn'); paintCam(); }
     }
-    handBtn = btn('✋', 'Haath', toggleHand, 'hand'); paintHand();
+    handBtn = btn('✋', 'Haath', live(toggleHand), 'hand'); paintHand();
     chatBtn = btn('💬', 'Chat', toggleChat, 'chat'); paintChatBtn();
-    if (isHost) btn('🔇', 'Sab mute', muteAll, 'muteall');
-    btn('📴', 'Leave', leave, 'red');
+    if (isHost) btn('🔇', 'Sab mute', live(muteAll), 'muteall');
+    btn('📴', isHost ? 'End' : 'Leave', endChoice, 'red');
   }
 
   // ================= STUDIO (broadcast = group video call) UI =================
@@ -367,7 +471,7 @@
           '<div class="bcs-ticker"><span class="bcs-ticker-tag">सूचना</span><div class="bcs-ticker-wrap"><div class="bcs-ticker-move bcs-ticker-bottom-move"></div></div></div></main>' +
         '<section class="bcs-gallery" aria-label="सभी की वीडियो"><div class="bcs-grid"></div><div class="bcs-gpager"></div></section>' +
         '<div class="bcs-scheme"></div></div>' +
-      '<aside class="bcs-side">' +
+      '<aside class="bcs-side"><button type="button" class="bcs-close">× Band karein</button>' +
         '<div class="bcs-card bcs-info"><h4>📋 मीटिंग जानकारी</h4><ul><li><b>विषय</b><span>' + esc(title) + '</span></li>' +
           (ro ? '<li><b>RO</b><span>' + esc(ro) + '</span></li>' : '') +
           '<li><b>समय</b><span class="bcs-itime"></span></li><li><b>आयोजक</b><span>' + esc(who) + '</span></li></ul></div>' +
@@ -381,7 +485,8 @@
     S.parts = q('.bcs-parts'); S.pc = q('.bcs-pc'); S.chatlog = q('.bcs-chatlog'); S.chatin = q('.bcs-chatin input');
     S.date = q('.bcs-date'); S.time = q('.bcs-time'); S.itime = q('.bcs-itime');
     S.controls = q('.bcs-controls'); S.scheme = q('.bcs-scheme'); S.side = q('.bcs-side');
-    q('.bcs-chatin button').onclick = sendChat; S.chatin.onkeydown = function (e) { if (e.key === 'Enter') sendChat(); };
+    q('.bcs-chatin button').onclick = safe(sendChat, 'send'); S.chatin.onkeydown = function (e) { if (e.key === 'Enter') sendChat(); };
+    q('.bcs-close').onclick = closeSide;
     S.stage.onclick = function () { if (stagePin) { stagePin = null; studioRender(); } };   // tap the stage = back to the host
     S.ltRole.textContent = ro || cfg.host_role || 'Host'; S.ltMain.textContent = hostLine();
     var notice = cfg.ticker || 'सभी BC साथी अपने-अपने क्षेत्र में योजनाओं की प्रगति रिपोर्ट समय पर अपडेट करें';
@@ -504,35 +609,71 @@
     });
   }
   function studioRender() { if (!S.grid) return; studioStage(); studioGallery(); studioParts(); }
-  function sbtn(ic, label, cls, fn) { var b = document.createElement('button'); b.type = 'button'; b.className = 'bcs-btn' + (cls ? ' ' + cls : ''); b.innerHTML = '<i>' + ic + '</i><span>' + esc(label) + '</span>'; b.title = label; b.onclick = fn; S.controls.appendChild(b); return b; }
+  function sbtn(ic, label, cls, fn, badge) {
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'bcs-btn' + (cls ? ' ' + cls : '');
+    b.innerHTML = '<i>' + ic + '</i><span>' + esc(label) + '</span>' + (badge ? '<b class="bdg">' + badge + '</b>' : '');
+    b.title = label; b.setAttribute('aria-label', label); b.onclick = safe(fn, label); S.controls.appendChild(b); return b;
+  }
+  // ---- side panel (info, people, chat): an overlay on phones, always visible on a computer ----
+  function isPhone() { return window.matchMedia ? window.matchMedia('(max-width: 900px)').matches : window.innerWidth <= 900; }
+  function sideOpen() { return !isPhone() || S.side.classList.contains('open'); }
+  function chatVisible() { return !!S.side && sideOpen() && (!isPhone() || sidePanel === 'chat'); }
+  function openSide(which) {
+    if (isPhone()) {
+      if (S.side.classList.contains('open') && sidePanel === which) { closeSide(); return; }   // same button again = close
+      S.side.classList.add('open');
+    }
+    sidePanel = which;
+    if (which === 'chat') sunread = 0;
+    var card = which === 'people' ? q('.bcs-plist') : q('.bcs-chat');
+    if (card) {
+      try { card.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { card.scrollIntoView(); }
+      card.classList.add('flash'); setTimeout(function () { card.classList.remove('flash'); }, 1000);
+    }
+    if (which === 'chat' && !isPhone() && S.chatin) S.chatin.focus();
+    studioControls();
+  }
+  function closeSide() { S.side.classList.remove('open'); sidePanel = ''; studioControls(); }
   function studioControls() {
-    if (!S.controls) return; S.controls.innerHTML = '';
-    if (canPublish) sbtn(micOn ? '🎤' : '🔇', micOn ? 'Mute' : 'Unmute', micOn ? '' : 'off', toggleMic);
-    if (mode === 'video' && (canPublish || canVideo)) sbtn(camOn ? '📹' : '📷', 'Camera', camOn ? '' : 'off', toggleCam);
-    if (canPublish) sbtn('🖥️', 'Share', screenOn ? 'active' : '', toggleScreen);
-    if (!canPublish) sbtn('✋', 'Haath', myHand ? 'active' : '', toggleHand);   // raise hand = ask to speak
-    sbtn('💬', 'Chat', '', function () { S.side.classList.toggle('open'); });
-    sbtn('👥', 'लोग', '', function () { S.side.classList.toggle('open'); });
-    if (isHost) sbtn('🔇', 'All mute', '', muteAll);
-    sbtn('📊', 'प्रगति', S.scheme.classList.contains('open') ? 'active' : '', toggleScheme);
-    sbtn('📴', isHost ? 'End' : 'Leave', 'end', leave);
+    if (!S.controls) return;
+    var onPhoneOpen = isPhone() && S.side.classList.contains('open'), nh = Object.keys(hands).length, list = [];
+    var add = function (ic, label, cls, fn, badge) { list.push([ic, label, cls || '', fn, badge || '']); };
+    if (canPublish) add(micOn ? '🎤' : '🔇', micOn ? 'Mute' : 'Unmute', micOn ? '' : 'off', live(toggleMic));
+    if (mode === 'video' && (canPublish || canVideo)) add(camOn ? '📹' : '📷', 'Camera', camOn ? '' : 'off', live(toggleCam));
+    if (canPublish && canShare) add('🖥️', 'Share', screenOn ? 'active' : '', live(toggleScreen));
+    if (!canPublish) add('✋', 'Haath', myHand ? 'active' : '', live(toggleHand));   // raise hand = ask to speak
+    add('💬', 'Chat', onPhoneOpen && sidePanel === 'chat' ? 'active' : '', function () { openSide('chat'); }, sunread || '');
+    add('👥', 'लोग', onPhoneOpen && sidePanel === 'people' ? 'active' : '', function () { openSide('people'); }, isHost && nh ? '✋' + nh : '');
+    if (isHost) add('🔇', 'All mute', '', live(muteAll));
+    add('📊', 'प्रगति', S.scheme.classList.contains('open') ? 'active' : '', toggleScheme);
+    add('📴', isHost ? 'End' : 'Leave', 'end', endChoice);
+    // rebuild only when something on the bar changed, so a tap that is in progress is never lost
+    var sig = list.map(function (b) { return b[0] + '|' + b[1] + '|' + b[2] + '|' + b[4]; }).join('~');
+    if (sig === S.ctlSig && S.controls.children.length === list.length) return;
+    S.ctlSig = sig; S.controls.innerHTML = '';
+    list.forEach(function (b) { sbtn(b[0], b[1], b[2], b[3], b[4]); });
     fitControls();
   }
   // the bar may wrap to two rows on a phone; the side panel (chat / people) must end above it
   function fitControls() { if (S.controls) document.documentElement.style.setProperty('--bcs-ctl', S.controls.offsetHeight + 'px'); }
-  function toggleScheme() { S.scheme.classList.toggle('open'); if (S.scheme.classList.contains('open') && !schemeLoaded) loadScheme(); studioControls(); }
+  function toggleScheme() {
+    S.scheme.classList.toggle('open');
+    if (S.scheme.classList.contains('open')) { if (isPhone()) { S.side.classList.remove('open'); sidePanel = ''; } if (!schemeLoaded) loadScheme(); }
+    studioControls();
+  }
   function loadScheme() {
     schemeLoaded = true;
     var headers = { Accept: 'application/json' }, url;
     if (cfg.summary_url) { url = cfg.summary_url; } else { url = '/api/app.php?a=meet_summary'; var t = localStorage.getItem('bc_token'); if (t) headers.Authorization = 'Bearer ' + t; }
     S.scheme.innerHTML = '<h4>📊 आज की प्रस्तुति</h4><p style="font-size:12px;color:#5b6b86">लोड हो रहा है…</p>';
     fetch(url, { headers: headers }).then(function (r) { return r.json(); }).then(function (r) {
-      if (!r || !r.ok || !r.rows || !r.rows.length) { S.scheme.innerHTML = '<h4>📊 आज की प्रस्तुति</h4><p style="font-size:12px;color:#5b6b86">अभी डेटा उपलब्ध नहीं।</p>'; return; }
+      if (r && r.ended) { onServerEnded(); return; }
+      if (!r || !r.ok || !r.rows || !r.rows.length) { schemeLoaded = false; S.scheme.innerHTML = '<h4>📊 आज की प्रस्तुति</h4><p style="font-size:12px;color:#5b6b86">अभी डेटा उपलब्ध नहीं।</p>'; return; }
       var col = { apy: 'var(--s-apy)', pmjjby: 'var(--s-jjby)', pmsby: 'var(--s-sby)', pmjdy: 'var(--s-jdy)' };
       var h = '<h4>📊 योजना अनुसार लक्ष्य एवं उपलब्धि</h4><table><tr><th>योजना</th><th>लक्ष्य</th><th>उपलब्धि</th><th>%</th><th>प्रगति</th></tr>';
       r.rows.forEach(function (x) { h += '<tr><td>' + esc(x.label) + '</td><td>' + (x.target | 0) + '</td><td>' + (x.done | 0) + '</td><td>' + (x.pct | 0) + '%</td><td><div class="bar"><i style="width:' + Math.min(100, x.pct | 0) + '%;background:' + (col[x.key] || '#2563b8') + '"></i></div></td></tr>'; });
       h += '</table>'; S.scheme.innerHTML = h;
-    }).catch(function () { S.scheme.innerHTML = '<h4>📊 आज की प्रस्तुति</h4><p style="font-size:12px;color:#5b6b86">लोड नहीं हुआ।</p>'; });
+    }).catch(function () { schemeLoaded = false; S.scheme.innerHTML = '<h4>📊 आज की प्रस्तुति</h4><p style="font-size:12px;color:#5b6b86">लोड नहीं हुआ – दोबारा 📊 दबाएँ।</p>'; });
   }
 
   // ================= bootstrap =================
@@ -545,8 +686,12 @@
   function start() {
     if (!window.LivekitClient) { root = document.getElementById('meet') || document.body; fail('Meeting library load nahi hui. Internet check karein.'); return; }
     config().then(function (c) {
-      if (!c || !c.ok) { root = document.getElementById('meet') || document.body; fail((c && c.error) || 'Meeting join nahi ho payi.'); return; }
-      cfg = c; mode = c.mode === 'voice' ? 'voice' : 'video'; isHost = !!c.is_host; broadcastMode = !!c.is_broadcast; studio = broadcastMode;
+      if (!c || !c.ok) {
+        root = document.getElementById('meet') || document.body;
+        fail(c && c.ended ? '📢 Ye meeting / broadcast khatam ho chuki hai. Abhi koi meeting live nahi hai.' : ((c && c.error) || 'Meeting join nahi ho payi.'));
+        return;
+      }
+      cfg = c; phase = 'connecting'; mode = c.mode === 'voice' ? 'voice' : 'video'; isHost = !!c.is_host; broadcastMode = !!c.is_broadcast; studio = broadcastMode;
       canPublish = (c.can_publish !== false);
       canVideo = mode === 'video' && (c.can_video === undefined ? canPublish : !!c.can_video);
       if (studio) { buildStudio(); joinStudio(); }
@@ -592,10 +737,18 @@
     if (LK.RoomEvent.AudioPlaybackStatusChanged) room.on(LK.RoomEvent.AudioPlaybackStatusChanged, paintAudioGate);
     if (LK.RoomEvent.VideoPlaybackStatusChanged) room.on(LK.RoomEvent.VideoPlaybackStatusChanged, paintAudioGate);
     room.on(LK.RoomEvent.DataReceived, onData);
-    room.on(LK.RoomEvent.Disconnected, function () { if (chatTimer) { clearInterval(chatTimer); chatTimer = null; } setStatus('Meeting khatam'); setTimeout(goBack, 1200); });
-    room.connect(cfg.url, cfg.token).then(function () { viewers = (room.remoteParticipants ? room.remoteParticipants.size : 0) + 1; setStatus('Connected'); if (canPublish) { upsert('me', cfg.name || 'Main', true); return enableLocalMedia(); } return null; })
-      .then(function () { renderBar(); render(); startChat(); tryAutoAudio(); }).catch(function (e) { fail('Join nahi ho payi: ' + (e && e.message ? e.message : 'camera/mic ya network problem')); });
+    room.on(LK.RoomEvent.Disconnected, onDisconnected);
+    renderBar(); render();   // buttons are there (Leave works) while connecting
+    room.connect(cfg.url, cfg.token).then(function () {
+      ready = true; phase = 'live';
+      viewers = (room.remoteParticipants ? room.remoteParticipants.size : 0) + 1; setStatus('Connected');
+      startChat();
+      var media = canPublish ? (upsert('me', cfg.name || 'Main', true), enableLocalMedia()) : null;
+      return Promise.resolve(media).then(null, function (e) { report(e && e.message, 'media'); })
+        .then(function () { if (!ended) { refreshSafe(); tryAutoAudio(); } });
+    }, function (e) { fail('Join nahi ho payi: ' + (e && e.message ? e.message : 'camera/mic ya network problem')); });
   }
+  function refreshSafe() { try { refreshAll(); } catch (e) { report(e && e.message, 'render'); } }
 
   function joinStudio() {
     var LK = window.LivekitClient; room = commonRoom();
@@ -606,7 +759,7 @@
         if (pub.source === SS || track.source === SS) p.screen = track; else { p.videoTrack = track; p.camOff = !!pub.isMuted; }
       } else {
         var a = document.createElement('audio'); a.autoplay = true; track.attach(a); document.body.appendChild(a); p.audioEl = a; p.micOff = !!pub.isMuted;
-        if (hands[rp.identity]) delete hands[rp.identity];   // they got the mic
+        if (hands[rp.identity]) { delete hands[rp.identity]; studioControls(); }   // they got the mic
       }
       studioRender();
     });
@@ -622,7 +775,7 @@
     room.on(LK.RoomEvent.ParticipantConnected, function (rp) { parts[rp.identity] = { name: rp.name || rp.identity }; studioRender(); });
     room.on(LK.RoomEvent.ParticipantDisconnected, function (rp) {
       var p = P[rp.identity]; if (p && p.audioEl) p.audioEl.remove();
-      delete parts[rp.identity]; delete hands[rp.identity]; delete P[rp.identity]; if (stagePin === rp.identity) stagePin = null; studioRender();
+      delete parts[rp.identity]; delete hands[rp.identity]; delete P[rp.identity]; if (stagePin === rp.identity) stagePin = null; studioRender(); studioControls();
     });
     room.on(LK.RoomEvent.ActiveSpeakersChanged, function (sp) { var on = {}, me = localId(); sp.forEach(function (s) { on[s.identity] = true; }); Object.keys(P).forEach(function (id) { P[id].speaking = !!on[id === 'me' ? me : id]; }); studioStage(); studioGallery(); });
     if (LK.RoomEvent.ParticipantAttributesChanged) room.on(LK.RoomEvent.ParticipantAttributesChanged, function (ch, rp) { if (rp === room.localParticipant) return; if (ch && typeof ch.hand !== 'undefined') handRaised(rp.identity, rp.name || rp.identity, ch.hand === '1'); });
@@ -630,17 +783,22 @@
     if (LK.RoomEvent.AudioPlaybackStatusChanged) room.on(LK.RoomEvent.AudioPlaybackStatusChanged, function () { if (camOn || micOn) tryAutoAudio(); else paintAudioGate(); });
     if (LK.RoomEvent.VideoPlaybackStatusChanged) room.on(LK.RoomEvent.VideoPlaybackStatusChanged, paintAudioGate);
     room.on(LK.RoomEvent.DataReceived, onData);
-    room.on(LK.RoomEvent.Disconnected, function () { if (chatTimer) { clearInterval(chatTimer); chatTimer = null; } setStatus('Broadcast samapt'); setTimeout(goBack, 1400); });
+    room.on(LK.RoomEvent.Disconnected, onDisconnected);
+    studioControls();   // buttons are there (Leave works) while connecting
+    setStatus('Connect ho raha hai…');
     room.connect(cfg.url, cfg.token).then(function () {
+      ready = true; phase = 'live';
       parts[room.localParticipant.identity] = { name: cfg.name || 'आप', local: true };
       // people already in the room before I joined (ParticipantConnected only fires for later joiners)
       room.remoteParticipants.forEach(function (rp) { if (!parts[rp.identity]) parts[rp.identity] = { name: rp.name || rp.identity }; });
       upsert('me', cfg.name || 'आप', true);
-      if (canPublish) return enableLocalMedia();   // host / moderators / allowed speakers: mic + camera
-      if (canVideo) return startCamera();          // everyone else: camera on, like a video call
-      return null;
-    }).then(function () { studioControls(); studioRender(); startChat(); tryAutoAudio(); })
-      .catch(function (e) { fail('Join nahi ho payi: ' + (e && e.message ? e.message : 'network problem')); });
+      refreshSafe(); startChat();
+      // host / moderators / allowed speakers: mic + camera; everyone else: camera on, like a video call.
+      // A camera that is slow or refused never holds up the buttons.
+      var media = canPublish ? enableLocalMedia() : (canVideo ? startCamera() : null);
+      return Promise.resolve(media).then(null, function (e) { report(e && e.message, 'media'); })
+        .then(function () { if (!ended) { refreshSafe(); tryAutoAudio(); } });
+    }, function (e) { fail('Join nahi ho payi: ' + (e && e.message ? e.message : 'network problem')); });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();

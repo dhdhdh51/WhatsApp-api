@@ -90,7 +90,7 @@ if ($action === 'meet_token') {
         ? Meetings::forBc($actor['row'])
         : Meetings::forCbc((int) $actor['id']);
     if (!$m || empty($m['room'])) {
-        fail('Abhi koi meeting live nahi hai.');
+        out(['ok' => false, 'ended' => true, 'error' => 'Ye meeting / broadcast khatam ho chuki hai. Abhi koi meeting live nahi hai.'], 410);
     }
     // same identity as the panel (user-N) so one person never joins twice and echoes
     $ident = ($actor['type'] === 'bc' ? 'bc-' : 'user-') . (int) $actor['id'];
@@ -141,15 +141,8 @@ if ($action === 'meet_mute') {
     }
     $muted = !empty($in['muted']);
     $who = trim((string) ($in['identity'] ?? ''));
-    if ($who === '*') { // mute everyone except me
-        $me = 'user-' . (int) $actor['id'];
-        $n = 0;
-        foreach (Livekit::participants((string) $m['room']) as $p) {
-            if ($p['identity'] !== $me && Livekit::setMuted((string) $m['room'], $p['identity'], $muted)) {
-                $n++;
-            }
-        }
-        out(['ok' => true, 'changed' => $n]);
+    if ($who === '*') { // everyone except me; in a broadcast, allowed speakers also lose the mic (camera stays)
+        out(['ok' => true, 'changed' => Meetings::muteAll(Meetings::byId((int) $m['id']) ?: [], 'user-' . (int) $actor['id'])]);
     }
     if ($who === '') {
         fail('identity chahiye');
@@ -157,11 +150,44 @@ if ($action === 'meet_mute') {
     out(['ok' => Livekit::setMuted((string) $m['room'], $who, $muted)]);
 }
 
+// ------------------------------------------------------------------ host: end the meeting / broadcast for everyone
+if ($action === 'meet_end') {
+    if ($method !== 'POST') {
+        fail('POST required', 405);
+    }
+    if ($actor['type'] === 'bc') {
+        fail('Sirf host meeting band kar sakta hai.', 403);
+    }
+    $want = (int) ($in['meeting_id'] ?? 0);
+    $mRow = $want ? Meetings::byId($want) : null;
+    if (!$mRow) {
+        $live = Meetings::forCbc((int) $actor['id']);
+        $mRow = $live ? Meetings::byId((int) $live['id']) : null;
+    }
+    if (!$mRow || (int) $mRow['is_active'] !== 1) {
+        out(['ok' => true, 'ended' => true]);   // already over
+    }
+    if (!Meetings::canModerate($mRow, $actor['row'])) {
+        fail('Sirf host meeting band kar sakta hai.', 403);
+    }
+    Meetings::end((int) $mRow['id']);
+    \App\Audit::log((int) $actor['id'], 'meeting_end', 'meeting', (int) $mRow['id'], ['from' => 'app']);
+    out(['ok' => true]);
+}
+
+// ------------------------------------------------------------------ a browser error on the meeting screen (goes to our log)
+if ($action === 'meet_log') {
+    if ($method === 'POST') {
+        Meetings::clientLog((int) ($in['meeting_id'] ?? 0), ($actor['type'] === 'bc' ? 'bc-' : 'user-') . (int) $actor['id'], $in);
+    }
+    out(['ok' => true]);
+}
+
 // ------------------------------------------------------------------ in-meeting group chat (persistent)
 if ($action === 'meet_chat') {
     $m = $actor['type'] === 'bc' ? Meetings::forBc($actor['row']) : Meetings::forCbc((int) $actor['id']);
     if (!$m || empty($m['room'])) {
-        fail('Koi meeting live nahi hai.');
+        out(['ok' => false, 'ended' => true, 'error' => 'Meeting khatam ho chuki hai.'], 410);   // the screen leaves the meeting
     }
     $mid = (int) ($m['id'] ?? Meetings::idForRoom((string) $m['room']));
     $ident = ($actor['type'] === 'bc' ? 'bc-' : 'user-') . (int) $actor['id'];

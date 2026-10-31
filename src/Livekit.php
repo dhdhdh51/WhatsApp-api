@@ -60,8 +60,8 @@ final class Livekit
         return self::sign($payload);
     }
 
-    /** Short-lived admin token for the server-side RoomService API. */
-    private static function adminToken(string $room): ?string
+    /** Short-lived admin token for the server-side RoomService API ($create: DeleteRoom needs roomCreate). */
+    private static function adminToken(string $room, bool $create = false): ?string
     {
         if (!self::enabled()) {
             return null;
@@ -72,7 +72,7 @@ final class Livekit
             'sub' => 'server',
             'nbf' => $now - 10,
             'exp' => $now + 120,
-            'video' => ['room' => $room, 'roomAdmin' => true],
+            'video' => ['room' => $room, 'roomAdmin' => true] + ($create ? ['roomCreate' => true] : []),
         ]);
     }
 
@@ -85,10 +85,22 @@ final class Livekit
         return "{$head}.{$body}.{$sig}";
     }
 
-    /** Call the local LiveKit RoomService (Twirp). Returns decoded JSON or null. */
-    private static function rpc(string $method, string $room, array $body): ?array
+    /**
+     * Close a meeting's room: everyone still in it is disconnected (reason ROOM_DELETED), so every
+     * screen leaves the meeting. A room nobody is in any more is fine (404 = already closed).
+     */
+    public static function deleteRoom(string $room): bool
     {
-        $tok = self::adminToken($room);
+        if ($room === '' || !self::enabled()) {
+            return false;
+        }
+        return self::rpc('DeleteRoom', $room, ['room' => $room], true, [404]) !== null;
+    }
+
+    /** Call the local LiveKit RoomService (Twirp). Returns decoded JSON or null. $quiet = HTTP codes that are not an error. */
+    private static function rpc(string $method, string $room, array $body, bool $create = false, array $quiet = []): ?array
+    {
+        $tok = self::adminToken($room, $create);
         if (!$tok) {
             return null;
         }
@@ -104,6 +116,9 @@ final class Livekit
         $raw = curl_exec($ch);
         $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
+        if (in_array($code, $quiet, true)) {
+            return [];
+        }
         if ($code !== 200) {
             Logger::warn('LiveKit RPC failed', ['method' => $method, 'http' => $code, 'body' => mb_substr((string) $raw, 0, 200)]);
             return null;
