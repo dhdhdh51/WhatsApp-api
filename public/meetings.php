@@ -166,7 +166,7 @@ View::header('Meetings / मीटिंग', 'meetings');
             </div>
           </div>
           <?php if ($canGuest && $newGuest && (int) $newGuest['meeting_id'] === (int) $m['id']):
-              $wa = 'https://wa.me/?text=' . rawurlencode("Namaste, aapko \"{$m['title']}\" mein guest ke roop mein judna hai. Is link par apna naam likh kar judein:\n{$newGuest['url']}\n(Link meeting khatam hone par band ho jayega.)"); ?>
+              $wa = 'https://wa.me/?text=' . rawurlencode("नमस्ते,\nआपको \"{$m['title']}\" मीटिंग में शामिल होने के लिए आमंत्रित किया गया है। नीचे दिए लिंक पर अपना नाम लिखकर जुड़ें:\n{$newGuest['url']}\n\nयह लिंक मीटिंग समाप्त होने पर बंद हो जाएगा।"); ?>
             <div class="alert alert-primary small mt-2 mb-0 p-2">
               <div class="fw-semibold mb-1"><i class="bi bi-link-45deg"></i> <?= L('New guest link (shown once – copy it now)', 'नया गेस्ट लिंक (सिर्फ़ एक बार दिखेगा – अभी कॉपी करें)') ?></div>
               <div class="input-group input-group-sm"><input class="form-control" readonly value="<?= e($newGuest['url']) ?>" onclick="this.select()">

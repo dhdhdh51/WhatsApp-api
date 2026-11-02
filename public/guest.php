@@ -28,17 +28,26 @@ function guest_json(int $code, array $out): never
 function guest_page(string $title, string $body): never
 {
     header('Cache-Control: no-store');
+    $logo = (string) App\Settings::get('bank_logo');
     ?><!doctype html>
 <html lang="hi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title><?= e($title) ?></title>
+<link rel="stylesheet" href="/app/app.css?v=19">
 <style>
-body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#0b2545;color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center}
-.box{background:#fff;color:#1b1b1b;border-radius:14px;padding:26px 22px;max-width:380px;width:calc(100% - 32px);box-shadow:0 10px 30px rgba(0,0,0,.3)}
-h1{font-size:20px;margin:0 0 6px}p{margin:6px 0 14px;color:#444;font-size:15px;line-height:1.45}
-label{font-weight:600;font-size:14px}input{width:100%;box-sizing:border-box;font-size:17px;padding:11px;border:1px solid #bbb;border-radius:8px;margin:6px 0 14px}
-button,.btn{display:block;width:100%;box-sizing:border-box;text-align:center;background:#0d6efd;color:#fff;border:0;border-radius:8px;padding:12px;font-size:17px;font-weight:600;text-decoration:none;cursor:pointer}
-.err{background:#fde8e8;color:#9b1c1c;padding:9px 11px;border-radius:8px;font-size:14px;margin-bottom:12px}.sub{font-size:13px;color:#666}
-</style></head><body><div class="box"><?= $body ?></div></body></html>
+.gl-head{text-align:center;margin:18px 0 22px}
+.gl-head img{height:46px;max-width:220px;object-fit:contain}
+.gl-head .bank{font-size:13px;color:var(--muted);margin-top:6px;letter-spacing:.2px}
+.gl-title{font-size:20px;font-weight:800;color:var(--accent-ink);margin:0 0 6px;line-height:1.3}
+.gl-host{font-size:14px;color:var(--muted);margin:0}
+.gl-note{font-size:14px;line-height:1.55;color:var(--ink);margin:0}
+.gl-foot{text-align:center;font-size:12px;color:var(--muted);margin-top:22px}
+button,.btn{font-family:'Noto Sans Devanagari','Inter',system-ui,sans-serif}
+.gl-note.mb{margin-bottom:18px}
+</style></head><body><div class="login">
+<div class="gl-head"><?php if ($logo !== ''): ?><img src="<?= e($logo) ?>" alt="Central Bank of India"><?php endif; ?><div class="bank">Central Bank of India · BC Monitoring</div></div>
+<?= $body ?>
+<div class="gl-foot">bc.bharatseo.site</div>
+</div></body></html>
 <?php
     exit;
 }
@@ -47,7 +56,8 @@ if (!$link) {
     if ($isJson) {
         guest_json(410, ['ok' => false, 'ended' => true, 'error' => 'ended']);   // the meeting screen shows "khatam"
     }
-    guest_page('Link band', '<h1>🔒 Ye link ab kaam nahi karta</h1><p>Meeting khatam ho chuki hai, ya host ne ye link band kar diya hai. / यह मीटिंग समाप्त हो चुकी है या लिंक बंद कर दिया गया है।</p>');
+    guest_page('लिंक उपलब्ध नहीं', '<div class="card"><p class="gl-title">यह लिंक अब उपलब्ध नहीं है</p>'
+        . '<p class="gl-note">मीटिंग समाप्त हो चुकी है या आयोजक ने यह लिंक बंद कर दिया है। ज़रूरत हो तो आयोजक से नया लिंक माँग लें।</p></div>');
 }
 
 $meetingId = (int) $link['meeting_id'];
@@ -64,9 +74,9 @@ if (!$guest) {
     if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         $name = GuestLinks::cleanName((string) p('name'));
         if ($name === '') {
-            $error = 'Apna poora naam likhein (kam se kam 2 akshar). / अपना नाम लिखें।';
+            $error = 'कृपया अपना नाम लिखें।';
         } elseif (GuestLinks::joinLimited($linkId, client_ip())) {
-            $error = 'Bahut zyada koshish. Thodi der baad dobara kholein. / कृपया थोड़ी देर बाद प्रयास करें।';
+            $error = 'अभी बहुत लोग इस लिंक से जुड़ रहे हैं। कुछ मिनट बाद फिर से कोशिश करें।';
         } else {
             $id = App\DB::insert('INSERT INTO meeting_guests (link_id, meeting_id, name, ip, joined_at) VALUES (?, ?, ?, ?, NOW())',
                 [$linkId, $meetingId, $name, client_ip()]);
@@ -76,20 +86,23 @@ if (!$guest) {
             redirect($self);
         }
     }
-    $kind = Meetings::isBroadcast($link) ? 'Broadcast' : 'Meeting';
-    guest_page($link['title'] . ' · Guest',
-        '<h1>📢 ' . e($link['title']) . '</h1>'
-        . '<p>Aapko is ' . $kind . ' mein guest ke roop mein bulaya gaya hai. Pehle aap sirf dekh aur sun sakenge. Host jab aapko <b>मंच पर लाएँगे</b>, tab aapka mic aur camera chalu hoga.</p>'
+    $h = Meetings::hostInfo($link);
+    $role = strcasecmp($h['role'], $h['name']) === 0 ? '' : $h['role'];   // "Admin, Admin" -> "Admin"
+    $by = trim($h['name'] . ($role !== '' ? ', ' . $role : '') . ($h['region'] !== '' ? ' (' . $h['region'] . ')' : ''));
+    guest_page($link['title'],
+        '<div class="card"><p class="gl-title">' . e($link['title']) . '</p>'
+        . ($by !== '' ? '<p class="gl-host">आयोजक: ' . e($by) . '</p>' : '') . '</div>'
+        . '<p class="gl-note mb">आपको इस मीटिंग में अतिथि के रूप में आमंत्रित किया गया है। जुड़ने के लिए अपना नाम और पद लिखें।</p>'
         . ($error ? '<div class="err">' . e($error) . '</div>' : '')
         . '<form method="post" action="' . e($self) . '">' . App\Csrf::field()
-        . '<label for="gn">Aapka naam aur pad / आपका नाम और पद</label>'
-        . '<input id="gn" name="name" maxlength="50" required autocomplete="name" placeholder="जैसे: R.K. Sharma, AGM" value="' . e((string) p('name')) . '">'
-        . '<button type="submit">Meeting mein judein</button></form>'
-        . '<p class="sub">Aapka naam sabko "Guest" ke saath dikhega.</p>');
+        . '<div class="field mb"><label for="gn">नाम और पद</label>'
+        . '<input id="gn" name="name" maxlength="50" required autocomplete="name" placeholder="जैसे: आर.के. शर्मा, एजीएम" value="' . e((string) p('name')) . '"></div>'
+        . '<button class="btn" type="submit">मीटिंग में शामिल हों</button></form>'
+        . '<p class="muted" style="text-align:center;margin-top:16px">शुरुआत में आप मीटिंग देख और सुन सकेंगे। आयोजक के बुलाने पर आपका माइक और कैमरा चालू होगा।</p>');
 }
 
 $actor = 'guest-' . (int) $guest['id'];
-$name = $guest['name'] . ' (Guest)';
+$name = $guest['name'] . ' (अतिथि)';
 
 // ---- the meeting screen calls these (same shape as meet.php) ----
 if (q('chat') !== '') {
@@ -115,15 +128,17 @@ if (q('summary') !== '') {
     guest_json(200, ['ok' => true, 'rows' => Meetings::schemeSummary()]);
 }
 if (q('left') !== '') {
-    guest_page('Meeting chhod di', '<h1>👋 Aap meeting se nikal gaye</h1><p>Meeting abhi chal rahi hai to dobara jud sakte hain.</p><a class="btn" href="' . e($self) . '">Dobara judein</a>');
+    guest_page('मीटिंग छोड़ दी', '<div class="card"><p class="gl-title">आपने मीटिंग छोड़ दी है</p>'
+        . '<p class="gl-note">मीटिंग अभी चल रही है तो आप फिर से शामिल हो सकते हैं।</p></div>'
+        . '<a class="btn" style="text-align:center;text-decoration:none" href="' . e($self) . '">फिर से शामिल हों</a>');
 }
 
 // ---- the meeting screen: view-only, unless the host already brought this guest onto the stage ----
 $onStage = Meetings::isSpeaker($meetingId, $actor);
 $canVideo = $onStage && ($link['mode'] ?? 'video') === 'video';
-$token = Livekit::token((string) $link['room'], $actor, $name, $onStage, 7200, null, ['role' => 'Guest · बाहरी अधिकारी']);
+$token = Livekit::token((string) $link['room'], $actor, $name, $onStage, 7200, null, ['role' => 'अतिथि अधिकारी']);
 if (!$token) {
-    guest_page('Error', '<h1>Meeting server abhi uplabdh nahi</h1><p>Thodi der baad dobara kholein.</p>');
+    guest_page('मीटिंग', '<div class="card"><p class="gl-title">अभी मीटिंग से नहीं जुड़ पा रहे</p><p class="gl-note">कुछ देर बाद यह लिंक फिर से खोलें।</p></div>');
 }
 Meetings::markJoined($meetingId, $actor);
 $host = Meetings::hostInfo($link);
@@ -168,7 +183,7 @@ header('Cache-Control: no-store');
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title><?= e($link['title']) ?> · Guest</title>
+<title><?= e($link['title']) ?></title>
 <link rel="stylesheet" href="/app/meet.css?v=12">
 </head>
 <body>
