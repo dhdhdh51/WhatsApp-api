@@ -8,6 +8,7 @@ use App\Audit;
 use App\Auth;
 use App\Csrf;
 use App\DB;
+use App\Fcm;
 use App\Settings;
 use App\View;
 
@@ -141,7 +142,7 @@ View::header('App call & alarm / ऐप कॉल और अलार्म', 'a
         <div class="col-6"><button name="mode" value="alarm" class="btn btn-outline-warning w-100"><i class="bi bi-alarm"></i> <?= L('Test alarm', 'टेस्ट अलार्म') ?></button></div>
       </form>
       <p class="small text-muted mt-2 mb-0">The test rings even if the report is already submitted.
-        <?= App\Fcm::enabled() ? '🔥 Firebase is on – phones with app 1.0.5+ ring within seconds; older apps at their next check (max ~15 min).' : 'Firebase is off – arrives with the app\'s next check (max ~15 min).' ?>
+        <?= Fcm::enabled() ? '🔥 Firebase is on – phones with app 1.0.5+ ring within seconds; older apps at their next check (max ~15 min).' : 'Firebase is off – arrives with the app\'s next check (max ~15 min).' ?>
         The daily call / alarm is exact because the phone schedules it itself.</p>
     </div></div>
     <div class="card"><div class="card-header small"><?= L('App users', 'ऐप इस्तेमाल करने वाले') ?> (<?= count($appUsers) ?>) · <?= L('last tests', 'पिछले टेस्ट') ?></div>

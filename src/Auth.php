@@ -99,7 +99,7 @@ final class Auth
             flash('warning', 'Session expired, please login again / सत्र समाप्त, दोबारा लॉगिन करें');
             return null;
         }
-        $u = DB::one('SELECT id, name, username, role, phone, is_active FROM users WHERE id = ? AND is_active = 1', [(int) $_SESSION['uid']]);
+        $u = DB::one('SELECT id, name, username, role, region_id, phone, is_active FROM users WHERE id = ? AND is_active = 1', [(int) $_SESSION['uid']]);
         if (!$u) {
             self::logout();
             return null;
@@ -150,7 +150,7 @@ final class Auth
         return match ($role) {
             'admin' => 'Admin',
             'supervisor' => 'BC Supervisor',
-            'manager' => 'Manager',
+            'manager' => 'Branch Manager',
             'cbc' => 'CBC',
             default => $role,
         };

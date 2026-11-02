@@ -57,6 +57,10 @@ final class Calendar
             $where[] = 'b.branch_id = ?';
             $params[] = (int) $filters['branch_id'];
         }
+        if (!empty($filters['region_id'])) {
+            $where[] = 'b.branch_id IN (SELECT id FROM branches WHERE region_id = ?)';
+            $params[] = (int) $filters['region_id'];
+        }
         if (!empty($filters['block'])) {
             $where[] = 'b.block = ?';
             $params[] = $filters['block'];

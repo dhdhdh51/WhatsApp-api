@@ -101,6 +101,9 @@ Besides APY, PMJJBY, PMSBY and PMJDY the form has **APY OFFLINE, JJBY OFFLINE, S
 
 ## Deployment on Ubuntu 24.04 (AWS EC2)
 
+Moving production to a new server (backup, restore, LiveKit, TURN, both sites, DNS, daily backups): see
+[deploy/NEW-SERVER.md](deploy/NEW-SERVER.md).
+
 **Instance:** t3.small (2 GB RAM) or larger. The default WEBJS engine runs Chromium. With 1 GB, set `WAHA_ENGINE=NOWEB`
 or `GOWS`. **Security group:** allow only 22 (your IP), 80 and 443. Never open 3000.
 **DNS:** point an A record (e.g. `reports.example.com`) to the instance's Elastic IP.
@@ -165,7 +168,7 @@ sudo certbot certonly --webroot -w /var/www/letsencrypt -d reports.example.com -
      --deploy-hook "systemctl reload nginx"
 # then install the real site:
 sudo rm /etc/nginx/sites-enabled/tmp.conf
-sudo sed 's/reports.example.com/YOUR.DOMAIN/g' deploy/nginx/bc-report.conf | sudo tee /etc/nginx/sites-available/bc-report
+sudo sed 's/bc\.bharatseo\.site/YOUR.DOMAIN/g' deploy/nginx/bc-report.conf | sudo tee /etc/nginx/sites-available/bc-report
 sudo ln -s /etc/nginx/sites-available/bc-report /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```

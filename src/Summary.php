@@ -20,7 +20,8 @@ final class Summary
                 continue;
             }
             if ($m['role'] === 'supervisor') {
-                $out[$ph] = ['phone' => $ph, 'branch_ids' => null, 'cbc_id' => null, 'label' => 'supervisor:' . $m['id']];
+                $sids = array_map('intval', array_column(DB::all('SELECT branch_id FROM user_branches WHERE user_id = ?', [$m['id']]), 'branch_id'));
+                $out[$ph] = ['phone' => $ph, 'branch_ids' => $sids ?: null, 'cbc_id' => null, 'label' => 'supervisor:' . $m['id']];
                 continue;
             }
             if ($m['role'] === 'cbc') {

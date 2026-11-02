@@ -1,0 +1,37 @@
+-- Branch Manager daily branch report (20 business parameters), one row per branch per day.
+-- Counts and amounts (Rs lakh) both fit DECIMAL(14,2). No FK to branches on purpose (branch delete
+-- is blocked in code while reports exist, so history is never cascaded away). Additive, safe to re-run.
+CREATE TABLE IF NOT EXISTS branch_reports (
+  id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  branch_id       INT UNSIGNED NOT NULL,
+  report_date     DATE NOT NULL,
+  sb_account      DECIMAL(14,2) NOT NULL DEFAULT 0,
+  cd_account      DECIMAL(14,2) NOT NULL DEFAULT 0,
+  pmjjby          DECIMAL(14,2) NOT NULL DEFAULT 0,
+  pmsby           DECIMAL(14,2) NOT NULL DEFAULT 0,
+  apy             DECIMAL(14,2) NOT NULL DEFAULT 0,
+  ppf             DECIMAL(14,2) NOT NULL DEFAULT 0,
+  ssy             DECIMAL(14,2) NOT NULL DEFAULT 0,
+  cent_eez        DECIMAL(14,2) NOT NULL DEFAULT 0,
+  cent_vyapar     DECIMAL(14,2) NOT NULL DEFAULT 0,
+  krm_ots         DECIMAL(14,2) NOT NULL DEFAULT 0,
+  od2             DECIMAL(14,2) NOT NULL DEFAULT 0,
+  npa_recovery    DECIMAL(14,2) NOT NULL DEFAULT 0,
+  sma_upgrade     DECIMAL(14,2) NOT NULL DEFAULT 0,
+  cent_queen      DECIMAL(14,2) NOT NULL DEFAULT 0,
+  salary_account  DECIMAL(14,2) NOT NULL DEFAULT 0,
+  retail_disb     DECIMAL(14,2) NOT NULL DEFAULT 0,
+  agri_disb       DECIMAL(14,2) NOT NULL DEFAULT 0,
+  msme_disb       DECIMAL(14,2) NOT NULL DEFAULT 0,
+  gen_insurance   DECIMAL(14,2) NOT NULL DEFAULT 0,
+  sound_box       DECIMAL(14,2) NOT NULL DEFAULT 0,
+  source          VARCHAR(8) NOT NULL DEFAULT 'app',
+  submitted_by    INT UNSIGNED NULL,
+  updated_by      INT UNSIGNED NULL,
+  version         INT UNSIGNED NOT NULL DEFAULT 1,
+  submitted_at    DATETIME NOT NULL,
+  updated_at      DATETIME NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_branch_report (branch_id, report_date),
+  KEY idx_brep_date (report_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

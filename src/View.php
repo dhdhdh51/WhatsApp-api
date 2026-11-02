@@ -11,6 +11,7 @@ final class View
         'dashboard' => ['/dashboard.php', 'Dashboard', 'डैशबोर्ड', 'speedometer2', false],
         'status'    => ['/status.php', "Today's Status", 'आज की स्थिति', 'list-check', false],
         'reports'   => ['/reports.php', 'Reports', 'रिपोर्ट', 'table', false],
+        'branchreport' => ['/branch_report.php', 'Branch Report', 'शाखा रिपोर्ट', 'clipboard-data', false],
         'bcs'       => ['/bcs.php', 'BCs', 'बीसी', 'people', false],
         'targets'   => ['/targets.php', 'Targets', 'लक्ष्य', 'bullseye', false],
         'leaves'    => ['/leaves.php', 'Leave', 'छुट्टी', 'calendar-x', false],
@@ -28,7 +29,8 @@ final class View
         'settings'  => ['/settings.php', 'Settings', 'सेटिंग्स', 'gear', true],
         'templates' => ['/templates.php', 'Templates', 'टेम्पलेट', 'card-text', true],
         'users'     => ['/users.php', 'Users', 'यूज़र', 'person-badge', true],
-        'branches'  => ['/branches.php', 'Branches', 'शाखाएँ', 'diagram-3', true],
+        'regions'   => ['/regions.php', 'Regions', 'रीजन', 'diagram-3', true],
+        'branches'  => ['/branches.php', 'Branches', 'शाखाएँ', 'building', true],
         'audit'     => ['/audit.php', 'Audit Log', 'ऑडिट लॉग', 'shield-check', true],
     ];
 
@@ -62,7 +64,16 @@ final class View
     </div>
     <nav class="app-nav">
       <?php foreach (self::NAV as $key => [$url, $en, $hi, $icon, $adminOnly]):
-          if ($adminOnly && $user['role'] !== 'admin') continue; ?>
+          $role = $user['role'];
+          // Branches are managed only by the BC Supervisor (role supervisor) of a region; the Admin manages Regions, not branches.
+          if ($key === 'branches') {
+              if ($role !== 'supervisor') { continue; }
+          } elseif ($key === 'branchreport') {
+              if ($role === 'cbc') { continue; }   // Branch Report: Branch Manager fills, BC Supervisor / Admin review
+          } elseif ($adminOnly && $role !== 'admin' && !(in_array($key, ['users', 'meetings'], true) && $role === 'supervisor')) {
+              // BC Supervisors also get Users (their region's CBC logins) and Meetings (broadcast/video for their region); other admin pages stay admin-only.
+              continue;
+          } ?>
         <a class="app-nav-link <?= $active === $key ? 'active' : '' ?>" href="<?= $url ?>"><i class="bi bi-<?= $icon ?>"></i> <span class="app-nav-label"><?= e($en) ?><small class="app-nav-hi"><?= e($hi) ?></small></span><?php if ($key === 'inbox' && $inboxUnread > 0): ?><span class="badge text-bg-danger rounded-pill"><?= $inboxUnread ?></span><?php endif; ?><?php if ($key === 'chat' && $chatUnread > 0): ?><span class="badge text-bg-danger rounded-pill"><?= $chatUnread ?></span><?php endif; ?></a>
       <?php endforeach; ?>
     </nav>

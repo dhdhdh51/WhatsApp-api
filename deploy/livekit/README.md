@@ -76,3 +76,27 @@ otherwise it falls back to `meeting_base_url`.
    or reads the token rendered by `/meet.php` (panel users). The token is a
    JWT signed with the LiveKit secret – `src/Livekit.php`.
 4. `public/app/meet.js` connects to the room and renders the participant grid.
+
+## Broadcast / town-hall
+
+A meeting started with audience **`broadcast`** (panel `/meetings.php` → "📢 Broadcast")
+is a one-to-many town-hall:
+
+- **Rings everyone** – every active BC *and* every active staff member gets the
+  meeting ring (FCM) + an in-app banner, regardless of branch/CBC. The fan-out
+  runs after the HTTP response returns (`fastcgi_finish_request` /
+  `litespeed_finish_request`), so the "Start" click stays fast.
+- **View-only audience** – the audience joins with a LiveKit token where
+  `canPublish = false` (set in `src/Livekit.php`), so only the host publishes
+  audio/video. The SFU still fans the host's single uplink out to every viewer,
+  so uplink load does not grow with audience size (viewers only download).
+- **Raise hand → speak** – a viewer raises ✋; the host taps "allow", which calls
+  `Livekit::setCanPublish()` (RoomService `UpdateParticipant`) and records the
+  grant in `meeting_speakers` so it survives a reconnect. "View-only ⬇️" revokes it.
+- **Live chat** – persisted in `meeting_messages` and polled (`a=meet_chat` /
+  `/meet.php?id=N&chat=1`), so late joiners and view-only viewers see the whole
+  thread, not just data-channel messages sent while they were connected.
+
+Because a broadcast can put the whole organisation in one room, keep the UDP media
+port (7882) and the ICE/TCP fallback (7881) open, and watch the server's uplink
+bandwidth during large town-halls.
