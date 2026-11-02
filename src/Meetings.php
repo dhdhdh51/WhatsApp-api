@@ -486,9 +486,9 @@ final class Meetings
             if ($who === '' || $who === $exceptActor) {
                 continue;
             }
-            if (in_array($who, $speakers, true)) {   // allowed speaker -> back to camera only
+            if (in_array($who, $speakers, true)) {   // allowed speaker -> back to camera only (a guest: back to view-only)
                 self::revokeSpeak((int) $m['id'], $who);
-                if (Livekit::setCanPublish($room, $who, false, true)) {
+                if (Livekit::setCanPublish($room, $who, false, !self::isGuest($who))) {
                     $n++;
                 }
             } elseif (!$p['muted'] && Livekit::setMuted($room, $who, true)) {
@@ -503,7 +503,13 @@ final class Meetings
 
     public static function validActor(string $a): bool
     {
-        return (bool) preg_match('/^(bc|user)-\d{1,10}$/', $a);
+        return (bool) preg_match('/^(bc|user|guest)-\d{1,10}$/', $a);
+    }
+
+    /** An outside officer who joined through a guest link ("guest-7"). Never moderates; mic + camera only on the stage. */
+    public static function isGuest(string $a): bool
+    {
+        return (bool) preg_match('/^guest-\d{1,10}$/', $a);
     }
 
     /**
@@ -540,7 +546,7 @@ final class Meetings
             Livekit::setCanPublish($room, $identity, true);
         } elseif (!self::actorModerates($m, $identity)) {
             self::revokeSpeak((int) $m['id'], $identity);
-            Livekit::setCanPublish($room, $identity, false, true);
+            Livekit::setCanPublish($room, $identity, false, !self::isGuest($identity));   // a guest goes back to view-only
         }
         return ['ok' => true, 'stage' => $list];
     }

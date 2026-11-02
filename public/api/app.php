@@ -259,7 +259,7 @@ if ($action === 'meet_promote') {
         Meetings::revokeSpeak($mid, $who);
     }
     // a broadcast is a group video call: taking the mic back keeps the person's camera
-    out(['ok' => Livekit::setCanPublish((string) $m['room'], $who, $allow, !empty($m['is_broadcast'])), 'allow' => $allow]);
+    out(['ok' => Livekit::setCanPublish((string) $m['room'], $who, $allow, !empty($m['is_broadcast']) && !Meetings::isGuest($who)), 'allow' => $allow]);
 }
 
 // ------------------------------------------------------------------ 1:1 calls (BC + CBC)

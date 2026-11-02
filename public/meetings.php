@@ -7,6 +7,7 @@ use App\Audit;
 use App\Auth;
 use App\Csrf;
 use App\DB;
+use App\GuestLinks;
 use App\Meetings;
 use App\Scope;
 use App\View;
@@ -65,6 +66,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         Meetings::notifyStart($id);
         exit;
     }
+    if ($action === 'guest_link' || $action === 'guest_revoke') {
+        // guest link for an outside officer: whoever may moderate this live meeting (Admin, its BC Supervisor, its host)
+        $gm = DB::one('SELECT * FROM meetings WHERE id = ? AND is_active = 1', [(int) p('id')]);
+        if (!$gm || !Meetings::canModerate($gm, $user)) {
+            http_response_code(403);
+            exit('Not allowed');
+        }
+        if ($action === 'guest_link') {
+            $_SESSION['guest_link_new'] = ['meeting_id' => (int) $gm['id'], 'url' => GuestLinks::create((int) $gm['id'], (int) $user['id'])];
+            Audit::log((int) $user['id'], 'meeting_guest_link', 'meeting', (int) $gm['id']);
+            flash('success', 'Guest link ban gaya – neeche copy karke officer ko bhejein. Meeting khatam hote hi ye link band ho jayega.');
+        } else {
+            $n = GuestLinks::revoke((int) p('link_id'), $gm);
+            Audit::log((int) $user['id'], 'meeting_guest_revoke', 'meeting', (int) $gm['id'], ['link_id' => (int) p('link_id'), 'removed' => $n]);
+            flash('success', 'Guest link band kar diya' . ($n ? " – {$n} guest meeting se hata diye gaye" : ''));
+        }
+        redirect('/meetings.php');
+    }
     if ($action === 'end') {
         $id = (int) p('id');
         if ($isRM && !DB::val('SELECT 1 FROM meetings WHERE id = ? AND region_id = ?', [$id, $myRegion])) {
@@ -88,6 +107,8 @@ if ($isAdmin) {
     $active = DB::all("SELECT m.*, b.name branch, u.name by_name, rg.name region_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by LEFT JOIN regions rg ON rg.id = m.region_id WHERE m.is_active = 1 AND (m.region_id = ? OR m.region_id IS NULL) ORDER BY m.id DESC", [$myRegion]);
     $past = DB::all("SELECT m.*, b.name branch, u.name by_name, rg.name region_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by LEFT JOIN regions rg ON rg.id = m.region_id WHERE m.is_active = 0 AND (m.region_id = ? OR m.region_id IS NULL) ORDER BY m.id DESC LIMIT 15", [$myRegion]);
 }
+$newGuest = $_SESSION['guest_link_new'] ?? null;   // the new link is shown once, then only its hash exists
+unset($_SESSION['guest_link_new']);
 $audLabel = ['broadcast' => '📢 Broadcast', 'all' => 'Everyone', 'bc' => 'All BCs', 'cbc' => 'All CBC supervisors', 'branch' => 'Branch'];
 $rmScoped = $isRM && $regionName !== '';
 
@@ -131,7 +152,8 @@ View::header('Meetings / मीटिंग', 'meetings');
       <?php foreach ($active as $m):
           $url = Meetings::panelUrl((int) $m['id'], (string) $m['room'], $m['mode'] ?? 'video');
           $url = str_starts_with($url, 'http') ? $url : rtrim((string) App\Env::get('APP_URL', ''), '/') . $url;
-          $canEnd = $isAdmin || (int) ($m['region_id'] ?? 0) === $myRegion; ?>
+          $canEnd = $isAdmin || (int) ($m['region_id'] ?? 0) === $myRegion;
+          $canGuest = Meetings::canModerate($m, $user); ?>
         <div class="list-group-item">
           <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
             <div><div class="fw-semibold"><i class="bi bi-broadcast text-success"></i> <?= e($m['title']) ?><?= (int) ($m['region_id'] ?? 0) === 0 && $isRM ? ' <span class="badge text-bg-secondary">org-wide</span>' : '' ?></div>
@@ -139,9 +161,27 @@ View::header('Meetings / मीटिंग', 'meetings');
             <div class="d-flex gap-1">
               <a class="btn btn-sm btn-success" target="_blank" rel="noopener" href="<?= e($url) ?>"><i class="bi bi-camera-video"></i> Join</a>
               <button type="button" class="btn btn-sm btn-outline-secondary" data-copy="<?= e($url) ?>"><i class="bi bi-clipboard"></i></button>
+              <?php if ($canGuest): ?><form method="post" class="d-inline"><?= Csrf::field() ?><input type="hidden" name="action" value="guest_link"><input type="hidden" name="id" value="<?= (int) $m['id'] ?>"><button class="btn btn-sm btn-outline-primary" title="<?= e(L('Link for an outside officer (no login)', 'बाहरी अधिकारी के लिए लिंक (बिना लॉगिन)')) ?>"><i class="bi bi-person-plus"></i> Guest link</button></form><?php endif; ?>
               <?php if ($canEnd): ?><form method="post" class="d-inline" onsubmit="return confirm('End this meeting?')"><?= Csrf::field() ?><input type="hidden" name="action" value="end"><input type="hidden" name="id" value="<?= (int) $m['id'] ?>"><button class="btn btn-sm btn-outline-danger"><i class="bi bi-x-circle"></i> End</button></form><?php endif; ?>
             </div>
           </div>
+          <?php if ($canGuest && $newGuest && (int) $newGuest['meeting_id'] === (int) $m['id']):
+              $wa = 'https://wa.me/?text=' . rawurlencode("Namaste, aapko \"{$m['title']}\" mein guest ke roop mein judna hai. Is link par apna naam likh kar judein:\n{$newGuest['url']}\n(Link meeting khatam hone par band ho jayega.)"); ?>
+            <div class="alert alert-primary small mt-2 mb-0 p-2">
+              <div class="fw-semibold mb-1"><i class="bi bi-link-45deg"></i> <?= L('New guest link (shown once – copy it now)', 'नया गेस्ट लिंक (सिर्फ़ एक बार दिखेगा – अभी कॉपी करें)') ?></div>
+              <div class="input-group input-group-sm"><input class="form-control" readonly value="<?= e($newGuest['url']) ?>" onclick="this.select()">
+                <button type="button" class="btn btn-outline-secondary" data-copy="<?= e($newGuest['url']) ?>"><i class="bi bi-clipboard"></i> Copy</button>
+                <a class="btn btn-success" target="_blank" rel="noopener" href="<?= e($wa) ?>"><i class="bi bi-whatsapp"></i> WhatsApp</a></div>
+              <div class="text-muted mt-1">Officer naam likh kar judega, pehle sirf dekh-sun sakega. Mic/camera ke liye meeting screen mein uske naam par tap karke <b>⭐ मंच पर लाएँ</b>.</div>
+            </div>
+          <?php endif; ?>
+          <?php if ($canGuest): foreach (GuestLinks::forMeeting((int) $m['id']) as $gl): ?>
+            <div class="d-flex justify-content-between align-items-center gap-2 small border-top mt-2 pt-1">
+              <span><i class="bi bi-person-badge"></i> Guest link #<?= (int) $gl['id'] ?> · <?= e(fmt_dt($gl['created_at'])) ?><?= $gl['by_name'] ? ' · ' . e($gl['by_name']) : '' ?>
+                · <?= $gl['guests'] ? e(count($gl['guests']) . ' jude: ' . implode(', ', array_slice($gl['guests'], 0, 6))) : '<span class="text-muted">abhi koi nahi juda</span>' ?></span>
+              <form method="post" class="d-inline" onsubmit="return confirm('Ye guest link band karein? Is link se jude log meeting se hat jayenge.')"><?= Csrf::field() ?><input type="hidden" name="action" value="guest_revoke"><input type="hidden" name="id" value="<?= (int) $m['id'] ?>"><input type="hidden" name="link_id" value="<?= (int) $gl['id'] ?>"><button class="btn btn-sm btn-link text-danger p-0"><i class="bi bi-slash-circle"></i> Band karein</button></form>
+            </div>
+          <?php endforeach; endif; ?>
         </div>
       <?php endforeach; if (!$active): ?><div class="list-group-item text-muted">Koi live meeting nahi. Left se nayi shuru karein.</div><?php endif; ?>
       </div></div>

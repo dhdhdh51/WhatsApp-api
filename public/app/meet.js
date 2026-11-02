@@ -631,7 +631,7 @@
   // the stage list arrives in the room metadata: on join, and whenever the host changes it
   function readStage(md) {
     var j = {}; try { j = JSON.parse(md || '{}') || {}; } catch (e) {}
-    var list = Array.isArray(j.stage) ? j.stage.filter(function (x) { return typeof x === 'string' && /^(bc|user)-\d+$/.test(x); }).slice(0, STAGE_MAX) : [];
+    var list = Array.isArray(j.stage) ? j.stage.filter(function (x) { return typeof x === 'string' && /^(bc|user|guest)-\d+$/.test(x); }).slice(0, STAGE_MAX) : [];
     var me = localId(), was = stageGuests.indexOf(me) >= 0, now = list.indexOf(me) >= 0;
     if (list.join(',') !== stageGuests.join(',')) stagePin = null;   // the host's stage replaces my own enlarged view
     stageGuests = list;

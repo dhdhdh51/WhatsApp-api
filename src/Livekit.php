@@ -127,6 +127,15 @@ final class Livekit
         return self::rpc('DeleteRoom', $room, ['room' => $room], ['roomCreate' => true], [404]) !== null;
     }
 
+    /** Throw one participant out of the room (guest link closed by the host). */
+    public static function removeParticipant(string $room, string $identity): bool
+    {
+        if ($room === '' || $identity === '' || !self::enabled()) {
+            return false;
+        }
+        return self::rpc('RemoveParticipant', $room, ['room' => $room, 'identity' => $identity], [], [404]) !== null;
+    }
+
     /** Call the local LiveKit RoomService (Twirp). Returns decoded JSON or null. $quiet = HTTP codes that are not an error. */
     private static function rpc(string $method, string $room, array $body, array $extra = [], array $quiet = []): ?array
     {
