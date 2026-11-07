@@ -178,6 +178,7 @@ $cfg = [
     'name' => $meName,
     'meeting_id' => $id,
     'is_broadcast' => $isBroadcast,
+    'guest_only' => Meetings::isGuestBroadcast($m),   // the screen counts guests instead of BCs
     'can_publish' => $canPublish,
     'can_video' => $canVideo,
     // panel admins/supervisors moderate; a CBC only in their own meeting
@@ -219,6 +220,6 @@ header('Cache-Control: no-store');
 <div id="meet"></div>
 <script>window.MEET_CONFIG = <?= json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;</script>
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js" crossorigin="anonymous"></script>
-<script src="/app/meet.js?v=12"></script>
+<script src="/app/meet.js?v=13"></script>
 </body>
 </html>

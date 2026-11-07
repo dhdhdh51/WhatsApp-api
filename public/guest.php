@@ -75,7 +75,7 @@ if (!$guest) {
         $name = GuestLinks::cleanName((string) p('name'));
         if ($name === '') {
             $error = 'कृपया अपना नाम लिखें।';
-        } elseif (GuestLinks::joinLimited($linkId, client_ip())) {
+        } elseif (GuestLinks::joinLimited($linkId, client_ip(), Meetings::isGuestBroadcast($link))) {
             $error = 'अभी बहुत लोग इस लिंक से जुड़ रहे हैं। कुछ मिनट बाद फिर से कोशिश करें।';
         } else {
             $id = App\DB::insert('INSERT INTO meeting_guests (link_id, meeting_id, name, ip, joined_at) VALUES (?, ?, ?, ?, NOW())',
@@ -152,6 +152,7 @@ $cfg = [
     'name' => $name,
     'meeting_id' => $meetingId,
     'is_broadcast' => Meetings::isBroadcast($link),
+    'guest_only' => Meetings::isGuestBroadcast($link),   // the screen counts guests instead of BCs
     'can_publish' => $onStage,
     'can_video' => $canVideo,
     'is_host' => false,
@@ -190,6 +191,6 @@ header('Cache-Control: no-store');
 <div id="meet"></div>
 <script>window.MEET_CONFIG = <?= json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;</script>
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js" crossorigin="anonymous"></script>
-<script src="/app/meet.js?v=12"></script>
+<script src="/app/meet.js?v=13"></script>
 </body>
 </html>

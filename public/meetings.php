@@ -50,6 +50,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $mode = p('mode') === 'voice' ? 'voice' : 'video';
         $id = Meetings::create($title, $audience, $mode, $branchId, (int) $user['id'], $regionId);
         Audit::log((int) $user['id'], 'meeting_start', 'meeting', $id, ['title' => $title, 'audience' => $audience, 'branch_id' => $branchId, 'region_id' => $regionId]);
+        if ($audience === 'guest') {
+            // guest broadcast: nobody is rung; the first guest link is ready at once (shown once below the meeting)
+            $_SESSION['guest_link_new'] = ['meeting_id' => $id, 'url' => GuestLinks::create($id, (int) $user['id'])];
+            Audit::log((int) $user['id'], 'meeting_guest_link', 'meeting', $id);
+            flash('success', '🔗 Guest broadcast shuru ho gaya – kisi BC/staff ko ring nahi gaya. Neeche ka link copy karke guests ko bhejein, aur aap "Join" se judein.');
+            redirect('/meetings.php');
+        }
         flash('success', $audience === 'broadcast'
             ? '📢 Broadcast shuru ho gaya – ' . ($isRM && $regionName ? $regionName . ' ke' : 'sabke') . ' phone pe ring + notification ja raha hai. Aap bhi "Join" se judein.'
             : 'Meeting shuru ho gayi – audience ko notification bhej diya. Aap bhi "Join" se judein.');
@@ -109,7 +116,7 @@ if ($isAdmin) {
 }
 $newGuest = $_SESSION['guest_link_new'] ?? null;   // the new link is shown once, then only its hash exists
 unset($_SESSION['guest_link_new']);
-$audLabel = ['broadcast' => '📢 Broadcast', 'all' => 'Everyone', 'bc' => 'All BCs', 'cbc' => 'All CBC supervisors', 'branch' => 'Branch'];
+$audLabel = ['broadcast' => '📢 Broadcast', 'guest' => '🔗 Guest broadcast', 'all' => 'Everyone', 'bc' => 'All BCs', 'cbc' => 'All CBC supervisors', 'branch' => 'Branch'];
 $rmScoped = $isRM && $regionName !== '';
 
 View::header('Meetings / मीटिंग', 'meetings');
@@ -129,6 +136,7 @@ View::header('Meetings / मीटिंग', 'meetings');
         <div class="col-7"><label class="form-label small"><?= L('Who can join', 'कौन जुड़ सकता है') ?></label>
           <select name="audience" id="aud" class="form-select form-select-sm">
             <option value="broadcast">📢 Broadcast — <?= $rmScoped ? e($regionName) . ', ' : '' ?>sabka video</option>
+            <option value="guest">🔗 Guest broadcast — sirf link wale guest (koi ring nahi)</option>
             <option value="all"><?= $rmScoped ? 'Everyone — ' . e($regionName) : 'Everyone (BC + CBC)' ?></option>
             <option value="cbc"><?= $rmScoped ? 'CBCs — ' . e($regionName) : 'All CBC supervisors' ?></option>
             <option value="bc"><?= $rmScoped ? 'BCs — ' . e($regionName) : 'All BCs' ?></option>
@@ -143,7 +151,8 @@ View::header('Meetings / मीटिंग', 'meetings');
         <div class="col-12"><button class="btn btn-success btn-sm"><i class="bi bi-camera-video-fill"></i> <?= L('Start & notify', 'शुरू करें और सूचित करें') ?></button></div>
       </form>
       <p class="small text-muted mt-2 mb-0">Start karte hi audience ke phone pe <b>ring + notification</b> jaata hai aur app mein "Join" banner dikhta hai. Call hamare apne server (LiveKit) par khulti hai (camera/mic allow karein).<br>
-        <b>📢 Broadcast</b> = <?= $rmScoped ? e($regionName) . ' ke' : 'har' ?> BC + staff ko ring jaata hai. Video call jaisa: aap bade screen par, aur <b>sabka camera</b> niche dikhta hai. Mic sirf aapka; kisi ka haath uthe (✋) to "🎤 Allow" se use bolne dein.</p>
+        <b>📢 Broadcast</b> = <?= $rmScoped ? e($regionName) . ' ke' : 'har' ?> BC + staff ko ring jaata hai. Video call jaisa: aap bade screen par, aur <b>sabka camera</b> niche dikhta hai. Mic sirf aapka; kisi ka haath uthe (✋) to "🎤 Allow" se use bolne dein.<br>
+        <b>🔗 Guest broadcast</b> = broadcast jaisa, lekin kisi BC/staff ko ring nahi jaata. Start karte hi ek link banta hai; jise link bhejenge wahi apna naam likh kar judega (pehle sirf dekh-sun sakega, mic/camera "⭐ मंच पर लाएँ" se). Zarurat ho to "Guest link" se aur link banayein.</p>
     </div></div>
   </div>
   <div class="col-lg-7">

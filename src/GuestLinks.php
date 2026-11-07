@@ -15,6 +15,9 @@ final class GuestLinks
     public const JOINS_PER_IP = 10;
     public const JOINS_PER_LINK = 40;
     public const CHAT_PER_MIN = 15;
+    /** A guest broadcast's link is meant for many people, often from one office network. */
+    public const GUEST_BROADCAST_JOINS_PER_IP = 30;
+    public const GUEST_BROADCAST_JOINS_PER_LINK = 300;
 
     /** Creates a link and returns the URL. The key is shown once; only its hash is stored. */
     public static function create(int $meetingId, int $userId): string
@@ -72,12 +75,14 @@ final class GuestLinks
         return $n;
     }
 
-    /** Too many joins from this IP or through this link? Records the attempt. */
-    public static function joinLimited(int $linkId, string $ip): bool
+    /** Too many joins from this IP or through this link? Records the attempt. $guestBroadcast = the link's meeting is a guest broadcast. */
+    public static function joinLimited(int $linkId, string $ip, bool $guestBroadcast = false): bool
     {
         $byIp = (int) DB::val("SELECT COUNT(*) FROM login_attempts WHERE username LIKE 'guest:%' AND ip = ? AND attempted_at >= (NOW() - INTERVAL 15 MINUTE)", [$ip]);
         $byLink = (int) DB::val('SELECT COUNT(*) FROM login_attempts WHERE username = ? AND attempted_at >= (NOW() - INTERVAL 1 HOUR)', ['guest:' . $linkId]);
-        if ($byIp >= self::JOINS_PER_IP || $byLink >= self::JOINS_PER_LINK) {
+        $maxIp = $guestBroadcast ? self::GUEST_BROADCAST_JOINS_PER_IP : self::JOINS_PER_IP;
+        $maxLink = $guestBroadcast ? self::GUEST_BROADCAST_JOINS_PER_LINK : self::JOINS_PER_LINK;
+        if ($byIp >= $maxIp || $byLink >= $maxLink) {
             return true;
         }
         DB::insert('INSERT INTO login_attempts (ip, username, success, attempted_at) VALUES (?, ?, 1, NOW())', [$ip, 'guest:' . $linkId]);

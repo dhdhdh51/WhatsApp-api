@@ -100,3 +100,15 @@ is a one-to-many town-hall:
 Because a broadcast can put the whole organisation in one room, keep the UDP media
 port (7882) and the ICE/TCP fallback (7881) open, and watch the server's uplink
 bandwidth during large town-halls.
+
+## Guest broadcast
+
+Audience **`guest`** (panel `/meetings.php` → "🔗 Guest broadcast") uses the same
+broadcast screen and rules, but rings nobody: no BC or staff member gets a
+notification or an in-app banner. Starting it creates the first guest link at once
+(`src/GuestLinks.php`); the host copies it or shares it on WhatsApp, and can make
+more links with "Guest link". A guest opens the link, types a name and joins
+view-only. Mic and camera come only when the host taps "⭐ मंच पर लाएँ". Staff
+join from the panel ("Join"). Links stop working when the broadcast ends or the
+host closes them. A guest broadcast link allows 300 joins per hour (30 per IP in
+15 minutes); a guest link in any other meeting allows 40 (10 per IP).
