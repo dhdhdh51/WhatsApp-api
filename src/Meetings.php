@@ -37,7 +37,7 @@ final class Meetings
     /** Admin-created meeting. */
     public static function create(string $title, string $audience, string $mode, ?int $branchId, ?int $by, ?int $regionId = null): int
     {
-        $audience = in_array($audience, ['all', 'bc', 'cbc', 'branch', 'broadcast'], true) ? $audience : 'all';
+        $audience = in_array($audience, ['all', 'bc', 'cbc', 'branch', 'broadcast', 'guest'], true) ? $audience : 'all';
         $mode = $mode === 'voice' ? 'voice' : 'video';
         $room = 'BCReport-' . bin2hex(random_bytes(6));
         return DB::insert(
@@ -224,7 +224,7 @@ final class Meetings
                 $w = 'b.is_active = 1 AND EXISTS (SELECT 1 FROM meeting_invites mi WHERE mi.meeting_id = ? AND mi.bc_id = b.id)';
                 break;
             default:
-                return null; // 'cbc' -> staff only
+                return null; // 'cbc' -> staff only; 'guest' -> only people with a guest link
         }
         if ((int) ($m['region_id'] ?? 0) > 0) {   // region-scoped meeting -> only BCs whose branch is in that region
             $w .= ' AND b.branch_id IN (SELECT id FROM branches WHERE region_id = ?)';
@@ -291,8 +291,8 @@ final class Meetings
     public static function notifyStart(int $id): void
     {
         $m = DB::one('SELECT * FROM meetings WHERE id = ?', [$id]);
-        if (!$m) {
-            return;
+        if (!$m || self::isGuestBroadcast($m)) {
+            return;   // a guest broadcast rings nobody: people come only through its guest links
         }
         $isBroadcast = ($m['audience'] ?? '') === 'broadcast';
         $ro = self::regionName((int) ($m['region_id'] ?? 0));   // "📢 RO Agra: Monthly review"
@@ -357,9 +357,16 @@ final class Meetings
 
     // ------------------------------------------------------------------ broadcast helpers
 
+    /** Broadcast screen and rules (host on the stage, view-only audience): the town-hall and the guest broadcast. */
     public static function isBroadcast(array $m): bool
     {
-        return ($m['audience'] ?? '') === 'broadcast';
+        return in_array($m['audience'] ?? '', ['broadcast', 'guest'], true);
+    }
+
+    /** Guest broadcast: rings no BC or staff member; outside people join only through its guest links. */
+    public static function isGuestBroadcast(array $m): bool
+    {
+        return ($m['audience'] ?? '') === 'guest';
     }
 
     public static function regionName(int $regionId): string

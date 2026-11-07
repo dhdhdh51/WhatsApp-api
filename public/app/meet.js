@@ -460,10 +460,13 @@
   function idOf(k) { return k === 'me' ? localId() : k; }
   function roleOf(k) { var x = parts[idOf(k)]; return (x && x.role) || ''; }
   function isBcId(id) { return /^bc-\d+$/.test(id || ''); }
+  function isGuestId(id) { return /^guest-\d+$/.test(id || ''); }
   function canStage() { return isHost && broadcastMode; }
-  // "BC 12/28 जुड़े": BCs in the room / BCs this meeting is for
-  function bcNums() { var n = Object.keys(parts).filter(isBcId).length, t = cfg.bc_total | 0; return n + (t ? '/' + t : '') + ' जुड़े'; }
-  function bcText() { return 'BC ' + bcNums(); }
+  // "BC 12/28 जुड़े": BCs in the room / BCs this meeting is for. A guest broadcast has no BCs: it counts its guests.
+  function audId(id) { return cfg.guest_only ? isGuestId(id) : isBcId(id); }
+  function audLabel() { return cfg.guest_only ? 'अतिथि' : 'BC'; }
+  function bcNums() { var n = Object.keys(parts).filter(audId).length, t = cfg.guest_only ? 0 : cfg.bc_total | 0; return n + (t ? '/' + t : '') + ' जुड़े'; }
+  function bcText() { return audLabel() + ' ' + bcNums(); }
   // the strip under the video: [LIVE] [RO Agra] [Deepak Sharma / BC Supervisor] – wraps instead of being cut
   function setLT(tag, name, sub) { S.ltRole.textContent = tag || ''; S.ltName.textContent = name || ''; S.ltSub.textContent = sub || ''; S.ltSub.style.display = sub ? '' : 'none'; }
   function tickerSpeed(el, pxPerSec) {   // long notices scroll at a readable speed
@@ -483,7 +486,7 @@
       '<div class="bcs-body"><div class="bcs-main">' +
         '<main class="bcs-stage"><div class="bcs-slots"><div class="bcs-slot main"><video class="bcs-stagevid" autoplay playsinline muted></video>' +
           '<div class="bcs-stage-ph"><div class="av">●</div><div class="nm"></div><div class="sub">Host connect ho raha hai…</div></div></div></div>' +
-          '<div class="bcs-ov"><div class="bcs-count" title="कितने BC जुड़े हैं"></div><div class="bcs-pin"></div></div><div class="bcs-toast"></div>' +
+          '<div class="bcs-ov"><div class="bcs-count" title="कितने ' + audLabel() + ' जुड़े हैं"></div><div class="bcs-pin"></div></div><div class="bcs-toast"></div>' +
           '<div class="bcs-lt"><span class="bcs-lt-live">LIVE</span><span class="bcs-lt-role"></span><span class="bcs-lt-main"><b class="bcs-lt-name"></b><small class="bcs-lt-sub"></small></span></div>' +
           '<div class="bcs-ticker"><span class="bcs-ticker-tag">सूचना</span><div class="bcs-ticker-wrap"><div class="bcs-ticker-move bcs-ticker-bottom-move"></div></div></div></main>' +
         '<section class="bcs-gallery" aria-label="सभी की वीडियो"><div class="bcs-grid"></div><div class="bcs-gpager"></div></section>' +
@@ -491,7 +494,7 @@
       '<aside class="bcs-side"><button type="button" class="bcs-close">× Band karein</button>' +
         '<div class="bcs-card bcs-info"><h4>📋 मीटिंग जानकारी</h4><ul><li><b>विषय</b><span>' + esc(title) + '</span></li>' +
           (ro ? '<li><b>RO</b><span>' + esc(ro) + '</span></li>' : '') +
-          '<li><b>समय</b><span class="bcs-itime"></span></li><li><b>आयोजक</b><span>' + esc(who) + '</span></li><li><b>BC</b><span class="bcs-ibc"></span></li></ul></div>' +
+          '<li><b>समय</b><span class="bcs-itime"></span></li><li><b>आयोजक</b><span>' + esc(who) + '</span></li><li><b>' + audLabel() + '</b><span class="bcs-ibc"></span></li></ul></div>' +
         '<div class="bcs-card bcs-plist"><h4>👥 प्रतिभागी (<span class="bcs-pc">0</span>) <span class="bcs-pbc"></span></h4><div class="bcs-parts"></div></div>' +
         '<div class="bcs-card bcs-chat"><h4>💬 चैट</h4><div class="bcs-chatlog"></div><div class="bcs-chatin"><input type="text" maxlength="500" placeholder="संदेश लिखें…"><button>➤</button></div></div></aside></div>' +
       '<footer class="bcs-controls"></footer></div>';
@@ -700,13 +703,13 @@
     if (S.pc) S.pc.textContent = ids.length;
     if (S.pbc) S.pbc.textContent = '· ' + bt;
     if (S.ibc) S.ibc.textContent = bcNums();
-    var grp = function (id) { return id === hid ? 0 : (isBcId(id) ? 2 : 1); };
+    var grp = function (id) { return id === hid ? 0 : (audId(id) ? 2 : 1); };
     ids.sort(function (a, b) { return (grp(a) - grp(b)) || ((hands[b] ? 1 : 0) - (hands[a] ? 1 : 0)) || String(parts[a].name).localeCompare(String(parts[b].name)); });
-    var nBc = ids.filter(isBcId).length, nStaff = ids.length - nBc, last = -1;
+    var nBc = ids.filter(audId).length, nStaff = ids.length - nBc, last = -1;
     S.parts.innerHTML = '';
     ids.slice(0, 150).forEach(function (id) {
-      var g = isBcId(id) ? 2 : 1;
-      if (g !== last) { last = g; var sec = document.createElement('div'); sec.className = 'bcs-psec'; sec.textContent = g === 2 ? 'BC (' + nBc + ')' : 'स्टाफ़ / अधिकारी (' + nStaff + ')'; S.parts.appendChild(sec); }
+      var g = audId(id) ? 2 : 1;
+      if (g !== last) { last = g; var sec = document.createElement('div'); sec.className = 'bcs-psec'; sec.textContent = g === 2 ? audLabel() + ' (' + nBc + ')' : 'स्टाफ़ / अधिकारी (' + nStaff + ')'; S.parts.appendChild(sec); }
       var me = id === lid, k = me ? 'me' : id, p = P[k], nm = nameOf(k), role = (parts[id] && parts[id].role) || '';
       var talking = me ? (canPublish && micOn) : !!(p && p.audioEl && !p.micOff), raised = me ? myHand : !!hands[id], st = stageGuests.indexOf(id) >= 0;
       var row = document.createElement('div'); row.className = 'bcs-prow' + (canStage() && !me ? ' tap' : '');
