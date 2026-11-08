@@ -121,6 +121,7 @@ if ($action === 'meet_token') {
         'brand' => 'BC Monitoring App', 'bank' => 'Central Bank of India',
         'subtitle' => 'APY, PMJJBY, PMSBY एवं PMJDY की प्रगति समीक्षा',
         'host_name' => $host['name'], 'host_role' => $host['role'], 'host_region' => $host['region'], 'host_identity' => $host['identity'],
+        'host_label' => $host['label'],   // BC Supervisor host: "DEEPAK SHARMA - BC SUPERVISOR AGRA RO"
         'logo' => Settings::get('bank_logo'), 'headlines_tag' => Settings::get('broadcast_notice_title'), 'headlines' => Settings::get('broadcast_notice'),
         // "BC 12/28 जुड़े": how many BCs this meeting is for; the host also gets the names (who has not joined)
         'bc_total' => count($expected), 'bc_roster' => $isHost ? $expected : null]);

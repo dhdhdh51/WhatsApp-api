@@ -460,6 +460,16 @@
   function keyOf(identity) { return identity && identity === localId() ? 'me' : identity; }
   function idOf(k) { return k === 'me' ? localId() : k; }
   function roleOf(k) { var x = parts[idOf(k)]; return (x && x.role) || ''; }
+  // the role to print after a name, or '' when the name already says it
+  // (a BC Supervisor's meeting name reads "DEEPAK SHARMA - BC SUPERVISOR AGRA RO")
+  function extraRole(nm, r) { return r && String(nm || '').toUpperCase().indexOf(String(r).toUpperCase()) < 0 ? r : ''; }
+  // the name strip on someone's video; for the host the server sends it (a BC Supervisor: only that label)
+  function stripText(k) {
+    var id = idOf(k);
+    if (id && id === cfg.host_identity && cfg.host_label) return cfg.host_label;
+    var nm = nameOf(k), r = extraRole(nm, id && id === cfg.host_identity ? cfg.host_role : roleOf(k));
+    return nm + (r ? ' · ' + r : '');
+  }
   function isBcId(id) { return /^bc-\d+$/.test(id || ''); }
   function isGuestId(id) { return /^guest-\d+$/.test(id || ''); }
   function canStage() { return isHost && broadcastMode; }
@@ -468,8 +478,18 @@
   function audLabel() { return cfg.guest_only ? 'अतिथि' : 'BC'; }
   function bcNums() { var n = Object.keys(parts).filter(audId).length, t = cfg.guest_only ? 0 : cfg.bc_total | 0; return n + (t ? '/' + t : '') + ' जुड़े'; }
   function bcText() { return audLabel() + ' ' + bcNums(); }
-  // the strip under the video: [LIVE] [RO Agra] [Deepak Sharma / BC Supervisor] – wraps instead of being cut
-  function setLT(tag, name, sub) { S.ltRole.textContent = tag || ''; S.ltName.textContent = name || ''; S.ltSub.textContent = sub || ''; S.ltSub.style.display = sub ? '' : 'none'; }
+  // the strip under the video: [LIVE] [tag] [name · sub] – wraps instead of being cut; an empty tag or sub is hidden
+  function setLT(tag, name, sub) {
+    S.ltRole.textContent = tag || ''; S.ltRole.style.display = tag ? '' : 'none';
+    S.ltName.textContent = name || ''; S.ltSub.textContent = sub || ''; S.ltSub.style.display = sub ? '' : 'none';
+  }
+  // the host's strip. A BC Supervisor: only [LIVE] [DEEPAK SHARMA - BC SUPERVISOR AGRA RO].
+  // Anyone else as before: [LIVE] [RO or role] [name · role].
+  function hostLT() {
+    if (cfg.host_label) { setLT('', cfg.host_label, ''); return; }
+    var ro = cfg.host_region || '';
+    setLT(ro || cfg.host_role || 'Host', cfg.host_name || 'Host', ro ? (cfg.host_role || '') : '');
+  }
   function tickerSpeed(el, pxPerSec) {   // long notices scroll at a readable speed
     setTimeout(function () { var w = el.scrollWidth || el.offsetWidth; if (w > 0) el.style.animationDuration = Math.max(20, Math.round(w / pxPerSec)) + 's'; }, 300);
   }
@@ -477,7 +497,7 @@
     root = document.getElementById('meet') || document.body;
     var brand = cfg.brand || 'BC Monitoring App', bank = cfg.bank || 'Central Bank of India';
     var title = cfg.title || 'BC समन्वय बैठक', sub = cfg.subtitle || 'APY, PMJJBY, PMSBY एवं PMJDY की प्रगति समीक्षा';
-    var ro = cfg.host_region || '', who = (cfg.host_name || 'Host') + (cfg.host_role ? ' (' + cfg.host_role + ')' : '');
+    var ro = cfg.host_region || '', who = cfg.host_label || ((cfg.host_name || 'Host') + (cfg.host_role ? ' (' + cfg.host_role + ')' : ''));
     root.innerHTML = '<div class="bcs">' +
       '<header class="bcs-top"><div class="bcs-brand"><div class="bcs-logo' + (cfg.logo ? ' img' : '') + '">' + (cfg.logo ? '<img src="' + esc(cfg.logo) + '" alt="' + esc(bank) + '">' : 'CBI') + '</div>' +
         '<div class="bcs-brand-t"><b>' + esc(brand) + '</b>' + (cfg.logo ? '' : '<span>' + esc(bank) + '</span>') + '</div></div>' +
@@ -510,7 +530,7 @@
     q('.bcs-chatin button').onclick = safe(sendChat, 'send'); S.chatin.onkeydown = function (e) { if (e.key === 'Enter') sendChat(); };
     q('.bcs-close').onclick = closeSide;
     S.stage.onclick = function () { if (stagePin) { stagePin = null; studioRender(); } };   // tap the stage = back to the host
-    setLT(ro || cfg.host_role || 'Host', cfg.host_name || 'Host', ro ? (cfg.host_role || '') : '');
+    hostLT();
     var notice = cfg.ticker || 'सभी BC साथी अपने-अपने क्षेत्र में योजनाओं की प्रगति रिपोर्ट समय पर अपडेट करें';
     q('.bcs-ticker-bottom-move').innerHTML = esc(notice) + ' &nbsp;&nbsp; <b>APY</b> • <b>PMJJBY</b> • <b>PMSBY</b> • <b>PMJDY</b> &nbsp;&nbsp; ' + esc(notice);
     var head = cfg.headlines || ('🔴 LIVE: ' + (ro ? ro + ' – ' : '') + title + '  •  ' + sub + '  •  ' + (ro ? ro + ' के ' : '') + 'सभी प्रतिभागी कैमरा चालू रखें और अपने क्षेत्र के आँकड़े तैयार रखें');
@@ -567,8 +587,7 @@
   function channelStage(id, p) {
     var on = !(p && p.screen) && !(stagePin && stagePin === id);
     S.stage.classList.toggle('channel', on);
-    var role = id && id === hostKey() ? cfg.host_role : (id ? roleOf(id) : '');
-    S.chName.textContent = id ? nameOf(id) + (role ? ' · ' + role : '') : '';
+    S.chName.textContent = id ? stripText(id) : '';   // BC Supervisor host: "DEEPAK SHARMA - BC SUPERVISOR AGRA RO"
     layoutChannel();
   }
   function layoutChannel() {
@@ -640,11 +659,11 @@
     var isH = !id || id === hostKey();
     if (!tr) {
       S.phAv.textContent = id ? (nameOf(id) || '?').charAt(0).toUpperCase() : '●';
-      S.phName.textContent = id ? nameOf(id) : '';
-      S.phSub.textContent = !id ? 'Host connect ho raha hai…' : (isH && cfg.host_region ? cfg.host_region + ' · camera band hai' : 'camera band hai');
+      S.phName.textContent = id ? (isH && cfg.host_label ? cfg.host_label : nameOf(id)) : '';
+      S.phSub.textContent = !id ? 'Host connect ho raha hai…' : (isH && cfg.host_region && !cfg.host_label ? cfg.host_region + ' · camera band hai' : 'camera band hai');
     }
-    if (isH) setLT(cfg.host_region || cfg.host_role || 'Host', cfg.host_name || 'Host', cfg.host_region ? (cfg.host_role || '') : '');
-    else setLT(p && p.screen ? '🖥️ Screen' : (stagePin === id ? '📌 Pin' : (p && p.speaking ? '🎤 बोल रहे हैं' : '👤')), nameOf(id), roleOf(id));
+    if (isH) hostLT();
+    else setLT(p && p.screen ? '🖥️ Screen' : (stagePin === id ? '📌 Pin' : (p && p.speaking ? '🎤 बोल रहे हैं' : '👤')), nameOf(id), extraRole(nameOf(id), roleOf(id)));
     // the people the host brought next to him: one box each, beside the host
     var want = keys.slice(1);
     Object.keys(S.gslots).forEach(function (k) { if (want.indexOf(k) < 0) dropSlot(k); });
@@ -665,7 +684,7 @@
   }
   function dropSlot(k) { var t = S.gslots[k]; if (!t) return; if (t.track) { try { t.track.detach(t.vid); } catch (e) {} } t.el.remove(); delete S.gslots[k]; }
   function paintSlot(k) {
-    var t = S.gslots[k], p = P[k], tr = vidOf(p), nm = nameOf(k), r = roleOf(k);
+    var t = S.gslots[k], p = P[k], tr = vidOf(p), nm = nameOf(k), r = extraRole(nm, roleOf(k));
     if (t.track !== tr) { if (t.track) { try { t.track.detach(t.vid); } catch (e) {} } if (tr) { try { tr.attach(t.vid); } catch (e) {} } t.track = tr; }
     t.el.classList.toggle('has-video', !!tr); t.el.classList.toggle('me', k === 'me');
     t.el.classList.toggle('speaking', !!(p && p.speaking && (k === 'me' ? micOn : (p.audioEl && !p.micOff))));
@@ -676,7 +695,7 @@
   // what the host may do with one person: bring onto / take off the stage, let speak, take the mic back, or just enlarge locally
   function personSheet(k) {
     var old = document.getElementById('mtSheet'); if (old) old.remove();
-    var id = idOf(k), on = stageGuests.indexOf(id) >= 0, p = P[k], hasMic = !!(p && p.audioEl), nm = nameOf(k), r = roleOf(k);
+    var id = idOf(k), on = stageGuests.indexOf(id) >= 0, p = P[k], hasMic = !!(p && p.audioEl), nm = nameOf(k), r = extraRole(nm, roleOf(k));
     var full = !on && stageGuests.length >= STAGE_MAX;
     var b = function (a, cls, txt) { return '<button type="button" class="mt-sheet-btn' + (cls ? ' ' + cls : '') + '" data-a="' + a + '">' + esc(txt) + '</button>'; };
     var d = document.createElement('div'); d.id = 'mtSheet'; d.className = 'mt-sheet'; d.setAttribute('data-kind', 'person');
@@ -792,7 +811,7 @@
     ids.slice(0, 150).forEach(function (id) {
       var g = audId(id) ? 2 : 1;
       if (g !== last) { last = g; var sec = document.createElement('div'); sec.className = 'bcs-psec'; sec.textContent = g === 2 ? audLabel() + ' (' + nBc + ')' : 'स्टाफ़ / अधिकारी (' + nStaff + ')'; S.parts.appendChild(sec); }
-      var me = id === lid, k = me ? 'me' : id, p = P[k], nm = nameOf(k), role = (parts[id] && parts[id].role) || '';
+      var me = id === lid, k = me ? 'me' : id, p = P[k], nm = nameOf(k), role = extraRole(nm, (parts[id] && parts[id].role) || '');
       var talking = me ? (canPublish && micOn) : !!(p && p.audioEl && !p.micOff), raised = me ? myHand : !!hands[id], st = stageGuests.indexOf(id) >= 0;
       var row = document.createElement('div'); row.className = 'bcs-prow' + (canStage() && !me ? ' tap' : '');
       row.innerHTML = '<span class="pav">' + esc((nm || '?').charAt(0).toUpperCase()) + '</span><span class="pn">' + esc(nm) + (me ? ' (आप)' : '') +

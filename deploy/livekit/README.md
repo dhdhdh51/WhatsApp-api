@@ -116,6 +116,12 @@ meetings started from the app (`cbc_bcs`, `one_bc`, `selected`) are unchanged.
 All three are group video calls: everyone shows their camera, and the mic is for
 the host and the people he allows (✋ → "🎤 Allow", or "⭐ मंच पर लाएँ").
 
+A BC Supervisor's name in every meeting reads `DEEPAK SHARMA - BC SUPERVISOR AGRA RO`
+(`Meetings::displayName` / `supervisorLabel`): name, role and RO in capitals. The RO
+is written `<CITY> RO` however the region is named. When a BC Supervisor hosts, the
+strip on the host's video shows only that label (`host_label`). Admin and CBC names
+are unchanged.
+
 **Broadcast 2** sends `stage_style: 'channel'` to the meeting screen.
 `public/app/meet.js` (`buildChannel` / `layoutChannel`) draws the frame at a fixed
 design size and scales it to the stage. A wide stage uses 1280×720. A tall phone

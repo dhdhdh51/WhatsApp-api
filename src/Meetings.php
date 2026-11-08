@@ -395,23 +395,41 @@ final class Meetings
         return $regionId > 0 ? (string) DB::val('SELECT name FROM regions WHERE id = ?', [$regionId]) : '';
     }
 
-    /** Name shown in a meeting for a staff user: a BC Supervisor also shows their RO, e.g. "Deepak Sharma (RO Agra)". */
+    /**
+     * Name shown in a meeting for a staff user (video tiles, the stage, the people list, chat).
+     * A BC Supervisor: name, role and RO in capitals, e.g. "DEEPAK SHARMA - BC SUPERVISOR AGRA RO".
+     * Everyone else: the plain name.
+     */
     public static function displayName(array $user): string
     {
         $name = (string) ($user['name'] ?? 'User');
-        if (($user['role'] ?? '') === 'supervisor' && (int) ($user['region_id'] ?? 0) > 0) {
-            $rg = self::regionName((int) $user['region_id']);
-            if ($rg !== '') {
-                return $name . ' (' . $rg . ')';
-            }
+        if (($user['role'] ?? '') !== 'supervisor') {
+            return $name;
         }
-        return $name;
+        return self::supervisorLabel($name, self::regionName((int) ($user['region_id'] ?? 0)));
     }
 
     /**
-     * Who hosts this meeting, for the screen: LiveKit identity, plain name, role label and RO.
-     * RO = the meeting's region, else the host's own region (a BC Supervisor); '' = org-wide.
-     * @return array{identity:string,name:string,role:string,region:string}
+     * "DEEPAK SHARMA - BC SUPERVISOR AGRA RO". The RO is written "<CITY> RO" however the region is
+     * named ("Agra RO", "RO Agra", "Agra", "Regional Office – Agra"). No region: just name and role.
+     */
+    public static function supervisorLabel(string $name, string $region): string
+    {
+        $name = trim($name);
+        $label = mb_strtoupper($name !== '' ? $name : 'BC Supervisor') . ' - ' . mb_strtoupper(Auth::roleLabel('supervisor'));
+        $ro = '(?:R\.?\s?O\.?|Regional\s+Office)';
+        $city = trim((string) preg_replace(["/^\\s*{$ro}(?:[\\s\\-–—:.]+|$)/iu", "/(?:^|[\\s\\-–—:.]+){$ro}\\s*$/iu"], '', trim($region)));
+        if ($city === '') {
+            return trim($region) !== '' ? $label . ' ' . mb_strtoupper(trim($region)) : $label;
+        }
+        return $label . ' ' . mb_strtoupper($city) . ' RO';
+    }
+
+    /**
+     * Who hosts this meeting, for the screen: LiveKit identity, plain name, role label, RO and the
+     * strip text for a BC Supervisor host. RO = the meeting's region, else the host's own region
+     * (a BC Supervisor); '' = org-wide.
+     * @return array{identity:string,name:string,role:string,region:string,label:string}
      */
     public static function hostInfo(array $m): array
     {
@@ -422,7 +440,10 @@ final class Meetings
             $region = self::regionName((int) $u['region_id']);
         }
         return ['identity' => $u ? 'user-' . (int) $u['id'] : '', 'name' => $u['name'] ?? 'Host',
-            'role' => $u ? Auth::roleLabel((string) $u['role']) : '', 'region' => $region];
+            'role' => $u ? Auth::roleLabel((string) $u['role']) : '', 'region' => $region,
+            // the strip on the host's video. A BC Supervisor: only "DEEPAK SHARMA - BC SUPERVISOR AGRA RO";
+            // '' = the screen shows name, role and RO as before (Admin, CBC)
+            'label' => $u && $u['role'] === 'supervisor' ? self::supervisorLabel((string) $u['name'], $region) : ''];
     }
 
     public static function byId(int $id): ?array
