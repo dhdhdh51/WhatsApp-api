@@ -103,9 +103,9 @@ bandwidth during large town-halls.
 
 ## The three broadcasts on the Meetings page
 
-The panel (`/meetings.php`) starts only these three. Older audiences (`all`, `bc`,
-`cbc`, `branch`) are refused there but still show in the lists, and CBC meetings
-started from the app (`cbc_bcs`, `one_bc`, `selected`) are unchanged.
+The panel (`/meetings.php`) offers these three broadcasts first, then the meeting
+types Everyone / CBCs / BCs / One branch (`all`, `cbc`, `bc`, `branch`). CBC
+meetings started from the app (`cbc_bcs`, `one_bc`, `selected`) are unchanged.
 
 | Panel label | `audience` | Who is rung | Stage |
 |---|---|---|---|

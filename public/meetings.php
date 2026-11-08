@@ -12,7 +12,7 @@ use App\Meetings;
 use App\Scope;
 use App\View;
 
-/** Start / end broadcasts. Admin = org-wide; a BC Supervisor = only their own region. */
+/** Start / end video meetings + broadcasts. Admin = org-wide; a BC Supervisor = only their own region. */
 $user = Auth::require();
 $isAdmin = Auth::isAdmin($user);
 $isRM = ($user['role'] ?? '') === 'supervisor';
@@ -26,13 +26,17 @@ if (!$isAdmin && !$isRM) {
 $myRegion = Scope::region($user);                 // 0 for admin / region-less supervisor
 $regionName = $myRegion ? (string) DB::val('SELECT name FROM regions WHERE id = ?', [$myRegion]) : '';
 $rmScoped = $isRM && $regionName !== '';
-// The only things this page starts: Broadcast 1 ('broadcast'), Broadcast 2 ('channel', TV-channel stage)
-// and Broadcast 3 ('guest', via link, rings nobody). Older meeting types still show in the lists.
+// What this page starts: the three broadcasts (Broadcast 1 'broadcast'; Broadcast 2 'channel' on the
+// TV-channel stage; Broadcast 3 'guest', via link, rings nobody) and the earlier meeting types.
 $roLabel = $rmScoped ? $regionName . ', ' : '';
 $startTypes = [
     'broadcast' => '📢 Broadcast — ' . $roLabel . 'sabka video',
     'channel'   => '📺 Broadcast 2 — ' . $roLabel . 'sabka video (TV मंच)',
     'guest'     => '🔗 Broadcast 3 — Other via link, sabka video (BC/CBC ko call nahi)',
+    'all'       => $rmScoped ? 'Everyone — ' . $regionName : 'Everyone (BC + CBC)',
+    'cbc'       => $rmScoped ? 'CBCs — ' . $regionName : 'All CBC supervisors',
+    'bc'        => $rmScoped ? 'BCs — ' . $regionName : 'All BCs',
+    'branch'    => "One branch's BCs / एक शाखा के बीसी",
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -40,19 +44,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'start') {
         $title = trim((string) p('title'));
         $audience = (string) p('audience');
+        $branchId = p('branch_id') !== '' ? (int) p('branch_id') : null;
         $regionId = $isRM ? ($myRegion ?: null) : null;   // a BC Supervisor's meeting is pinned to their region
         if ($title === '' || mb_strlen($title) > 160) {
             flash('danger', 'Meeting title 1–160 characters');
             redirect('/meetings.php');
         }
-        // the panel starts only the three broadcasts (other meeting types were removed from this page)
         if (!isset($startTypes[$audience])) {
-            flash('danger', 'Broadcast 1, 2 ya 3 chunein / ब्रॉडकास्ट 1, 2 या 3 चुनें');
+            flash('danger', '"Kaun jud sakta hai" list se chunein / सूची से चुनें');
             redirect('/meetings.php');
         }
+        if ($audience === 'branch') {
+            if (!$branchId) {
+                flash('danger', 'Select a branch');
+                redirect('/meetings.php');
+            }
+            if ($isRM && $myRegion && !DB::val('SELECT 1 FROM branches WHERE id = ? AND region_id = ?', [$branchId, $myRegion])) {
+                flash('danger', 'Ye branch aapki region ki nahi hai / यह शाखा आपके रीजन की नहीं है');
+                redirect('/meetings.php');
+            }
+        }
         $mode = p('mode') === 'voice' ? 'voice' : 'video';
-        $id = Meetings::create($title, $audience, $mode, null, (int) $user['id'], $regionId);
-        Audit::log((int) $user['id'], 'meeting_start', 'meeting', $id, ['title' => $title, 'audience' => $audience, 'region_id' => $regionId]);
+        $id = Meetings::create($title, $audience, $mode, $branchId, (int) $user['id'], $regionId);
+        Audit::log((int) $user['id'], 'meeting_start', 'meeting', $id, ['title' => $title, 'audience' => $audience, 'branch_id' => $branchId, 'region_id' => $regionId]);
         if ($audience === 'guest') {
             // Broadcast 3: nobody is rung; the first guest link is ready at once (shown once below the meeting)
             $_SESSION['guest_link_new'] = ['meeting_id' => $id, 'url' => GuestLinks::create($id, (int) $user['id'])];
@@ -60,8 +74,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('success', '🔗 Broadcast 3 shuru ho gaya – kisi BC/CBC ko call nahi gayi. Neeche ka link copy karke bhejein, aur aap "Join" se judein.');
             redirect('/meetings.php');
         }
-        flash('success', ($audience === 'channel' ? '📺 Broadcast 2' : '📢 Broadcast') . ' shuru ho gaya – '
-            . ($isRM && $regionName ? $regionName . ' ke' : 'sabke') . ' phone pe ring + notification ja raha hai. Aap bhi "Join" se judein.');
+        flash('success', in_array($audience, ['broadcast', 'channel'], true)
+            ? ($audience === 'channel' ? '📺 Broadcast 2' : '📢 Broadcast') . ' shuru ho gaya – ' . ($isRM && $regionName ? $regionName . ' ke' : 'sabke') . ' phone pe ring + notification ja raha hai. Aap bhi "Join" se judein.'
+            : 'Meeting shuru ho gayi – audience ko notification bhej diya. Aap bhi "Join" se judein.');
         // Answer the browser now, then fan out the ring in the background.
         header('Location: /meetings.php');
         http_response_code(302);
@@ -107,10 +122,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 if ($isAdmin) {
+    $branches = DB::all('SELECT id, name, area FROM branches ORDER BY name');
     $active = DB::all("SELECT m.*, b.name branch, u.name by_name, rg.name region_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by LEFT JOIN regions rg ON rg.id = m.region_id WHERE m.is_active = 1 ORDER BY m.id DESC");
     $past = DB::all("SELECT m.*, b.name branch, u.name by_name, rg.name region_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by LEFT JOIN regions rg ON rg.id = m.region_id WHERE m.is_active = 0 ORDER BY m.id DESC LIMIT 15");
 } else {
     // BC Supervisor: their own region's meetings, plus any org-wide (Admin) meeting they may just view.
+    $branches = DB::all('SELECT id, name, area FROM branches WHERE region_id = ? ORDER BY name', [$myRegion]);
     $active = DB::all("SELECT m.*, b.name branch, u.name by_name, rg.name region_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by LEFT JOIN regions rg ON rg.id = m.region_id WHERE m.is_active = 1 AND (m.region_id = ? OR m.region_id IS NULL) ORDER BY m.id DESC", [$myRegion]);
     $past = DB::all("SELECT m.*, b.name branch, u.name by_name, rg.name region_name FROM meetings m LEFT JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.created_by LEFT JOIN regions rg ON rg.id = m.region_id WHERE m.is_active = 0 AND (m.region_id = ? OR m.region_id IS NULL) ORDER BY m.id DESC LIMIT 15", [$myRegion]);
 }
@@ -130,19 +147,23 @@ View::header('Meetings / मीटिंग', 'meetings');
 <?php endif; ?>
 <div class="row g-3">
   <div class="col-lg-5">
-    <div class="card"><div class="card-header"><i class="bi bi-broadcast"></i> <?= L('Start a broadcast', 'ब्रॉडकास्ट शुरू करें') ?></div><div class="card-body">
+    <div class="card"><div class="card-header"><i class="bi bi-camera-video"></i> <?= L('Start a broadcast / meeting', 'ब्रॉडकास्ट / मीटिंग शुरू करें') ?></div><div class="card-body">
       <form method="post" class="row g-2"><?= Csrf::field() ?><input type="hidden" name="action" value="start">
         <div class="col-12"><label class="form-label small"><?= L('Title', 'शीर्षक') ?></label><input name="title" class="form-control form-control-sm" required maxlength="160" placeholder="e.g. Monthly review / मासिक समीक्षा"></div>
-        <div class="col-12"><label class="form-label small"><?= L('Which broadcast', 'कौन सा ब्रॉडकास्ट') ?></label>
-          <select name="audience" class="form-select form-select-sm">
+        <div class="col-7"><label class="form-label small"><?= L('Who can join', 'कौन जुड़ सकता है') ?></label>
+          <select name="audience" id="aud" class="form-select form-select-sm">
             <?php foreach ($startTypes as $k => $label): ?><option value="<?= e($k) ?>"><?= e($label) ?></option><?php endforeach; ?>
           </select></div>
         <div class="col-12"><label class="form-label small"><?= L('Type', 'प्रकार') ?></label>
           <select name="mode" class="form-select form-select-sm"><option value="video">📹 Video meeting</option><option value="voice">🎙️ Voice only</option></select></div>
-        <div class="col-12"><button class="btn btn-success btn-sm"><i class="bi bi-broadcast"></i> <?= L('Start broadcast', 'ब्रॉडकास्ट शुरू करें') ?></button></div>
+        <div class="col-5" id="branchWrap" style="display:none"><label class="form-label small"><?= L('Branch', 'शाखा') ?></label>
+          <select name="branch_id" class="form-select form-select-sm"><option value="">—</option>
+            <?php foreach ($branches as $b): ?><option value="<?= (int) $b['id'] ?>"><?= e($b['name']) ?><?= $b['area'] ? ' (' . e($b['area']) . ')' : '' ?></option><?php endforeach; ?>
+          </select></div>
+        <div class="col-12"><button class="btn btn-success btn-sm"><i class="bi bi-camera-video-fill"></i> <?= L('Start & notify', 'शुरू करें और सूचित करें') ?></button></div>
       </form>
-      <p class="small text-muted mt-2 mb-0">Teeno video call jaise hain: aap bade screen (मंच) par, aur <b>sabka camera</b> niche dikhta hai. Mic sirf aapka; kisi ka haath uthe (✋) to "🎤 Allow" se use bolne dein. Call hamare apne server (LiveKit) par khulti hai (camera/mic allow karein).<br>
-        <b>📢 Broadcast</b> = <?= $rmScoped ? e($regionName) . ' ke' : 'har' ?> BC + staff ke phone pe <b>ring + notification</b>, aur app mein "Join" banner.<br>
+      <p class="small text-muted mt-2 mb-0">Start karte hi audience ke phone pe <b>ring + notification</b> jaata hai aur app mein "Join" banner dikhta hai. Call hamare apne server (LiveKit) par khulti hai (camera/mic allow karein).<br>
+        <b>📢 Broadcast</b> = <?= $rmScoped ? e($regionName) . ' ke' : 'har' ?> BC + staff ko ring jaata hai. Video call jaisa: aap bade screen par, aur <b>sabka camera</b> niche dikhta hai. Mic sirf aapka; kisi ka haath uthe (✋) to "🎤 Allow" se use bolne dein.<br>
         <b>📺 Broadcast 2</b> = Broadcast jaisa hi (ring sabko), lekin मंच TV news channel jaisa: bank logo, स्वागत संदेश, APY / PMJJBY / PMSBY ke card aur सूचना पट्टी.<br>
         <b>🔗 Broadcast 3</b> = kisi BC/CBC ko call nahi jaati. Start karte hi ek link banta hai; jise link bhejenge wahi apna naam likh kar judega aur uska camera chalu rahega. Zarurat ho to "Guest link" se aur link banayein.</p>
     </div></div>
@@ -195,4 +216,4 @@ View::header('Meetings / मीटिंग', 'meetings');
       </ul></div>
   </div>
 </div>
-<?php View::footer();
+<?php View::footer('<script>(function(){var a=document.getElementById("aud"),w=document.getElementById("branchWrap");function t(){w.style.display=a.value==="branch"?"block":"none";}a.addEventListener("change",t);t();})();</script>');
