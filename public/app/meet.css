@@ -18,8 +18,11 @@ html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
 .mt-tile.has-video .mt-ph { display: none; }
 .mt-ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   font-size: 34px; font-weight: 800; color: #fff; background: linear-gradient(135deg,#16a34a,#0d9488); }
-.mt-name { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 2; font-size: 12px; font-weight: 600;
-  background: rgba(0,0,0,.5); padding: 4px 8px; border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the name wraps (max 4 lines, enough on a 3-column phone grid) instead of being cut:
+   "DEEPAK SHARMA - BC SUPERVISOR AGRA RO" stays readable */
+.mt-name { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 2; font-size: 12px; font-weight: 600; line-height: 1.25;
+  background: rgba(0,0,0,.5); padding: 4px 8px; border-radius: 10px; overflow: hidden; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
 
 /* bottom control bar: the buttons share the width, so the bar always fits the screen (nothing cut off) */
 .mt-bar { display: flex; gap: 6px; justify-content: center; padding: 10px 8px calc(12px + env(safe-area-inset-bottom));
@@ -512,3 +515,7 @@ html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
 .bcs-stage.ch-tall .ch-cb p{font-size:21px}
 .bcs-stage.ch-tall .ch-cb p span{font-size:25px}
 .bcs-stage.ch-tall .ch-ticker{width:auto;right:0;top:auto;bottom:0}
+
+/* phones: a long name ("DEEPAK SHARMA - BC SUPERVISOR AGRA RO") gets one more line on the small tiles, so it is never cut */
+@media (max-width: 900px) { .bcs-grid .bcs-tile .nm { -webkit-line-clamp: 4; } }
+@media (max-width: 600px) { .mt-name { font-size: 10.5px; padding: 3px 6px; -webkit-line-clamp: 5; } }

@@ -193,12 +193,12 @@ header('Cache-Control: no-store');
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title><?= e($link['title']) ?></title>
-<link rel="stylesheet" href="/app/meet.css?v=14">
+<link rel="stylesheet" href="/app/meet.css?v=15">
 </head>
 <body>
 <div id="meet"></div>
 <script>window.MEET_CONFIG = <?= json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;</script>
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js" crossorigin="anonymous"></script>
-<script src="/app/meet.js?v=14"></script>
+<script src="/app/meet.js?v=15"></script>
 </body>
 </html>

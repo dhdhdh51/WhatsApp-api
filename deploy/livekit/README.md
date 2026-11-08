@@ -122,6 +122,13 @@ is written `<CITY> RO` however the region is named. When a BC Supervisor hosts, 
 strip on the host's video shows only that label (`host_label`). Admin and CBC names
 are unchanged.
 
+BC Supervisors come first, right after the host (`supKey` in `meet.js`; role taken from
+the participant's token metadata). This applies to the meeting tiles, the broadcast
+gallery, and the people list (host, BC Supervisors, other staff, then BCs/guests). A
+meeting's header starts with the host's label when a BC Supervisor hosts
+(`DEEPAK SHARMA - BC SUPERVISOR AGRA RO · title`). Meeting tile names wrap to 3 lines
+instead of being cut.
+
 **Broadcast 2** sends `stage_style: 'channel'` to the meeting screen.
 `public/app/meet.js` (`buildChannel` / `layoutChannel`) draws the frame at a fixed
 design size and scales it to the stage. A wide stage uses 1280×720. A tall phone

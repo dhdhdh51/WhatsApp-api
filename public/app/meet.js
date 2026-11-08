@@ -386,8 +386,11 @@
     if (tr) { if (v.dataset.att !== '1') { tr.attach(v); v.dataset.att = '1'; } p.el.classList.add('has-video'); } else p.el.classList.remove('has-video');
     var mod = p.el.querySelector('.mt-mod'); if (mod) mod.textContent = p.micOff ? '🔈' : '🔇';
   }
+  // meeting tiles: the host, then every BC Supervisor, always first; then whoever is talking, raised hands, me, the rest by name
+  function firstRank(k) { return k === hostKey() ? 0 : (supKey(k) ? 1 : 2); }
   function order() {
     return Object.keys(P).sort(function (a, b) { var pa = P[a], pb = P[b];
+      var fa = firstRank(a), fb = firstRank(b); if (fa !== fb) return fa - fb;
       if (!!pb.speaking !== !!pa.speaking) return pb.speaking ? 1 : -1; if (!!pb.hand !== !!pa.hand) return pb.hand ? 1 : -1;
       if (pa.isLocal !== pb.isLocal) return pa.isLocal ? -1 : 1; return String(pa.name).localeCompare(String(pb.name)); });
   }
@@ -407,6 +410,7 @@
     ids.forEach(function (id) { var p = P[id]; if (vis.indexOf(id) < 0 && p.el && p.el.parentNode) { var v = p.el.querySelector('video'); if (p.videoTrack && v && v.dataset.att === '1') { try { p.videoTrack.detach(v); } catch (e) {} v.dataset.att = ''; } p.el.remove(); } });
     vis.forEach(function (id) { if (!P[id].el) P[id].el = makeTile(id); grid.appendChild(P[id].el); updateTile(id); });
     if (!ids.length) grid.innerHTML = '<div class="mt-wait">' + (broadcastMode ? 'Host connect ho raha hai… 📢' : 'Koi aur nahi juda.') + '</div>';
+    else { var wt = grid.querySelector('.mt-wait'); if (wt) wt.remove(); }   // people are here now: drop the "Koi aur nahi juda" note
     grid.classList.toggle('zoomed', !!pinned);
     grid.style.gridTemplateColumns = 'repeat(' + (pinned ? 1 : (vis.length <= 1 ? 1 : (vis.length <= 4 ? 2 : 3))) + ', 1fr)';
     countEl.textContent = '👥 ' + ids.length; updateHandsBadge();
@@ -463,6 +467,12 @@
   // the role to print after a name, or '' when the name already says it
   // (a BC Supervisor's meeting name reads "DEEPAK SHARMA - BC SUPERVISOR AGRA RO")
   function extraRole(nm, r) { return r && String(nm || '').toUpperCase().indexOf(String(r).toUpperCase()) < 0 ? r : ''; }
+  // Is this person a BC Supervisor? (role from their meeting token; their name also reads "… - BC SUPERVISOR …")
+  // In broadcasts and meetings they come first, right after the host: tiles, gallery, people list.
+  function supKey(k) {
+    var r = String((P[k] && P[k].role) || roleOf(k) || '').trim();
+    return /^bc supervisor$/i.test(r) || / - BC SUPERVISOR( |$)/.test(String(nameOf(k) || ''));
+  }
   // the name strip on someone's video; for the host the server sends it (a BC Supervisor: only that label)
   function stripText(k) {
     var id = idOf(k);
@@ -751,7 +761,8 @@
     Object.keys(parts).forEach(function (id) { if (id !== lid) keys.push(id); });
     var onStage = S.onStage || [];
     keys = keys.filter(function (k) { return onStage.indexOf(k) < 0; });   // people on the stage are shown there, not twice
-    function rank(k) { var p = P[k]; if (k === 'me') return 0; if (k === h) return 1; if (hands[k]) return 2; if (p && p.audioEl) return 3; if (vidOf(p)) return 4; return 5; }
+    // the host (when not on the stage), then every BC Supervisor, then me, raised hands, mics, cameras, the rest
+    function rank(k) { var p = P[k]; if (k === h) return 0; if (supKey(k)) return 1; if (k === 'me') return 2; if (hands[k]) return 3; if (p && p.audioEl) return 4; if (vidOf(p)) return 5; return 6; }
     keys.sort(function (a, b) { return (rank(a) - rank(b)) || String(nameOf(a)).localeCompare(String(nameOf(b))); });
     return keys;
   }
@@ -804,7 +815,8 @@
     if (S.pc) S.pc.textContent = ids.length;
     if (S.pbc) S.pbc.textContent = '· ' + bt;
     if (S.ibc) S.ibc.textContent = bcNums();
-    var grp = function (id) { return id === hid ? 0 : (audId(id) ? 2 : 1); };
+    // host, then BC Supervisors, then other staff (one "स्टाफ़ / अधिकारी" section), then the BCs / guests
+    var grp = function (id) { return id === hid ? 0 : (audId(id) ? 3 : (supKey(keyOf(id)) ? 1 : 2)); };
     ids.sort(function (a, b) { return (grp(a) - grp(b)) || ((hands[b] ? 1 : 0) - (hands[a] ? 1 : 0)) || String(parts[a].name).localeCompare(String(parts[b].name)); });
     var nBc = ids.filter(audId).length, nStaff = ids.length - nBc, last = -1;
     S.parts.innerHTML = '';
@@ -927,7 +939,14 @@
       canPublish = (c.can_publish !== false);
       canVideo = mode === 'video' && (c.can_video === undefined ? canPublish : !!c.can_video);
       if (studio) { buildStudio(); joinStudio(); }
-      else { build(); titleEl.textContent = (c.host_region ? c.host_region + ' · ' : '') + (c.title || 'Meeting'); if (broadcastMode) liveEl.textContent = '🔴 LIVE'; join(); }
+      else {
+        build();
+        // meeting header: a BC Supervisor host's label first ("DEEPAK SHARMA - BC SUPERVISOR AGRA RO · title"), else the RO
+        var lead = c.host_label || c.host_region || '';
+        titleEl.textContent = (lead ? lead + ' · ' : '') + (c.title || 'Meeting');
+        if (broadcastMode) liveEl.textContent = '🔴 LIVE';
+        join();
+      }
     });
   }
 
@@ -945,7 +964,7 @@
   function join() {
     var LK = window.LivekitClient; room = commonRoom();
     room.on(LK.RoomEvent.TrackSubscribed, function (track, pub, rp) {
-      var p = upsert(rp.identity, rp.name || rp.identity, false);
+      var p = upsert(rp.identity, rp.name || rp.identity, false); p.role = metaOf(rp).role || p.role || '';
       if (track.kind === 'video') { p.videoTrack = track; p.camOff = !!pub.isMuted; }
       else {
         var a = document.createElement('audio'); a.autoplay = true; track.attach(a); audioBox.appendChild(a); p.audioEl = a; p.micOff = !!pub.isMuted;
@@ -961,7 +980,7 @@
     });
     room.on(LK.RoomEvent.TrackMuted, function (pub, rp) { var p = P[rp.identity]; if (!p) return; if (pub.kind === 'audio') p.micOff = true; else p.camOff = true; updateTile(rp.identity); });
     room.on(LK.RoomEvent.TrackUnmuted, function (pub, rp) { var p = P[rp.identity]; if (!p) return; if (pub.kind === 'audio') p.micOff = false; else p.camOff = false; updateTile(rp.identity); });
-    room.on(LK.RoomEvent.ParticipantConnected, function (rp) { if (broadcastMode) { viewers++; countEl.textContent = '👁 ' + viewers; } else { upsert(rp.identity, rp.name || rp.identity, false); setStatus('Connected'); render(); } });
+    room.on(LK.RoomEvent.ParticipantConnected, function (rp) { if (broadcastMode) { viewers++; countEl.textContent = '👁 ' + viewers; } else { upsert(rp.identity, rp.name || rp.identity, false).role = metaOf(rp).role || ''; setStatus('Connected'); render(); } });
     room.on(LK.RoomEvent.ParticipantDisconnected, function (rp) { if (hands[rp.identity]) { delete hands[rp.identity]; updateHandsBadge(); renderTray(); } drop(rp.identity); render(); });
     room.on(LK.RoomEvent.ActiveSpeakersChanged, function (sp) { var on = {}, me = localId(); sp.forEach(function (s) { on[s.identity] = true; }); Object.keys(P).forEach(function (id) { P[id].speaking = !!on[id === 'me' ? me : id]; }); render(); });
     if (LK.RoomEvent.ParticipantAttributesChanged) room.on(LK.RoomEvent.ParticipantAttributesChanged, function (ch, rp) { if (rp === room.localParticipant) return; if (ch && typeof ch.hand !== 'undefined') handRaised(rp.identity, rp.name || rp.identity, ch.hand === '1'); });
@@ -975,7 +994,8 @@
       ready = true; phase = 'live';
       viewers = (room.remoteParticipants ? room.remoteParticipants.size : 0) + 1; setStatus('Connected');
       startChat();
-      var media = canPublish ? (upsert('me', cfg.name || 'Main', true), enableLocalMedia()) : null;
+      if (canPublish) upsert('me', cfg.name || 'Main', true).role = metaOf(room.localParticipant).role || '';
+      var media = canPublish ? enableLocalMedia() : null;
       return Promise.resolve(media).then(null, function (e) { report(e && e.message, 'media'); })
         .then(function () { if (!ended) { refreshSafe(); tryAutoAudio(); } });
     }, function (e) { fail('Join nahi ho payi: ' + (e && e.message ? e.message : 'camera/mic ya network problem')); });
