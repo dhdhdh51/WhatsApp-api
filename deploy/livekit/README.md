@@ -101,14 +101,36 @@ Because a broadcast can put the whole organisation in one room, keep the UDP med
 port (7882) and the ICE/TCP fallback (7881) open, and watch the server's uplink
 bandwidth during large town-halls.
 
-## Guest broadcast
+## The three broadcasts on the Meetings page
 
-Audience **`guest`** (panel `/meetings.php` → "🔗 Guest broadcast") uses the same
-broadcast screen and rules, but rings nobody: no BC or staff member gets a
-notification or an in-app banner. Starting it creates the first guest link at once
-(`src/GuestLinks.php`); the host copies it or shares it on WhatsApp, and can make
-more links with "Guest link". A guest opens the link, types a name and joins
-view-only. Mic and camera come only when the host taps "⭐ मंच पर लाएँ". Staff
-join from the panel ("Join"). Links stop working when the broadcast ends or the
-host closes them. A guest broadcast link allows 300 joins per hour (30 per IP in
-15 minutes); a guest link in any other meeting allows 40 (10 per IP).
+The panel (`/meetings.php`) starts only these three. Older audiences (`all`, `bc`,
+`cbc`, `branch`) are refused there but still show in the lists, and CBC meetings
+started from the app (`cbc_bcs`, `one_bc`, `selected`) are unchanged.
+
+| Panel label | `audience` | Who is rung | Stage |
+|---|---|---|---|
+| 📢 Broadcast | `broadcast` | every active BC + staff in reach | studio stage (host, lower third, सूचना ticker) |
+| 📺 Broadcast 2 | `channel` | the same as Broadcast 1 | TV news-channel frame: bank logo, "Central Bank BC Meeting Channel" + RO, LIVE, welcome / notice / topic, APY · PMJJBY · PMSBY cards, सूचना line, slogans |
+| 🔗 Broadcast 3 | `guest` | nobody | studio stage; people join only through guest links |
+
+All three are group video calls: everyone shows their camera, and the mic is for
+the host and the people he allows (✋ → "🎤 Allow", or "⭐ मंच पर लाएँ").
+
+**Broadcast 2** sends `stage_style: 'channel'` to the meeting screen.
+`public/app/meet.js` (`buildChannel` / `layoutChannel`) draws the frame at a fixed
+design size and scales it to the stage. A wide stage uses 1280×720. A tall phone
+stage uses 720 wide and 820–1100 high, and the topic and slogans move into the
+scrolling सूचना line. The live video boxes are placed over the presenter area. A
+screen share, or a tile a viewer enlarged, fills the stage without the frame. On
+phones the gallery shows one row of 3, so the frame stays readable.
+
+**Broadcast 3** rings nobody: no BC, CBC or staff member gets a notification or an
+in-app banner, and the scheduler does not re-ring. Starting it creates the first
+guest link at once (`src/GuestLinks.php`). The host copies the link or shares it on
+WhatsApp, and can make more with "Guest link". A guest opens the link, types a
+name and joins with the camera on (camera-only token). Staff join from the panel
+("Join"). Links stop working when the broadcast ends or the host closes them.
+
+A Broadcast 3 link allows 300 joins per hour (30 per IP in 15 minutes). A guest
+link in any other meeting allows 40 (10 per IP), and that guest stays view-only
+until the host brings them onto the stage.

@@ -37,7 +37,7 @@ final class Meetings
     /** Admin-created meeting. */
     public static function create(string $title, string $audience, string $mode, ?int $branchId, ?int $by, ?int $regionId = null): int
     {
-        $audience = in_array($audience, ['all', 'bc', 'cbc', 'branch', 'broadcast', 'guest'], true) ? $audience : 'all';
+        $audience = in_array($audience, ['all', 'bc', 'cbc', 'branch', 'broadcast', 'channel', 'guest'], true) ? $audience : 'all';
         $mode = $mode === 'voice' ? 'voice' : 'video';
         $room = 'BCReport-' . bin2hex(random_bytes(6));
         return DB::insert(
@@ -150,7 +150,7 @@ final class Meetings
         $row = DB::one(
             "SELECT id, title, room, mode, audience, region_id FROM meetings
              WHERE is_active = 1 AND (
-                 audience IN ('all','bc','broadcast')
+                 audience IN ('all','bc','broadcast','channel')
                  OR (audience = 'branch'   AND branch_id   = ?)
                  OR (audience = 'cbc_bcs'  AND host_cbc_id = ?)
                  OR (audience = 'one_bc'   AND target_bc_id = ?)
@@ -162,7 +162,7 @@ final class Meetings
         );
         return $row ? ['id' => (int) $row['id'], 'title' => $row['title'], 'room' => $row['room'],
             'url' => self::url($row['room'], $row['mode']), 'mode' => $row['mode'],
-            'is_broadcast' => $row['audience'] === 'broadcast', 'region' => self::regionName((int) $row['region_id'])] : null;
+            'is_broadcast' => self::isBroadcast($row), 'region' => self::regionName((int) $row['region_id'])] : null;
     }
 
     /** Latest active meeting a CBC can join/host, or null. */
@@ -182,7 +182,7 @@ final class Meetings
         }
         $row = DB::one(
             "SELECT id, title, room, mode, audience, host_cbc_id, created_by, region_id FROM meetings
-             WHERE is_active = 1 AND (audience IN ('all','cbc','broadcast') OR host_cbc_id = ?){$regionSql}
+             WHERE is_active = 1 AND (audience IN ('all','cbc','broadcast','channel') OR host_cbc_id = ?){$regionSql}
              ORDER BY id DESC LIMIT 1",
             $params
         );
@@ -194,7 +194,7 @@ final class Meetings
         $canModerate = $isHost || (int) $row['created_by'] === $cbcUserId || ($myRegion > 0 && (int) $row['region_id'] === $myRegion);
         return ['id' => (int) $row['id'], 'title' => $row['title'], 'room' => $row['room'],
             'url' => self::url($row['room'], $row['mode']),
-            'mode' => $row['mode'], 'is_broadcast' => $row['audience'] === 'broadcast',
+            'mode' => $row['mode'], 'is_broadcast' => self::isBroadcast($row),
             'is_host' => $isHost, 'can_moderate' => $canModerate, 'region' => self::regionName((int) $row['region_id'])];
     }
 
@@ -204,7 +204,8 @@ final class Meetings
         switch ($m['audience']) {
             case 'all':
             case 'bc':
-            case 'broadcast':   // broadcast reaches every active BC
+            case 'broadcast':   // Broadcast 1 and 2 reach every active BC
+            case 'channel':
                 $w = 'b.is_active = 1';
                 break;
             case 'branch':
@@ -268,7 +269,7 @@ final class Meetings
                                WHERE {$w} AND NOT EXISTS (SELECT 1 FROM meeting_joins j WHERE j.meeting_id = ? AND j.actor = CONCAT('bc-', b.id))
                                LIMIT 300", $params);
             $ro = self::regionName((int) ($m['region_id'] ?? 0));
-            $title = mb_substr((($m['audience'] ?? '') === 'broadcast' ? '📢 ' : '📹 ') . ($ro !== '' ? $ro . ': ' : '') . $m['title'], 0, 150);
+            $title = mb_substr((self::isBroadcast($m) ? '📢 ' : '📹 ') . ($ro !== '' ? $ro . ': ' : '') . $m['title'], 0, 150);
             $body = 'Meeting chal rahi hai – app kholkar "Join" dabayein. (Reminder ' . ((int) $m['nudges'] + 1) . ')';
             foreach ($absent as $b) {
                 DB::insert('INSERT INTO app_notifications (bc_id, kind, title, body, created_at) VALUES (?, ?, ?, ?, NOW())',
@@ -292,9 +293,9 @@ final class Meetings
     {
         $m = DB::one('SELECT * FROM meetings WHERE id = ?', [$id]);
         if (!$m || self::isGuestBroadcast($m)) {
-            return;   // a guest broadcast rings nobody: people come only through its guest links
+            return;   // Broadcast 3 rings nobody: people come only through its guest links
         }
-        $isBroadcast = ($m['audience'] ?? '') === 'broadcast';
+        $isBroadcast = self::isBroadcast($m);   // Broadcast 1 / 2: rings every BC + staff in reach
         $ro = self::regionName((int) ($m['region_id'] ?? 0));   // "📢 RO Agra: Monthly review"
         $title = mb_substr(($isBroadcast ? '📢 ' : '📹 ') . ($ro !== '' ? $ro . ': ' : '') . $m['title'], 0, 150);
         $body = $isBroadcast
@@ -357,16 +358,36 @@ final class Meetings
 
     // ------------------------------------------------------------------ broadcast helpers
 
-    /** Broadcast screen and rules (host on the stage, view-only audience): the town-hall and the guest broadcast. */
+    /**
+     * Broadcast screen and rules (host on the stage, everyone's camera, mic only for the host and
+     * the people he allows). The panel offers three: 'broadcast' (Broadcast 1), 'channel'
+     * (Broadcast 2: the same, on the TV-channel stage) and 'guest' (Broadcast 3: via link, no ring).
+     */
     public static function isBroadcast(array $m): bool
     {
-        return in_array($m['audience'] ?? '', ['broadcast', 'guest'], true);
+        return in_array($m['audience'] ?? '', ['broadcast', 'channel', 'guest'], true);
     }
 
-    /** Guest broadcast: rings no BC or staff member; outside people join only through its guest links. */
+    /** Broadcast 3 (via link): rings no BC or staff member; people join only through its guest links. */
     public static function isGuestBroadcast(array $m): bool
     {
         return ($m['audience'] ?? '') === 'guest';
+    }
+
+    /** Broadcast 2: same audience and rules as Broadcast 1; the stage looks like a TV news channel. */
+    public static function isChannel(array $m): bool
+    {
+        return ($m['audience'] ?? '') === 'channel';
+    }
+
+    /**
+     * When the host takes someone's mic back in a broadcast, their camera stays on (everyone is
+     * seen). A guest keeps it only in Broadcast 3, where every guest shows their camera; in any
+     * other meeting a guest goes back to view-only.
+     */
+    public static function keepsCamera(array $m, string $identity): bool
+    {
+        return self::isBroadcast($m) && (!self::isGuest($identity) || self::isGuestBroadcast($m));
     }
 
     public static function regionName(int $regionId): string
@@ -427,6 +448,7 @@ final class Meetings
                 case 'all':
                 case 'bc':
                 case 'broadcast':
+                case 'channel':
                     $ok = true;
                     break;
                 case 'branch':
@@ -458,9 +480,9 @@ final class Meetings
                 || (bool) DB::val('SELECT 1 FROM bcs b JOIN branches br ON br.id = b.branch_id WHERE br.region_id = ? AND b.cbc_id = ? LIMIT 1', [$mRegion, $id])
                 || ((($row['role'] ?? '') === 'manager')
                     && (bool) DB::val('SELECT 1 FROM user_branches ub JOIN branches br ON br.id = ub.branch_id WHERE ub.user_id = ? AND br.region_id = ? LIMIT 1', [$id, $mRegion]));
-            return $belongs && (in_array($aud, ['all', 'cbc', 'broadcast'], true) || (int) ($m['host_cbc_id'] ?? 0) === $id);
+            return $belongs && (in_array($aud, ['all', 'cbc', 'broadcast', 'channel'], true) || (int) ($m['host_cbc_id'] ?? 0) === $id);
         }
-        return in_array($aud, ['all', 'cbc', 'broadcast'], true) || (int) ($m['host_cbc_id'] ?? 0) === $id;
+        return in_array($aud, ['all', 'cbc', 'broadcast', 'channel'], true) || (int) ($m['host_cbc_id'] ?? 0) === $id;
     }
 
     /**
@@ -493,9 +515,9 @@ final class Meetings
             if ($who === '' || $who === $exceptActor) {
                 continue;
             }
-            if (in_array($who, $speakers, true)) {   // allowed speaker -> back to camera only (a guest: back to view-only)
+            if (in_array($who, $speakers, true)) {   // allowed speaker -> back to camera only (a guest outside Broadcast 3: view-only)
                 self::revokeSpeak((int) $m['id'], $who);
-                if (Livekit::setCanPublish($room, $who, false, !self::isGuest($who))) {
+                if (Livekit::setCanPublish($room, $who, false, self::keepsCamera($m, $who))) {
                     $n++;
                 }
             } elseif (!$p['muted'] && Livekit::setMuted($room, $who, true)) {
@@ -553,7 +575,7 @@ final class Meetings
             Livekit::setCanPublish($room, $identity, true);
         } elseif (!self::actorModerates($m, $identity)) {
             self::revokeSpeak((int) $m['id'], $identity);
-            Livekit::setCanPublish($room, $identity, false, !self::isGuest($identity));   // a guest goes back to view-only
+            Livekit::setCanPublish($room, $identity, false, self::keepsCamera($m, $identity));   // camera stays (a guest outside Broadcast 3: view-only)
         }
         return ['ok' => true, 'stage' => $list];
     }

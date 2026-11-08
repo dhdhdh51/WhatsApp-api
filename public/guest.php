@@ -98,7 +98,9 @@ if (!$guest) {
         . '<div class="field mb"><label for="gn">नाम और पद</label>'
         . '<input id="gn" name="name" maxlength="50" required autocomplete="name" placeholder="जैसे: आर.के. शर्मा, एजीएम" value="' . e((string) p('name')) . '"></div>'
         . '<button class="btn" type="submit">मीटिंग में शामिल हों</button></form>'
-        . '<p class="muted" style="text-align:center;margin-top:16px">शुरुआत में आप मीटिंग देख और सुन सकेंगे। आयोजक के बुलाने पर आपका माइक और कैमरा चालू होगा।</p>');
+        . '<p class="muted" style="text-align:center;margin-top:16px">' . (Meetings::isGuestBroadcast($link)
+            ? 'जुड़ते ही आपका कैमरा चालू होगा, ताकि सब एक-दूसरे को देख सकें। बोलने के लिए ✋ हाथ उठाएँ, आयोजक अनुमति देंगे।'
+            : 'शुरुआत में आप मीटिंग देख और सुन सकेंगे। आयोजक के बुलाने पर आपका माइक और कैमरा चालू होगा।') . '</p>');
 }
 
 $actor = 'guest-' . (int) $guest['id'];
@@ -133,10 +135,13 @@ if (q('left') !== '') {
         . '<a class="btn" style="text-align:center;text-decoration:none" href="' . e($self) . '">फिर से शामिल हों</a>');
 }
 
-// ---- the meeting screen: view-only, unless the host already brought this guest onto the stage ----
+// ---- the meeting screen. Mic + camera once the host allowed this guest (stage / raised hand).
+//      Broadcast 3 is everyone's video: every guest shows their camera from the start, like a BC in
+//      a broadcast. Elsewhere a guest is view-only until the host brings them onto the stage. ----
 $onStage = Meetings::isSpeaker($meetingId, $actor);
-$canVideo = $onStage && ($link['mode'] ?? 'video') === 'video';
-$token = Livekit::token((string) $link['room'], $actor, $name, $onStage, 7200, null, ['role' => 'अतिथि अधिकारी']);
+$isVideo = ($link['mode'] ?? 'video') === 'video';
+$canVideo = $isVideo && ($onStage || Meetings::isGuestBroadcast($link));
+$token = Livekit::token((string) $link['room'], $actor, $name, $onStage || $canVideo, 7200, $onStage ? null : ['camera'], ['role' => 'अतिथि अधिकारी']);
 if (!$token) {
     guest_page('मीटिंग', '<div class="card"><p class="gl-title">अभी मीटिंग से नहीं जुड़ पा रहे</p><p class="gl-note">कुछ देर बाद यह लिंक फिर से खोलें।</p></div>');
 }
@@ -153,6 +158,7 @@ $cfg = [
     'meeting_id' => $meetingId,
     'is_broadcast' => Meetings::isBroadcast($link),
     'guest_only' => Meetings::isGuestBroadcast($link),   // the screen counts guests instead of BCs
+    'stage_style' => Meetings::isChannel($link) ? 'channel' : '',   // Broadcast 2: TV-channel stage
     'can_publish' => $onStage,
     'can_video' => $canVideo,
     'is_host' => false,
@@ -185,7 +191,7 @@ header('Cache-Control: no-store');
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title><?= e($link['title']) ?></title>
-<link rel="stylesheet" href="/app/meet.css?v=12">
+<link rel="stylesheet" href="/app/meet.css?v=13">
 </head>
 <body>
 <div id="meet"></div>

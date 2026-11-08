@@ -23,6 +23,7 @@
   var G = {};                 // studio gallery tiles: key -> { el, vid, track, allow }
   var gpage = 0, stagePin = null, stageId = null, stageIsCam = false;
   var stageGuests = [], STAGE_MAX = 2, missingOpen = false;   // people the host brought onto the stage (identities, room metadata)
+  var channel = false;        // Broadcast 2: the stage is drawn as a TV news channel (buildChannel)
   var ready = false, ended = false, endingAll = false, phase = 'start', sidePanel = '', sunread = 0;   // ready = connected to the room
   var canShare = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);   // phones: no screen share
   var PER = Math.max(1, Math.min(12, parseInt((location.search.match(/[?&]per=(\d+)/) || [])[1] || '6', 10) || 6));
@@ -516,7 +517,86 @@
     var topT = q('.bcs-ticker-top-move'); topT.innerHTML = esc(head) + ' &nbsp;&nbsp; • &nbsp;&nbsp; ' + esc(head); tickerSpeed(topT, 55);
     if (S.itime) S.itime.textContent = t12(new Date());
     clockTick(); setInterval(clockTick, 20000);
-    window.addEventListener('resize', function () { fitControls(); studioGallery(); });
+    if (channel) buildChannel();
+    window.addEventListener('resize', function () { fitControls(); studioGallery(); layoutChannel(); });
+  }
+
+  // ================= Broadcast 2: the stage as a TV news channel ("Central Bank BC Meeting Channel") =================
+  // The frame is drawn at a fixed design size and scaled to fit the stage: 1280x720 on a wide stage, 720 wide and
+  // 820-1100 high on a tall phone stage (there the topic and slogans move into the scrolling सूचना line). The live video boxes
+  // (.bcs-slots) are placed over the presenter area. A screen share, or a tile I enlarged, fills the stage as usual.
+  var CH = {
+    resolve: 'आज का संकल्प – कोई भी पात्र ग्राहक इन योजनाओं से वंचित न रहे',
+    topic: 'आज की विशेष BC मीटिंग में हमारा मुख्य विषय – APY, PMJJBY और PMSBY में अधिकतम नामांकन करना है!',
+    slogans: [['👥', 'सभी BC साथी सक्रिय बनें'], ['🎯', 'आज का लक्ष्य – अधिक से अधिक नामांकन'], ['🤝', 'आपकी सफलता ही हमारी शक्ति है']]
+  };
+  // "RO Agra" / "Agra RO" -> "Regional Office – Agra"; an org-wide broadcast shows its title instead
+  function roLine() {
+    var ro = String(cfg.host_region || '').trim();
+    if (!ro) return cfg.title || '';
+    return 'Regional Office – ' + (ro.replace(/^(R\.?O\.?|Regional Office)[\s\-–:]+/i, '').replace(/[\s\-–]+R\.?O\.?$/i, '').trim() || ro);
+  }
+  function chCard(cls, name, code, body, art) {
+    return '<div class="ch-card ' + cls + '"><div class="ch-ch"><span>' + name + '</span><b>(' + code + ')</b></div><div class="ch-cb">' + body + '<i>' + art + '</i></div></div>';
+  }
+  function buildChannel() {
+    var c = document.createElement('div'); c.className = 'bcs-ch'; c.setAttribute('aria-hidden', 'true');
+    var logo = cfg.logo ? '<img src="' + esc(cfg.logo) + '" alt="">' : '<b>सेन्ट्रल बैंक ऑफ़ इंडिया</b><span>Central Bank of India</span>';
+    c.innerHTML =
+      '<div class="ch-head"><div class="ch-logo' + (cfg.logo ? ' img' : '') + '">' + logo + '</div>' +
+        '<div class="ch-ttl"><b>Central Bank BC Meeting Channel</b><span>' + esc(roLine()) + '</span></div><div class="ch-live"><i></i>LIVE</div></div>' +
+      '<div class="ch-info"><div class="ch-welcome"><i>📢</i><b>आप सभी का मीटिंग में स्वागत है!</b></div>' +
+        '<div class="ch-notice">सभी BC साथियों के लिए <b>महत्वपूर्ण सूचना</b></div>' +
+        '<div class="ch-topic"><span>आज की विशेष BC मीटिंग में हमारा मुख्य विषय –</span><span><b>APY, PMJJBY और PMSBY</b> में अधिकतम नामांकन करना है!</span></div>' +
+        '<div class="ch-cards">' +
+          chCard('apy', 'अटल पेंशन योजना', 'APY', '<p>हर पात्र ग्राहक को सुरक्षित भविष्य दें</p>', '👴👵') +
+          chCard('jjby', 'प्रधानमंत्री जीवन ज्योति बीमा योजना', 'PMJJBY', '<p><span>मात्र <em>₹436/-</em> में</span>2 लाख तक का जीवन बीमा</p>', '👪') +
+          chCard('sby', 'प्रधानमंत्री सुरक्षा बीमा योजना', 'PMSBY', '<p><span>मात्र <em>₹20/-</em> में</span>2 लाख तक का दुर्घटना बीमा</p>', '🛡️') +
+        '</div></div>' +
+      '<div class="ch-ticker"><span class="ch-tag">सूचना <i>›</i></span><div class="ch-tw"><div class="ch-tm"></div></div></div>' +
+      '<div class="ch-slogans">' + CH.slogans.map(function (s) { return '<span><i>' + s[0] + '</i>' + s[1] + '</span>'; }).join('') + '</div>' +
+      '<div class="ch-brand"><b>Central Bank<br>of India</b><small>Always with you...</small></div>';
+    S.stage.insertBefore(c, S.stage.firstChild);
+    S.ch = c; S.chTm = c.querySelector('.ch-tm'); S.chKey = '';
+    S.chName = document.createElement('div'); S.chName.className = 'ch-name'; q('.bcs-slot.main').appendChild(S.chName);
+    // the stage changes size when the gallery gains or loses a row
+    if (window.ResizeObserver) { try { new ResizeObserver(function () { layoutChannel(); }).observe(S.stage); } catch (e) {} }
+    // the Hindi web font changes text widths: measure the सूचना line again once it has loaded
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { if (S.chKey) chTicker(S.stage.classList.contains('ch-tall')); });
+  }
+  function channelStage(id, p) {
+    var on = !(p && p.screen) && !(stagePin && stagePin === id);
+    S.stage.classList.toggle('channel', on);
+    var role = id && id === hostKey() ? cfg.host_role : (id ? roleOf(id) : '');
+    S.chName.textContent = id ? nameOf(id) + (role ? ' · ' + role : '') : '';
+    layoutChannel();
+  }
+  function layoutChannel() {
+    if (!S.ch) return;
+    var sl = S.slots;
+    if (!S.stage.classList.contains('channel')) {   // back to the normal stage: the video boxes fill it again
+      if (S.chKey) { S.chKey = ''; ['left', 'top', 'width', 'height', 'right', 'bottom'].forEach(function (k) { sl.style[k] = ''; }); S.stage.classList.remove('ch-wide', 'ch-tall'); }
+      return;
+    }
+    var W = S.stage.clientWidth, H = S.stage.clientHeight; if (!W || !H) return;
+    var key = W + 'x' + H; if (key === S.chKey) return;
+    // a tall stage grows the design to its own shape (the presenter gets the extra height); wide stays 1280x720
+    var tall = W / H < 1.25, dw = tall ? 720 : 1280, dh = tall ? Math.max(820, Math.min(1100, Math.round(dw * H / W))) : 720;
+    var s = Math.min(W / dw, H / dh), ox = (W - dw * s) / 2, oy = (H - dh * s) / 2;
+    var r = tall ? [16, 112, 688, dh - 500] : [16, 108, 384, 458];   // presenter box in design pixels: x, y, w, h
+    var was = S.stage.classList.contains('ch-tall'); S.chKey = key;
+    S.stage.classList.toggle('ch-tall', tall); S.stage.classList.toggle('ch-wide', !tall);
+    S.ch.style.width = dw + 'px'; S.ch.style.height = dh + 'px';
+    S.ch.style.transform = 'translate(' + ox.toFixed(1) + 'px,' + oy.toFixed(1) + 'px) scale(' + s.toFixed(4) + ')';
+    sl.style.left = Math.round(ox + r[0] * s) + 'px'; sl.style.top = Math.round(oy + r[1] * s) + 'px';
+    sl.style.width = Math.round(r[2] * s) + 'px'; sl.style.height = Math.round(r[3] * s) + 'px'; sl.style.right = 'auto'; sl.style.bottom = 'auto';
+    if (!S.chTm.textContent || was !== tall) chTicker(tall);
+  }
+  // the सूचना line: the day's resolution; on a tall stage also the topic and slogans (their boxes are hidden there)
+  function chTicker(tall) {
+    var t = CH.resolve + (tall ? '  •  ' + CH.topic + '  •  ' + CH.slogans.map(function (s) { return s[1]; }).join('  •  ') : ''), m = S.chTm;
+    m.classList.remove('run'); m.style.animationDuration = ''; m.textContent = t;
+    if (m.scrollWidth > m.parentNode.clientWidth) { m.textContent = t + '     •     ' + t; m.classList.add('run'); m.style.animationDuration = Math.max(20, Math.round(m.scrollWidth / 110)) + 's'; }
   }
 
   // ----- stage. A screen share fills it; a tile I tapped shows big only on my screen; otherwise the host,
@@ -571,6 +651,7 @@
     want.forEach(function (k, i) { var t = S.gslots[k] || makeSlot(k); paintSlot(k); if (S.slots.children[i + 1] !== t.el) S.slots.insertBefore(t.el, S.slots.children[i + 1] || null); });
     S.pin.textContent = stagePin && stagePin === id ? '📌 ' + nameOf(id) + ' · tap karke host par wapas' : '';
     S.pin.style.display = S.pin.textContent ? 'block' : 'none';
+    if (channel && S.ch) channelStage(id, p);
   }
   function makeSlot(k) {
     var el = document.createElement('div'); el.className = 'bcs-slot guest';
@@ -644,7 +725,8 @@
   }
 
   // ----- gallery: everyone's camera, like a video call (paged; only visible tiles use data) -----
-  function gPer() { return 6; }   // phone: 3 x 2 grid, desktop: one filmstrip row of 6
+  // phone: 3 x 2 grid (Broadcast 2: one row of 3, so the channel stage stays readable), desktop: one filmstrip row of 6
+  function gPer() { return channel && isPhone() ? 3 : 6; }
   function gKeys() {
     var lid = localId(), keys = room ? ['me'] : [], h = hostKey();
     Object.keys(parts).forEach(function (id) { if (id !== lid) keys.push(id); });
@@ -738,7 +820,7 @@
       S.parts.appendChild(det);
     }
   }
-  function studioRender() { if (!S.grid) return; studioStage(); studioGallery(); studioParts(); }
+  function studioRender() { if (!S.grid) return; studioStage(); studioGallery(); studioParts(); if (channel) layoutChannel(); }   // the gallery may have resized the stage
   function sbtn(ic, label, cls, fn, badge) {
     var b = document.createElement('button'); b.type = 'button'; b.className = 'bcs-btn' + (cls ? ' ' + cls : '');
     b.innerHTML = '<i>' + ic + '</i><span>' + esc(label) + '</span>' + (badge ? '<b class="bdg">' + badge + '</b>' : '');
@@ -822,6 +904,7 @@
         return;
       }
       cfg = c; phase = 'connecting'; mode = c.mode === 'voice' ? 'voice' : 'video'; isHost = !!c.is_host; broadcastMode = !!c.is_broadcast; studio = broadcastMode;
+      channel = studio && c.stage_style === 'channel';
       canPublish = (c.can_publish !== false);
       canVideo = mode === 'video' && (c.can_video === undefined ? canPublish : !!c.can_video);
       if (studio) { buildStudio(); joinStudio(); }

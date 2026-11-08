@@ -82,7 +82,7 @@ if (q('speak') !== '') {
         Meetings::revokeSpeak($id, $who);
     }
     // a broadcast is a group video call: taking the mic back keeps the person's camera
-    echo json_encode(['ok' => Livekit::setCanPublish((string) $m['room'], $who, $allow, $isBroadcast && !Meetings::isGuest($who)), 'allow' => $allow]);
+    echo json_encode(['ok' => Livekit::setCanPublish((string) $m['room'], $who, $allow, Meetings::keepsCamera($m, $who)), 'allow' => $allow]);
     exit;
 }
 
@@ -179,6 +179,7 @@ $cfg = [
     'meeting_id' => $id,
     'is_broadcast' => $isBroadcast,
     'guest_only' => Meetings::isGuestBroadcast($m),   // the screen counts guests instead of BCs
+    'stage_style' => Meetings::isChannel($m) ? 'channel' : '',   // Broadcast 2: TV-channel stage
     'can_publish' => $canPublish,
     'can_video' => $canVideo,
     // panel admins/supervisors moderate; a CBC only in their own meeting
@@ -214,7 +215,7 @@ header('Cache-Control: no-store');
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title><?= e($m['title']) ?> · <?= $isBroadcast ? 'Broadcast' : 'Meeting' ?></title>
-<link rel="stylesheet" href="/app/meet.css?v=12">
+<link rel="stylesheet" href="/app/meet.css?v=13">
 </head>
 <body>
 <div id="meet"></div>

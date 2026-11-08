@@ -403,3 +403,112 @@ html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
 .bcs-ov .bcs-pin{position:static;max-width:100%;white-space:normal;line-height:1.25}
 /* phones: the title may use two lines instead of being cut */
 @media (max-width:600px){ .bcs-ttl b{white-space:normal;font-size:13px;line-height:1.12;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden} }
+
+/* ============================================================
+   BROADCAST 2 — the stage as a TV news channel ("Central Bank BC Meeting Channel").
+   meet.js draws .bcs-ch at a fixed design size (1280x720 wide, 720x900 on a tall phone stage),
+   scales it to fit the stage, and puts the live video boxes (.bcs-slots) over its presenter area.
+   All sizes inside .bcs-ch are design pixels.
+   ============================================================ */
+.bcs-ch{display:none;position:absolute;left:0;top:0;z-index:0;transform-origin:0 0;pointer-events:none;overflow:hidden;color:#fff;
+  font-family:'Noto Sans Devanagari','Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}
+.bcs-stage.channel{background:radial-gradient(130% 100% at 72% 18%,#2f6ff0 0%,#1544bd 36%,#0a2a86 68%,#061a58 100%)}
+.bcs-stage.channel .bcs-ch{display:block}
+.bcs-stage.channel .bcs-lt,.bcs-stage.channel .bcs-ticker,.bcs-stage.channel .bcs-count{display:none}
+.bcs-stage.channel .bcs-slots{z-index:1;border-radius:14px;overflow:hidden;border:3px solid rgba(255,255,255,.9);gap:2px;
+  box-shadow:0 14px 30px -10px rgba(0,0,0,.65)}
+.bcs-stage.channel.ch-wide .bcs-slots{grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(var(--n,1),minmax(0,1fr))}
+.bcs-stage.channel .bcs-stagevid{object-fit:cover}
+.bcs-stage.channel .bcs-stage-ph{gap:6px;padding:8px}
+.bcs-stage.channel .bcs-stage-ph .av{width:56px;height:56px;font-size:24px}
+.ch-name{display:none}
+.bcs-stage.channel .ch-name{display:block;position:absolute;left:0;right:0;bottom:0;z-index:2;padding:10px 9px 5px;font-size:12px;font-weight:800;color:#fff;
+  background:linear-gradient(transparent,rgba(6,20,47,.88));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bcs-stage.channel .ch-name:empty{display:none}
+
+/* header: bank logo · channel name + RO · LIVE */
+.ch-head{position:absolute;left:0;right:0;top:0;height:96px;display:flex;align-items:center;gap:18px;padding:0 16px;
+  background:linear-gradient(90deg,rgba(4,16,64,.96),rgba(12,46,150,.9) 50%,rgba(4,16,64,.96));border-bottom:3px solid #ffd21f}
+.ch-logo{flex:none;height:76px;display:flex;align-items:center}
+.ch-logo img{height:100%;width:auto;display:block;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.ch-logo:not(.img){background:#fff;border-radius:10px;padding:6px 14px;flex-direction:column;align-items:flex-start;justify-content:center;color:#0b2a7a;line-height:1.15}
+.ch-logo:not(.img) b{font-size:24px}
+.ch-logo:not(.img) span{font:italic 800 20px 'Inter',sans-serif}
+.ch-ttl{flex:1;min-width:0;text-align:center;line-height:1.12;text-wrap:balance}
+.ch-ttl b{display:block;font:800 38px 'Inter','Noto Sans Devanagari',sans-serif;letter-spacing:.2px;text-shadow:0 3px 8px rgba(0,0,0,.45)}
+.ch-ttl span{display:block;font-size:28px;font-weight:800;color:#ffd21f;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch-live{flex:none;display:flex;align-items:center;gap:12px;padding:12px 22px;border-radius:12px;border:2px solid rgba(255,255,255,.65);
+  background:linear-gradient(#ff2d2d,#c4000b);font:900 38px 'Inter',sans-serif;letter-spacing:1px;box-shadow:0 6px 14px rgba(0,0,0,.4)}
+.ch-live i{width:0;height:0;border-left:22px solid #fff;border-top:14px solid transparent;border-bottom:14px solid transparent;animation:mt-pulse 1.3s infinite}
+
+/* right of the presenter: welcome, notice, topic, scheme cards */
+.ch-info{position:absolute;left:416px;right:16px;top:108px;height:458px;display:flex;flex-direction:column;gap:8px}
+.ch-welcome{position:relative;flex:none;height:72px;display:flex;align-items:center;justify-content:center;padding-left:70px;border-radius:16px;
+  background:linear-gradient(#f42c33,#c2050e);border:3px solid #ffd21f;box-shadow:0 8px 18px -6px rgba(0,0,0,.55)}
+.ch-welcome i{position:absolute;left:12px;top:50%;transform:translateY(-50%) rotate(-12deg);font-style:normal;font-size:50px;line-height:1}
+.ch-welcome b{font-size:42px;font-weight:800;white-space:nowrap;text-shadow:0 3px 6px rgba(0,0,0,.35)}
+.ch-notice{flex:none;height:50px;margin:0 30px;display:flex;align-items:center;justify-content:center;gap:10px;border-radius:10px;
+  background:linear-gradient(#ffe24f,#ffc400);color:#0b2a7a;font-size:30px;font-weight:800;box-shadow:0 6px 14px -6px rgba(0,0,0,.5)}
+.ch-notice b{color:#d10a14}
+.ch-topic{flex:none;height:86px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;border-radius:12px;
+  background:rgba(5,22,88,.92);border:2px solid rgba(255,255,255,.75);font-size:26px;font-weight:700;line-height:1.32}
+.ch-topic b{color:#ffd21f}
+.ch-cards{flex:1;min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.ch-card{display:flex;flex-direction:column;min-width:0;border-radius:14px;overflow:hidden;background:#fff;border:2px solid rgba(255,255,255,.9);
+  box-shadow:0 10px 20px -8px rgba(0,0,0,.6)}
+.ch-ch{flex:none;height:92px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:4px 10px;line-height:1.15}
+.ch-ch span{font-size:22px;font-weight:800}
+.ch-ch b{font:900 28px 'Inter',sans-serif;color:#ffd21f;margin-top:3px}
+.ch-card.apy .ch-ch{background:linear-gradient(#2463e2,#0f3dab)}
+.ch-card.jjby .ch-ch{background:linear-gradient(#19a84d,#0a7632)}
+.ch-card.sby .ch-ch{background:linear-gradient(#7b41d2,#4c1d95)}
+.ch-cb{flex:1;min-height:0;display:flex;align-items:center;gap:6px;padding:8px 12px;color:#0b2a6e}
+.ch-cb p{margin:0;flex:1;min-width:0;font-size:23px;font-weight:800;line-height:1.3}
+.ch-cb p span{display:block;font-size:27px}
+.ch-cb em{font:normal 900 1.08em 'Inter','Noto Sans Devanagari',sans-serif;color:#d10a14}
+.ch-cb i{flex:none;font-style:normal;font-size:52px;line-height:1}
+.ch-card.apy .ch-cb{flex-direction:column;justify-content:center;gap:4px;text-align:center}   /* text on top, the couple under it */
+.ch-card.apy .ch-cb p{flex:none}
+.ch-card.apy .ch-cb i{font-size:46px}
+
+/* bottom: सूचना line, three slogans, "Central Bank of India – Always with you..." */
+.ch-ticker{position:absolute;left:0;width:1060px;top:576px;height:50px;display:flex;align-items:center;overflow:hidden;
+  background:linear-gradient(90deg,#061a58,#0d3196);border-top:2px solid rgba(255,255,255,.3)}
+.ch-tag{flex:none;height:100%;display:flex;align-items:center;gap:8px;padding:0 30px 0 18px;font-size:30px;font-weight:900;
+  background:linear-gradient(#ff2d2d,#c4000b);clip-path:polygon(0 0,calc(100% - 16px) 0,100% 50%,calc(100% - 16px) 100%,0 100%)}
+.ch-tag i{font:normal 900 40px/1 'Inter',sans-serif}
+.ch-tw{flex:1;min-width:0;overflow:hidden;white-space:nowrap;padding-left:18px}
+.ch-tm{display:inline-block;font-size:27px;font-weight:700}
+.ch-tm.run{padding-left:100%;animation:bcs-scroll 30s linear infinite}
+.ch-slogans{position:absolute;left:0;width:1060px;top:626px;bottom:0;display:flex;align-items:center;background:linear-gradient(#ffe24f,#ffc400);color:#0b2a6e}
+.ch-slogans span{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:0 16px;font-size:23px;font-weight:800;line-height:1.2;
+  border-right:2px solid rgba(11,42,110,.28)}
+.ch-slogans span:last-child{border-right:0}
+.ch-slogans i{flex:none;font-style:normal;font-size:38px}
+.ch-brand{position:absolute;right:0;width:220px;top:576px;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+  padding:0 6px;background:linear-gradient(#ff2d2d,#b0000a);font-family:'Inter',sans-serif;line-height:1.1}
+.ch-brand b{font-size:28px;font-weight:900;white-space:nowrap}
+.ch-brand small{font-size:19px;font-style:italic;margin-top:8px}
+
+/* tall phone stage (720 wide, 820-1100 high): presenter on top, cards and सूचना anchored to the bottom;
+   the topic and slogans ride in the सूचना line */
+.bcs-stage.ch-tall .ch-head{height:100px;gap:10px;padding:0 12px}
+.bcs-stage.ch-tall .ch-logo{height:58px}
+.bcs-stage.ch-tall .ch-ttl b{font-size:28px}
+.bcs-stage.ch-tall .ch-ttl span{font-size:22px;margin-top:3px}
+.bcs-stage.ch-tall .ch-live{font-size:28px;padding:8px 14px;gap:8px}
+.bcs-stage.ch-tall .ch-live i{border-left-width:16px;border-top-width:10px;border-bottom-width:10px}
+.bcs-stage.ch-tall .ch-info{left:16px;right:16px;top:auto;bottom:60px;height:316px}
+.bcs-stage.ch-tall .ch-welcome{height:66px;padding-left:62px}
+.bcs-stage.ch-tall .ch-welcome i{font-size:44px}
+.bcs-stage.ch-tall .ch-welcome b{font-size:36px}
+.bcs-stage.ch-tall .ch-notice{height:46px;margin:0 10px;font-size:27px}
+.bcs-stage.ch-tall .ch-topic,.bcs-stage.ch-tall .ch-slogans,.bcs-stage.ch-tall .ch-brand,.bcs-stage.ch-tall .ch-cb i{display:none}
+.bcs-stage.ch-tall .ch-cards{gap:10px}
+.bcs-stage.ch-tall .ch-ch{height:84px;padding:4px 6px}
+.bcs-stage.ch-tall .ch-ch span{font-size:19px}
+.bcs-stage.ch-tall .ch-ch b{font-size:26px}
+.bcs-stage.ch-tall .ch-cb{justify-content:center;padding:6px 8px;text-align:center}
+.bcs-stage.ch-tall .ch-cb p{font-size:21px}
+.bcs-stage.ch-tall .ch-cb p span{font-size:25px}
+.bcs-stage.ch-tall .ch-ticker{width:auto;right:0;top:auto;bottom:0}
