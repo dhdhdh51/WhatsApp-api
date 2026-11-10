@@ -82,7 +82,7 @@ if (q('speak') !== '') {
         Meetings::revokeSpeak($id, $who);
     }
     // a broadcast is a group video call: taking the mic back keeps the person's camera
-    echo json_encode(['ok' => Livekit::setCanPublish((string) $m['room'], $who, $allow, $isBroadcast && !Meetings::isGuest($who)), 'allow' => $allow]);
+    echo json_encode(['ok' => Livekit::setCanPublish((string) $m['room'], $who, $allow, Meetings::keepsCamera($m, $who)), 'allow' => $allow]);
     exit;
 }
 
@@ -159,7 +159,7 @@ if (q('summary') !== '') {
 // (camera + mic) so an older cached meet.js still works.
 $canPublish = !$isBroadcast || $canModerate || Meetings::isSpeaker($id, $meActor);
 $canVideo = ($m['mode'] ?? 'video') === 'video';
-$meName = Meetings::displayName($user);            // "Deepak Sharma (RO Agra)"
+$meName = Meetings::displayName($user);            // a BC Supervisor: "DEEPAK SHARMA - BC SUPERVISOR AGRA RO"
 $token = Livekit::token((string) $m['room'], $meActor, $meName, $canPublish || $canVideo, 7200, $canPublish ? null : ['camera'],
     ['role' => Auth::roleLabel((string) $user['role'])]);
 if (!$token) {
@@ -178,6 +178,8 @@ $cfg = [
     'name' => $meName,
     'meeting_id' => $id,
     'is_broadcast' => $isBroadcast,
+    'guest_only' => Meetings::isGuestBroadcast($m),   // the screen counts guests instead of BCs
+    'stage_style' => Meetings::isChannel($m) ? 'channel' : '',   // Broadcast 2: TV-channel stage
     'can_publish' => $canPublish,
     'can_video' => $canVideo,
     // panel admins/supervisors moderate; a CBC only in their own meeting
@@ -189,6 +191,7 @@ $cfg = [
     'host_role' => $host['role'],
     'host_region' => $host['region'],
     'host_identity' => $host['identity'],
+    'host_label' => $host['label'],   // BC Supervisor host: "DEEPAK SHARMA - BC SUPERVISOR AGRA RO"
     'logo' => App\Settings::get('bank_logo'),
     'headlines_tag' => App\Settings::get('broadcast_notice_title'),
     'headlines' => App\Settings::get('broadcast_notice'),
@@ -213,12 +216,12 @@ header('Cache-Control: no-store');
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title><?= e($m['title']) ?> · <?= $isBroadcast ? 'Broadcast' : 'Meeting' ?></title>
-<link rel="stylesheet" href="/app/meet.css?v=12">
+<link rel="stylesheet" href="/app/meet.css?v=16">
 </head>
 <body>
 <div id="meet"></div>
 <script>window.MEET_CONFIG = <?= json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;</script>
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js" crossorigin="anonymous"></script>
-<script src="/app/meet.js?v=12"></script>
+<script src="/app/meet.js?v=16"></script>
 </body>
 </html>

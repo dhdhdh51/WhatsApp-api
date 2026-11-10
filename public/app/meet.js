@@ -23,6 +23,7 @@
   var G = {};                 // studio gallery tiles: key -> { el, vid, track, allow }
   var gpage = 0, stagePin = null, stageId = null, stageIsCam = false;
   var stageGuests = [], STAGE_MAX = 2, missingOpen = false;   // people the host brought onto the stage (identities, room metadata)
+  var channel = false;        // Broadcast 2: the stage is drawn as a TV news channel (buildChannel)
   var ready = false, ended = false, endingAll = false, phase = 'start', sidePanel = '', sunread = 0;   // ready = connected to the room
   var canShare = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);   // phones: no screen share
   var PER = Math.max(1, Math.min(12, parseInt((location.search.match(/[?&]per=(\d+)/) || [])[1] || '6', 10) || 6));
@@ -385,8 +386,11 @@
     if (tr) { if (v.dataset.att !== '1') { tr.attach(v); v.dataset.att = '1'; } p.el.classList.add('has-video'); } else p.el.classList.remove('has-video');
     var mod = p.el.querySelector('.mt-mod'); if (mod) mod.textContent = p.micOff ? '🔈' : '🔇';
   }
+  // meeting tiles: the host, then every BC Supervisor, always first; then whoever is talking, raised hands, me, the rest by name
+  function firstRank(k) { return k === hostKey() ? 0 : (supKey(k) ? 1 : 2); }
   function order() {
     return Object.keys(P).sort(function (a, b) { var pa = P[a], pb = P[b];
+      var fa = firstRank(a), fb = firstRank(b); if (fa !== fb) return fa - fb;
       if (!!pb.speaking !== !!pa.speaking) return pb.speaking ? 1 : -1; if (!!pb.hand !== !!pa.hand) return pb.hand ? 1 : -1;
       if (pa.isLocal !== pb.isLocal) return pa.isLocal ? -1 : 1; return String(pa.name).localeCompare(String(pb.name)); });
   }
@@ -406,6 +410,7 @@
     ids.forEach(function (id) { var p = P[id]; if (vis.indexOf(id) < 0 && p.el && p.el.parentNode) { var v = p.el.querySelector('video'); if (p.videoTrack && v && v.dataset.att === '1') { try { p.videoTrack.detach(v); } catch (e) {} v.dataset.att = ''; } p.el.remove(); } });
     vis.forEach(function (id) { if (!P[id].el) P[id].el = makeTile(id); grid.appendChild(P[id].el); updateTile(id); });
     if (!ids.length) grid.innerHTML = '<div class="mt-wait">' + (broadcastMode ? 'Host connect ho raha hai… 📢' : 'Koi aur nahi juda.') + '</div>';
+    else { var wt = grid.querySelector('.mt-wait'); if (wt) wt.remove(); }   // people are here now: drop the "Koi aur nahi juda" note
     grid.classList.toggle('zoomed', !!pinned);
     grid.style.gridTemplateColumns = 'repeat(' + (pinned ? 1 : (vis.length <= 1 ? 1 : (vis.length <= 4 ? 2 : 3))) + ', 1fr)';
     countEl.textContent = '👥 ' + ids.length; updateHandsBadge();
@@ -459,13 +464,42 @@
   function keyOf(identity) { return identity && identity === localId() ? 'me' : identity; }
   function idOf(k) { return k === 'me' ? localId() : k; }
   function roleOf(k) { var x = parts[idOf(k)]; return (x && x.role) || ''; }
+  // the role to print after a name, or '' when the name already says it
+  // (a BC Supervisor's meeting name reads "DEEPAK SHARMA - BC SUPERVISOR AGRA RO")
+  function extraRole(nm, r) { return r && String(nm || '').toUpperCase().indexOf(String(r).toUpperCase()) < 0 ? r : ''; }
+  // Is this person a BC Supervisor? (role from their meeting token; their name also reads "… - BC SUPERVISOR …")
+  // In broadcasts and meetings they come first, right after the host: tiles, gallery, people list.
+  function supKey(k) {
+    var r = String((P[k] && P[k].role) || roleOf(k) || '').trim();
+    return /^bc supervisor$/i.test(r) || /(^| - )BC SUPERVISOR( |$)/.test(String(nameOf(k) || ''));   // also "BC SUPERVISOR AGRA RO"
+  }
+  // the name strip on someone's video; for the host the server sends it (a BC Supervisor: only that label)
+  function stripText(k) {
+    var id = idOf(k);
+    if (id && id === cfg.host_identity && cfg.host_label) return cfg.host_label;
+    var nm = nameOf(k), r = extraRole(nm, id && id === cfg.host_identity ? cfg.host_role : roleOf(k));
+    return nm + (r ? ' · ' + r : '');
+  }
   function isBcId(id) { return /^bc-\d+$/.test(id || ''); }
+  function isGuestId(id) { return /^guest-\d+$/.test(id || ''); }
   function canStage() { return isHost && broadcastMode; }
-  // "BC 12/28 जुड़े": BCs in the room / BCs this meeting is for
-  function bcNums() { var n = Object.keys(parts).filter(isBcId).length, t = cfg.bc_total | 0; return n + (t ? '/' + t : '') + ' जुड़े'; }
-  function bcText() { return 'BC ' + bcNums(); }
-  // the strip under the video: [LIVE] [RO Agra] [Deepak Sharma / BC Supervisor] – wraps instead of being cut
-  function setLT(tag, name, sub) { S.ltRole.textContent = tag || ''; S.ltName.textContent = name || ''; S.ltSub.textContent = sub || ''; S.ltSub.style.display = sub ? '' : 'none'; }
+  // "BC 12/28 जुड़े": BCs in the room / BCs this meeting is for. A guest broadcast has no BCs: it counts its guests.
+  function audId(id) { return cfg.guest_only ? isGuestId(id) : isBcId(id); }
+  function audLabel() { return cfg.guest_only ? 'अतिथि' : 'BC'; }
+  function bcNums() { var n = Object.keys(parts).filter(audId).length, t = cfg.guest_only ? 0 : cfg.bc_total | 0; return n + (t ? '/' + t : '') + ' जुड़े'; }
+  function bcText() { return audLabel() + ' ' + bcNums(); }
+  // the strip under the video: [LIVE] [tag] [name · sub] – wraps instead of being cut; an empty tag or sub is hidden
+  function setLT(tag, name, sub) {
+    S.ltRole.textContent = tag || ''; S.ltRole.style.display = tag ? '' : 'none';
+    S.ltName.textContent = name || ''; S.ltSub.textContent = sub || ''; S.ltSub.style.display = sub ? '' : 'none';
+  }
+  // the host's strip. A BC Supervisor: only [LIVE] [DEEPAK SHARMA - BC SUPERVISOR AGRA RO].
+  // Anyone else as before: [LIVE] [RO or role] [name · role].
+  function hostLT() {
+    if (cfg.host_label) { setLT('', cfg.host_label, ''); return; }
+    var ro = cfg.host_region || '';
+    setLT(ro || cfg.host_role || 'Host', cfg.host_name || 'Host', ro ? (cfg.host_role || '') : '');
+  }
   function tickerSpeed(el, pxPerSec) {   // long notices scroll at a readable speed
     setTimeout(function () { var w = el.scrollWidth || el.offsetWidth; if (w > 0) el.style.animationDuration = Math.max(20, Math.round(w / pxPerSec)) + 's'; }, 300);
   }
@@ -473,7 +507,7 @@
     root = document.getElementById('meet') || document.body;
     var brand = cfg.brand || 'BC Monitoring App', bank = cfg.bank || 'Central Bank of India';
     var title = cfg.title || 'BC समन्वय बैठक', sub = cfg.subtitle || 'APY, PMJJBY, PMSBY एवं PMJDY की प्रगति समीक्षा';
-    var ro = cfg.host_region || '', who = (cfg.host_name || 'Host') + (cfg.host_role ? ' (' + cfg.host_role + ')' : '');
+    var ro = cfg.host_region || '', who = cfg.host_label || ((cfg.host_name || 'Host') + (cfg.host_role ? ' (' + cfg.host_role + ')' : ''));
     root.innerHTML = '<div class="bcs">' +
       '<header class="bcs-top"><div class="bcs-brand"><div class="bcs-logo' + (cfg.logo ? ' img' : '') + '">' + (cfg.logo ? '<img src="' + esc(cfg.logo) + '" alt="' + esc(bank) + '">' : 'CBI') + '</div>' +
         '<div class="bcs-brand-t"><b>' + esc(brand) + '</b>' + (cfg.logo ? '' : '<span>' + esc(bank) + '</span>') + '</div></div>' +
@@ -483,7 +517,7 @@
       '<div class="bcs-body"><div class="bcs-main">' +
         '<main class="bcs-stage"><div class="bcs-slots"><div class="bcs-slot main"><video class="bcs-stagevid" autoplay playsinline muted></video>' +
           '<div class="bcs-stage-ph"><div class="av">●</div><div class="nm"></div><div class="sub">Host connect ho raha hai…</div></div></div></div>' +
-          '<div class="bcs-ov"><div class="bcs-count" title="कितने BC जुड़े हैं"></div><div class="bcs-pin"></div></div><div class="bcs-toast"></div>' +
+          '<div class="bcs-ov"><div class="bcs-count" title="कितने ' + audLabel() + ' जुड़े हैं"></div><div class="bcs-pin"></div></div><div class="bcs-toast"></div>' +
           '<div class="bcs-lt"><span class="bcs-lt-live">LIVE</span><span class="bcs-lt-role"></span><span class="bcs-lt-main"><b class="bcs-lt-name"></b><small class="bcs-lt-sub"></small></span></div>' +
           '<div class="bcs-ticker"><span class="bcs-ticker-tag">सूचना</span><div class="bcs-ticker-wrap"><div class="bcs-ticker-move bcs-ticker-bottom-move"></div></div></div></main>' +
         '<section class="bcs-gallery" aria-label="सभी की वीडियो"><div class="bcs-grid"></div><div class="bcs-gpager"></div></section>' +
@@ -491,7 +525,7 @@
       '<aside class="bcs-side"><button type="button" class="bcs-close">× Band karein</button>' +
         '<div class="bcs-card bcs-info"><h4>📋 मीटिंग जानकारी</h4><ul><li><b>विषय</b><span>' + esc(title) + '</span></li>' +
           (ro ? '<li><b>RO</b><span>' + esc(ro) + '</span></li>' : '') +
-          '<li><b>समय</b><span class="bcs-itime"></span></li><li><b>आयोजक</b><span>' + esc(who) + '</span></li><li><b>BC</b><span class="bcs-ibc"></span></li></ul></div>' +
+          '<li><b>समय</b><span class="bcs-itime"></span></li><li><b>आयोजक</b><span>' + esc(who) + '</span></li><li><b>' + audLabel() + '</b><span class="bcs-ibc"></span></li></ul></div>' +
         '<div class="bcs-card bcs-plist"><h4>👥 प्रतिभागी (<span class="bcs-pc">0</span>) <span class="bcs-pbc"></span></h4><div class="bcs-parts"></div></div>' +
         '<div class="bcs-card bcs-chat"><h4>💬 चैट</h4><div class="bcs-chatlog"></div><div class="bcs-chatin"><input type="text" maxlength="500" placeholder="संदेश लिखें…"><button>➤</button></div></div></aside></div>' +
       '<footer class="bcs-controls"></footer></div>';
@@ -506,14 +540,94 @@
     q('.bcs-chatin button').onclick = safe(sendChat, 'send'); S.chatin.onkeydown = function (e) { if (e.key === 'Enter') sendChat(); };
     q('.bcs-close').onclick = closeSide;
     S.stage.onclick = function () { if (stagePin) { stagePin = null; studioRender(); } };   // tap the stage = back to the host
-    setLT(ro || cfg.host_role || 'Host', cfg.host_name || 'Host', ro ? (cfg.host_role || '') : '');
+    hostLT();
     var notice = cfg.ticker || 'सभी BC साथी अपने-अपने क्षेत्र में योजनाओं की प्रगति रिपोर्ट समय पर अपडेट करें';
     q('.bcs-ticker-bottom-move').innerHTML = esc(notice) + ' &nbsp;&nbsp; <b>APY</b> • <b>PMJJBY</b> • <b>PMSBY</b> • <b>PMJDY</b> &nbsp;&nbsp; ' + esc(notice);
     var head = cfg.headlines || ('🔴 LIVE: ' + (ro ? ro + ' – ' : '') + title + '  •  ' + sub + '  •  ' + (ro ? ro + ' के ' : '') + 'सभी प्रतिभागी कैमरा चालू रखें और अपने क्षेत्र के आँकड़े तैयार रखें');
     var topT = q('.bcs-ticker-top-move'); topT.innerHTML = esc(head) + ' &nbsp;&nbsp; • &nbsp;&nbsp; ' + esc(head); tickerSpeed(topT, 55);
     if (S.itime) S.itime.textContent = t12(new Date());
     clockTick(); setInterval(clockTick, 20000);
-    window.addEventListener('resize', function () { fitControls(); studioGallery(); });
+    if (channel) buildChannel();
+    window.addEventListener('resize', function () { fitControls(); studioGallery(); layoutChannel(); });
+  }
+
+  // ================= Broadcast 2: the stage as a TV news channel ("Central Bank BC Meeting Channel") =================
+  // The frame is drawn at a fixed design size and scaled to fit the stage: 1280x720 on a wide stage, 720 wide and
+  // 820-1100 high on a tall phone stage (there the topic and slogans move into the scrolling सूचना line). The live video boxes
+  // (.bcs-slots) are placed over the presenter area. A screen share, or a tile I enlarged, fills the stage as usual.
+  var CH = {
+    resolve: 'आज का संकल्प – कोई भी पात्र ग्राहक इन योजनाओं से वंचित न रहे',
+    topic: 'आज की विशेष BC मीटिंग में हमारा मुख्य विषय – APY, PMJJBY और PMSBY में अधिकतम नामांकन करना है!',
+    slogans: [['👥', 'सभी BC साथी सक्रिय बनें'], ['🎯', 'आज का लक्ष्य – अधिक से अधिक नामांकन'], ['🤝', 'आपकी सफलता ही हमारी शक्ति है']]
+  };
+  // "RO Agra" / "Agra RO" -> "Regional Office – Agra"; an org-wide broadcast shows its title instead
+  function roLine() {
+    var ro = String(cfg.host_region || '').trim();
+    if (!ro) return cfg.title || '';
+    return 'Regional Office – ' + (ro.replace(/^(R\.?O\.?|Regional Office)[\s\-–:]+/i, '').replace(/[\s\-–]+R\.?O\.?$/i, '').trim() || ro);
+  }
+  // a scheme card: the scheme's name and code only (the user removed the lines under them)
+  function chCard(cls, name, code) {
+    return '<div class="ch-card ' + cls + '"><div class="ch-ch"><span>' + name + '</span><b>(' + code + ')</b></div></div>';
+  }
+  function buildChannel() {
+    var c = document.createElement('div'); c.className = 'bcs-ch'; c.setAttribute('aria-hidden', 'true');
+    var logo = cfg.logo ? '<img src="' + esc(cfg.logo) + '" alt="">' : '<b>सेन्ट्रल बैंक ऑफ़ इंडिया</b><span>Central Bank of India</span>';
+    c.innerHTML =
+      '<div class="ch-head"><div class="ch-logo' + (cfg.logo ? ' img' : '') + '">' + logo + '</div>' +
+        '<div class="ch-ttl"><b>Central Bank BC Meeting Channel</b><span>' + esc(roLine()) + '</span></div><div class="ch-live"><i></i>LIVE</div></div>' +
+      // welcome, topic (wide stage only) and the scheme cards; the yellow "महत्वपूर्ण सूचना" bar was removed at the user's request
+      '<div class="ch-info"><div class="ch-welcome"><i>📢</i><b>आप सभी का मीटिंग में स्वागत है!</b></div>' +
+        '<div class="ch-topic"><span>आज की विशेष BC मीटिंग में हमारा मुख्य विषय –</span><span><b>APY, PMJJBY और PMSBY</b> में अधिकतम नामांकन करना है!</span></div>' +
+        '<div class="ch-cards">' +
+          chCard('apy', 'अटल पेंशन योजना', 'APY') +
+          chCard('jjby', 'प्रधानमंत्री जीवन ज्योति बीमा योजना', 'PMJJBY') +
+          chCard('sby', 'प्रधानमंत्री सुरक्षा बीमा योजना', 'PMSBY') +
+        '</div></div>' +
+      '<div class="ch-ticker"><span class="ch-tag">सूचना <i>›</i></span><div class="ch-tw"><div class="ch-tm"></div></div></div>' +
+      '<div class="ch-slogans">' + CH.slogans.map(function (s) { return '<span><i>' + s[0] + '</i>' + s[1] + '</span>'; }).join('') + '</div>' +
+      '<div class="ch-brand"><b>Central Bank<br>of India</b><small>Always with you...</small></div>';
+    S.stage.insertBefore(c, S.stage.firstChild);
+    S.ch = c; S.chTm = c.querySelector('.ch-tm'); S.chKey = '';
+    S.chName = document.createElement('div'); S.chName.className = 'ch-name'; q('.bcs-slot.main').appendChild(S.chName);
+    // the stage changes size when the gallery gains or loses a row
+    if (window.ResizeObserver) { try { new ResizeObserver(function () { layoutChannel(); }).observe(S.stage); } catch (e) {} }
+    // the Hindi web font changes text widths: measure the सूचना line again once it has loaded
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { if (S.chKey) chTicker(S.stage.classList.contains('ch-tall')); });
+  }
+  function channelStage(id, p) {
+    var on = !(p && p.screen) && !(stagePin && stagePin === id);
+    S.stage.classList.toggle('channel', on);
+    S.chName.textContent = id ? stripText(id) : '';   // BC Supervisor host: "DEEPAK SHARMA - BC SUPERVISOR AGRA RO"
+    layoutChannel();
+  }
+  function layoutChannel() {
+    if (!S.ch) return;
+    var sl = S.slots;
+    if (!S.stage.classList.contains('channel')) {   // back to the normal stage: the video boxes fill it again
+      if (S.chKey) { S.chKey = ''; ['left', 'top', 'width', 'height', 'right', 'bottom'].forEach(function (k) { sl.style[k] = ''; }); S.stage.classList.remove('ch-wide', 'ch-tall'); }
+      return;
+    }
+    var W = S.stage.clientWidth, H = S.stage.clientHeight; if (!W || !H) return;
+    var key = W + 'x' + H; if (key === S.chKey) return;
+    // a tall stage grows the design to its own shape (the presenter gets the extra height); wide stays 1280x720
+    var tall = W / H < 1.25, dw = tall ? 720 : 1280, dh = tall ? Math.max(820, Math.min(1100, Math.round(dw * H / W))) : 720;
+    var s = Math.min(W / dw, H / dh), ox = (W - dw * s) / 2, oy = (H - dh * s) / 2;
+    // presenter box in design pixels: x, y, w, h. Tall: it ends 12px above the cards (welcome + cards = 160, ticker = 60).
+    var r = tall ? [16, 112, 688, dh - 344] : [16, 108, 384, 458];
+    var was = S.stage.classList.contains('ch-tall'); S.chKey = key;
+    S.stage.classList.toggle('ch-tall', tall); S.stage.classList.toggle('ch-wide', !tall);
+    S.ch.style.width = dw + 'px'; S.ch.style.height = dh + 'px';
+    S.ch.style.transform = 'translate(' + ox.toFixed(1) + 'px,' + oy.toFixed(1) + 'px) scale(' + s.toFixed(4) + ')';
+    sl.style.left = Math.round(ox + r[0] * s) + 'px'; sl.style.top = Math.round(oy + r[1] * s) + 'px';
+    sl.style.width = Math.round(r[2] * s) + 'px'; sl.style.height = Math.round(r[3] * s) + 'px'; sl.style.right = 'auto'; sl.style.bottom = 'auto';
+    if (!S.chTm.textContent || was !== tall) chTicker(tall);
+  }
+  // the सूचना line: the day's resolution; on a tall stage also the topic and slogans (their boxes are hidden there)
+  function chTicker(tall) {
+    var t = CH.resolve + (tall ? '  •  ' + CH.topic + '  •  ' + CH.slogans.map(function (s) { return s[1]; }).join('  •  ') : ''), m = S.chTm;
+    m.classList.remove('run'); m.style.animationDuration = ''; m.textContent = t;
+    if (m.scrollWidth > m.parentNode.clientWidth) { m.textContent = t + '     •     ' + t; m.classList.add('run'); m.style.animationDuration = Math.max(20, Math.round(m.scrollWidth / 110)) + 's'; }
   }
 
   // ----- stage. A screen share fills it; a tile I tapped shows big only on my screen; otherwise the host,
@@ -557,17 +671,18 @@
     var isH = !id || id === hostKey();
     if (!tr) {
       S.phAv.textContent = id ? (nameOf(id) || '?').charAt(0).toUpperCase() : '●';
-      S.phName.textContent = id ? nameOf(id) : '';
-      S.phSub.textContent = !id ? 'Host connect ho raha hai…' : (isH && cfg.host_region ? cfg.host_region + ' · camera band hai' : 'camera band hai');
+      S.phName.textContent = id ? (isH && cfg.host_label ? cfg.host_label : nameOf(id)) : '';
+      S.phSub.textContent = !id ? 'Host connect ho raha hai…' : (isH && cfg.host_region && !cfg.host_label ? cfg.host_region + ' · camera band hai' : 'camera band hai');
     }
-    if (isH) setLT(cfg.host_region || cfg.host_role || 'Host', cfg.host_name || 'Host', cfg.host_region ? (cfg.host_role || '') : '');
-    else setLT(p && p.screen ? '🖥️ Screen' : (stagePin === id ? '📌 Pin' : (p && p.speaking ? '🎤 बोल रहे हैं' : '👤')), nameOf(id), roleOf(id));
+    if (isH) hostLT();
+    else setLT(p && p.screen ? '🖥️ Screen' : (stagePin === id ? '📌 Pin' : (p && p.speaking ? '🎤 बोल रहे हैं' : '👤')), nameOf(id), extraRole(nameOf(id), roleOf(id)));
     // the people the host brought next to him: one box each, beside the host
     var want = keys.slice(1);
     Object.keys(S.gslots).forEach(function (k) { if (want.indexOf(k) < 0) dropSlot(k); });
     want.forEach(function (k, i) { var t = S.gslots[k] || makeSlot(k); paintSlot(k); if (S.slots.children[i + 1] !== t.el) S.slots.insertBefore(t.el, S.slots.children[i + 1] || null); });
     S.pin.textContent = stagePin && stagePin === id ? '📌 ' + nameOf(id) + ' · tap karke host par wapas' : '';
     S.pin.style.display = S.pin.textContent ? 'block' : 'none';
+    if (channel && S.ch) channelStage(id, p);
   }
   function makeSlot(k) {
     var el = document.createElement('div'); el.className = 'bcs-slot guest';
@@ -581,7 +696,7 @@
   }
   function dropSlot(k) { var t = S.gslots[k]; if (!t) return; if (t.track) { try { t.track.detach(t.vid); } catch (e) {} } t.el.remove(); delete S.gslots[k]; }
   function paintSlot(k) {
-    var t = S.gslots[k], p = P[k], tr = vidOf(p), nm = nameOf(k), r = roleOf(k);
+    var t = S.gslots[k], p = P[k], tr = vidOf(p), nm = nameOf(k), r = extraRole(nm, roleOf(k));
     if (t.track !== tr) { if (t.track) { try { t.track.detach(t.vid); } catch (e) {} } if (tr) { try { tr.attach(t.vid); } catch (e) {} } t.track = tr; }
     t.el.classList.toggle('has-video', !!tr); t.el.classList.toggle('me', k === 'me');
     t.el.classList.toggle('speaking', !!(p && p.speaking && (k === 'me' ? micOn : (p.audioEl && !p.micOff))));
@@ -592,7 +707,7 @@
   // what the host may do with one person: bring onto / take off the stage, let speak, take the mic back, or just enlarge locally
   function personSheet(k) {
     var old = document.getElementById('mtSheet'); if (old) old.remove();
-    var id = idOf(k), on = stageGuests.indexOf(id) >= 0, p = P[k], hasMic = !!(p && p.audioEl), nm = nameOf(k), r = roleOf(k);
+    var id = idOf(k), on = stageGuests.indexOf(id) >= 0, p = P[k], hasMic = !!(p && p.audioEl), nm = nameOf(k), r = extraRole(nm, roleOf(k));
     var full = !on && stageGuests.length >= STAGE_MAX;
     var b = function (a, cls, txt) { return '<button type="button" class="mt-sheet-btn' + (cls ? ' ' + cls : '') + '" data-a="' + a + '">' + esc(txt) + '</button>'; };
     var d = document.createElement('div'); d.id = 'mtSheet'; d.className = 'mt-sheet'; d.setAttribute('data-kind', 'person');
@@ -641,13 +756,15 @@
   }
 
   // ----- gallery: everyone's camera, like a video call (paged; only visible tiles use data) -----
-  function gPer() { return 6; }   // phone: 3 x 2 grid, desktop: one filmstrip row of 6
+  // phone: 3 x 2 grid (Broadcast 2: one row of 3, so the channel stage stays readable), desktop: one filmstrip row of 6
+  function gPer() { return channel && isPhone() ? 3 : 6; }
   function gKeys() {
     var lid = localId(), keys = room ? ['me'] : [], h = hostKey();
     Object.keys(parts).forEach(function (id) { if (id !== lid) keys.push(id); });
     var onStage = S.onStage || [];
     keys = keys.filter(function (k) { return onStage.indexOf(k) < 0; });   // people on the stage are shown there, not twice
-    function rank(k) { var p = P[k]; if (k === 'me') return 0; if (k === h) return 1; if (hands[k]) return 2; if (p && p.audioEl) return 3; if (vidOf(p)) return 4; return 5; }
+    // the host (when not on the stage), then every BC Supervisor, then me, raised hands, mics, cameras, the rest
+    function rank(k) { var p = P[k]; if (k === h) return 0; if (supKey(k)) return 1; if (k === 'me') return 2; if (hands[k]) return 3; if (p && p.audioEl) return 4; if (vidOf(p)) return 5; return 6; }
     keys.sort(function (a, b) { return (rank(a) - rank(b)) || String(nameOf(a)).localeCompare(String(nameOf(b))); });
     return keys;
   }
@@ -700,14 +817,15 @@
     if (S.pc) S.pc.textContent = ids.length;
     if (S.pbc) S.pbc.textContent = '· ' + bt;
     if (S.ibc) S.ibc.textContent = bcNums();
-    var grp = function (id) { return id === hid ? 0 : (isBcId(id) ? 2 : 1); };
+    // host, then BC Supervisors, then other staff (one "स्टाफ़ / अधिकारी" section), then the BCs / guests
+    var grp = function (id) { return id === hid ? 0 : (audId(id) ? 3 : (supKey(keyOf(id)) ? 1 : 2)); };
     ids.sort(function (a, b) { return (grp(a) - grp(b)) || ((hands[b] ? 1 : 0) - (hands[a] ? 1 : 0)) || String(parts[a].name).localeCompare(String(parts[b].name)); });
-    var nBc = ids.filter(isBcId).length, nStaff = ids.length - nBc, last = -1;
+    var nBc = ids.filter(audId).length, nStaff = ids.length - nBc, last = -1;
     S.parts.innerHTML = '';
     ids.slice(0, 150).forEach(function (id) {
-      var g = isBcId(id) ? 2 : 1;
-      if (g !== last) { last = g; var sec = document.createElement('div'); sec.className = 'bcs-psec'; sec.textContent = g === 2 ? 'BC (' + nBc + ')' : 'स्टाफ़ / अधिकारी (' + nStaff + ')'; S.parts.appendChild(sec); }
-      var me = id === lid, k = me ? 'me' : id, p = P[k], nm = nameOf(k), role = (parts[id] && parts[id].role) || '';
+      var g = audId(id) ? 2 : 1;
+      if (g !== last) { last = g; var sec = document.createElement('div'); sec.className = 'bcs-psec'; sec.textContent = g === 2 ? audLabel() + ' (' + nBc + ')' : 'स्टाफ़ / अधिकारी (' + nStaff + ')'; S.parts.appendChild(sec); }
+      var me = id === lid, k = me ? 'me' : id, p = P[k], nm = nameOf(k), role = extraRole(nm, (parts[id] && parts[id].role) || '');
       var talking = me ? (canPublish && micOn) : !!(p && p.audioEl && !p.micOff), raised = me ? myHand : !!hands[id], st = stageGuests.indexOf(id) >= 0;
       var row = document.createElement('div'); row.className = 'bcs-prow' + (canStage() && !me ? ' tap' : '');
       row.innerHTML = '<span class="pav">' + esc((nm || '?').charAt(0).toUpperCase()) + '</span><span class="pn">' + esc(nm) + (me ? ' (आप)' : '') +
@@ -735,7 +853,7 @@
       S.parts.appendChild(det);
     }
   }
-  function studioRender() { if (!S.grid) return; studioStage(); studioGallery(); studioParts(); }
+  function studioRender() { if (!S.grid) return; studioStage(); studioGallery(); studioParts(); if (channel) layoutChannel(); }   // the gallery may have resized the stage
   function sbtn(ic, label, cls, fn, badge) {
     var b = document.createElement('button'); b.type = 'button'; b.className = 'bcs-btn' + (cls ? ' ' + cls : '');
     b.innerHTML = '<i>' + ic + '</i><span>' + esc(label) + '</span>' + (badge ? '<b class="bdg">' + badge + '</b>' : '');
@@ -819,10 +937,18 @@
         return;
       }
       cfg = c; phase = 'connecting'; mode = c.mode === 'voice' ? 'voice' : 'video'; isHost = !!c.is_host; broadcastMode = !!c.is_broadcast; studio = broadcastMode;
+      channel = studio && c.stage_style === 'channel';
       canPublish = (c.can_publish !== false);
       canVideo = mode === 'video' && (c.can_video === undefined ? canPublish : !!c.can_video);
       if (studio) { buildStudio(); joinStudio(); }
-      else { build(); titleEl.textContent = (c.host_region ? c.host_region + ' · ' : '') + (c.title || 'Meeting'); if (broadcastMode) liveEl.textContent = '🔴 LIVE'; join(); }
+      else {
+        build();
+        // meeting header: a BC Supervisor host's label first ("DEEPAK SHARMA - BC SUPERVISOR AGRA RO · title"), else the RO
+        var lead = c.host_label || c.host_region || '';
+        titleEl.textContent = (lead ? lead + ' · ' : '') + (c.title || 'Meeting');
+        if (broadcastMode) liveEl.textContent = '🔴 LIVE';
+        join();
+      }
     });
   }
 
@@ -840,7 +966,7 @@
   function join() {
     var LK = window.LivekitClient; room = commonRoom();
     room.on(LK.RoomEvent.TrackSubscribed, function (track, pub, rp) {
-      var p = upsert(rp.identity, rp.name || rp.identity, false);
+      var p = upsert(rp.identity, rp.name || rp.identity, false); p.role = metaOf(rp).role || p.role || '';
       if (track.kind === 'video') { p.videoTrack = track; p.camOff = !!pub.isMuted; }
       else {
         var a = document.createElement('audio'); a.autoplay = true; track.attach(a); audioBox.appendChild(a); p.audioEl = a; p.micOff = !!pub.isMuted;
@@ -856,7 +982,7 @@
     });
     room.on(LK.RoomEvent.TrackMuted, function (pub, rp) { var p = P[rp.identity]; if (!p) return; if (pub.kind === 'audio') p.micOff = true; else p.camOff = true; updateTile(rp.identity); });
     room.on(LK.RoomEvent.TrackUnmuted, function (pub, rp) { var p = P[rp.identity]; if (!p) return; if (pub.kind === 'audio') p.micOff = false; else p.camOff = false; updateTile(rp.identity); });
-    room.on(LK.RoomEvent.ParticipantConnected, function (rp) { if (broadcastMode) { viewers++; countEl.textContent = '👁 ' + viewers; } else { upsert(rp.identity, rp.name || rp.identity, false); setStatus('Connected'); render(); } });
+    room.on(LK.RoomEvent.ParticipantConnected, function (rp) { if (broadcastMode) { viewers++; countEl.textContent = '👁 ' + viewers; } else { upsert(rp.identity, rp.name || rp.identity, false).role = metaOf(rp).role || ''; setStatus('Connected'); render(); } });
     room.on(LK.RoomEvent.ParticipantDisconnected, function (rp) { if (hands[rp.identity]) { delete hands[rp.identity]; updateHandsBadge(); renderTray(); } drop(rp.identity); render(); });
     room.on(LK.RoomEvent.ActiveSpeakersChanged, function (sp) { var on = {}, me = localId(); sp.forEach(function (s) { on[s.identity] = true; }); Object.keys(P).forEach(function (id) { P[id].speaking = !!on[id === 'me' ? me : id]; }); render(); });
     if (LK.RoomEvent.ParticipantAttributesChanged) room.on(LK.RoomEvent.ParticipantAttributesChanged, function (ch, rp) { if (rp === room.localParticipant) return; if (ch && typeof ch.hand !== 'undefined') handRaised(rp.identity, rp.name || rp.identity, ch.hand === '1'); });
@@ -870,7 +996,8 @@
       ready = true; phase = 'live';
       viewers = (room.remoteParticipants ? room.remoteParticipants.size : 0) + 1; setStatus('Connected');
       startChat();
-      var media = canPublish ? (upsert('me', cfg.name || 'Main', true), enableLocalMedia()) : null;
+      if (canPublish) upsert('me', cfg.name || 'Main', true).role = metaOf(room.localParticipant).role || '';
+      var media = canPublish ? enableLocalMedia() : null;
       return Promise.resolve(media).then(null, function (e) { report(e && e.message, 'media'); })
         .then(function () { if (!ended) { refreshSafe(); tryAutoAudio(); } });
     }, function (e) { fail('Join nahi ho payi: ' + (e && e.message ? e.message : 'camera/mic ya network problem')); });

@@ -100,3 +100,52 @@ is a one-to-many town-hall:
 Because a broadcast can put the whole organisation in one room, keep the UDP media
 port (7882) and the ICE/TCP fallback (7881) open, and watch the server's uplink
 bandwidth during large town-halls.
+
+## The three broadcasts on the Meetings page
+
+The panel (`/meetings.php`) offers these three broadcasts first, then the meeting
+types Everyone / CBCs / BCs / One branch (`all`, `cbc`, `bc`, `branch`). CBC
+meetings started from the app (`cbc_bcs`, `one_bc`, `selected`) are unchanged.
+
+| Panel label | `audience` | Who is rung | Stage |
+|---|---|---|---|
+| 📢 Broadcast | `broadcast` | every active BC + staff in reach | studio stage (host, lower third, सूचना ticker) |
+| 📺 Broadcast 2 | `channel` | the same as Broadcast 1 | TV news-channel frame: bank logo, "Central Bank BC Meeting Channel" + RO, LIVE, welcome / topic, APY · PMJJBY · PMSBY cards (scheme names only), सूचना line, slogans |
+| 🔗 Broadcast 3 | `guest` | nobody | studio stage; people join only through guest links |
+
+All three are group video calls: everyone shows their camera, and the mic is for
+the host and the people he allows (✋ → "🎤 Allow", or "⭐ मंच पर लाएँ").
+
+A BC Supervisor's name in every meeting reads `DEEPAK SHARMA - BC SUPERVISOR AGRA RO`
+(`Meetings::displayName` / `supervisorLabel`): name, role and RO in capitals. The RO
+is written `<CITY> RO` however the region is named. An account named only after the
+post ("Agra RO Supervisor", "BC Supervisor") has no person's name to show, so its
+label is just `BC SUPERVISOR AGRA RO`. Set the person's name on the Users page to get
+`DEEPAK SHARMA - BC SUPERVISOR AGRA RO`. When a BC Supervisor hosts, the strip on the
+host's video shows only that label (`host_label`). Admin and CBC names are unchanged.
+
+BC Supervisors come first, right after the host (`supKey` in `meet.js`; role taken from
+the participant's token metadata). This applies to the meeting tiles, the broadcast
+gallery, and the people list (host, BC Supervisors, other staff, then BCs/guests). A
+meeting's header starts with the host's label when a BC Supervisor hosts
+(`DEEPAK SHARMA - BC SUPERVISOR AGRA RO · title`). Meeting tile names wrap to 3 lines
+instead of being cut.
+
+**Broadcast 2** sends `stage_style: 'channel'` to the meeting screen.
+`public/app/meet.js` (`buildChannel` / `layoutChannel`) draws the frame at a fixed
+design size and scales it to the stage. A wide stage uses 1280×720. A tall phone
+stage uses 720 wide and 820–1100 high, and the topic and slogans move into the
+scrolling सूचना line. The live video boxes are placed over the presenter area. A
+screen share, or a tile a viewer enlarged, fills the stage without the frame. On
+phones the gallery shows one row of 3, so the frame stays readable.
+
+**Broadcast 3** rings nobody: no BC, CBC or staff member gets a notification or an
+in-app banner, and the scheduler does not re-ring. Starting it creates the first
+guest link at once (`src/GuestLinks.php`). The host copies the link or shares it on
+WhatsApp, and can make more with "Guest link". A guest opens the link, types a
+name and joins with the camera on (camera-only token). Staff join from the panel
+("Join"). Links stop working when the broadcast ends or the host closes them.
+
+A Broadcast 3 link allows 300 joins per hour (30 per IP in 15 minutes). A guest
+link in any other meeting allows 40 (10 per IP), and that guest stays view-only
+until the host brings them onto the stage.

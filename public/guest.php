@@ -75,7 +75,7 @@ if (!$guest) {
         $name = GuestLinks::cleanName((string) p('name'));
         if ($name === '') {
             $error = 'कृपया अपना नाम लिखें।';
-        } elseif (GuestLinks::joinLimited($linkId, client_ip())) {
+        } elseif (GuestLinks::joinLimited($linkId, client_ip(), Meetings::isGuestBroadcast($link))) {
             $error = 'अभी बहुत लोग इस लिंक से जुड़ रहे हैं। कुछ मिनट बाद फिर से कोशिश करें।';
         } else {
             $id = App\DB::insert('INSERT INTO meeting_guests (link_id, meeting_id, name, ip, joined_at) VALUES (?, ?, ?, ?, NOW())',
@@ -88,7 +88,8 @@ if (!$guest) {
     }
     $h = Meetings::hostInfo($link);
     $role = strcasecmp($h['role'], $h['name']) === 0 ? '' : $h['role'];   // "Admin, Admin" -> "Admin"
-    $by = trim($h['name'] . ($role !== '' ? ', ' . $role : '') . ($h['region'] !== '' ? ' (' . $h['region'] . ')' : ''));
+    $by = $h['label'] !== '' ? $h['label']   // a BC Supervisor: "DEEPAK SHARMA - BC SUPERVISOR AGRA RO"
+        : trim($h['name'] . ($role !== '' ? ', ' . $role : '') . ($h['region'] !== '' ? ' (' . $h['region'] . ')' : ''));
     guest_page($link['title'],
         '<div class="card"><p class="gl-title">' . e($link['title']) . '</p>'
         . ($by !== '' ? '<p class="gl-host">आयोजक: ' . e($by) . '</p>' : '') . '</div>'
@@ -98,7 +99,9 @@ if (!$guest) {
         . '<div class="field mb"><label for="gn">नाम और पद</label>'
         . '<input id="gn" name="name" maxlength="50" required autocomplete="name" placeholder="जैसे: आर.के. शर्मा, एजीएम" value="' . e((string) p('name')) . '"></div>'
         . '<button class="btn" type="submit">मीटिंग में शामिल हों</button></form>'
-        . '<p class="muted" style="text-align:center;margin-top:16px">शुरुआत में आप मीटिंग देख और सुन सकेंगे। आयोजक के बुलाने पर आपका माइक और कैमरा चालू होगा।</p>');
+        . '<p class="muted" style="text-align:center;margin-top:16px">' . (Meetings::isGuestBroadcast($link)
+            ? 'जुड़ते ही आपका कैमरा चालू होगा, ताकि सब एक-दूसरे को देख सकें। बोलने के लिए ✋ हाथ उठाएँ, आयोजक अनुमति देंगे।'
+            : 'शुरुआत में आप मीटिंग देख और सुन सकेंगे। आयोजक के बुलाने पर आपका माइक और कैमरा चालू होगा।') . '</p>');
 }
 
 $actor = 'guest-' . (int) $guest['id'];
@@ -133,10 +136,13 @@ if (q('left') !== '') {
         . '<a class="btn" style="text-align:center;text-decoration:none" href="' . e($self) . '">फिर से शामिल हों</a>');
 }
 
-// ---- the meeting screen: view-only, unless the host already brought this guest onto the stage ----
+// ---- the meeting screen. Mic + camera once the host allowed this guest (stage / raised hand).
+//      Broadcast 3 is everyone's video: every guest shows their camera from the start, like a BC in
+//      a broadcast. Elsewhere a guest is view-only until the host brings them onto the stage. ----
 $onStage = Meetings::isSpeaker($meetingId, $actor);
-$canVideo = $onStage && ($link['mode'] ?? 'video') === 'video';
-$token = Livekit::token((string) $link['room'], $actor, $name, $onStage, 7200, null, ['role' => 'अतिथि अधिकारी']);
+$isVideo = ($link['mode'] ?? 'video') === 'video';
+$canVideo = $isVideo && ($onStage || Meetings::isGuestBroadcast($link));
+$token = Livekit::token((string) $link['room'], $actor, $name, $onStage || $canVideo, 7200, $onStage ? null : ['camera'], ['role' => 'अतिथि अधिकारी']);
 if (!$token) {
     guest_page('मीटिंग', '<div class="card"><p class="gl-title">अभी मीटिंग से नहीं जुड़ पा रहे</p><p class="gl-note">कुछ देर बाद यह लिंक फिर से खोलें।</p></div>');
 }
@@ -152,6 +158,8 @@ $cfg = [
     'name' => $name,
     'meeting_id' => $meetingId,
     'is_broadcast' => Meetings::isBroadcast($link),
+    'guest_only' => Meetings::isGuestBroadcast($link),   // the screen counts guests instead of BCs
+    'stage_style' => Meetings::isChannel($link) ? 'channel' : '',   // Broadcast 2: TV-channel stage
     'can_publish' => $onStage,
     'can_video' => $canVideo,
     'is_host' => false,
@@ -162,6 +170,7 @@ $cfg = [
     'host_role' => $host['role'],
     'host_region' => $host['region'],
     'host_identity' => $host['identity'],
+    'host_label' => $host['label'],   // BC Supervisor host: "DEEPAK SHARMA - BC SUPERVISOR AGRA RO"
     'logo' => App\Settings::get('bank_logo'),
     'headlines_tag' => App\Settings::get('broadcast_notice_title'),
     'headlines' => App\Settings::get('broadcast_notice'),
@@ -184,12 +193,12 @@ header('Cache-Control: no-store');
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title><?= e($link['title']) ?></title>
-<link rel="stylesheet" href="/app/meet.css?v=12">
+<link rel="stylesheet" href="/app/meet.css?v=16">
 </head>
 <body>
 <div id="meet"></div>
 <script>window.MEET_CONFIG = <?= json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;</script>
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js" crossorigin="anonymous"></script>
-<script src="/app/meet.js?v=12"></script>
+<script src="/app/meet.js?v=16"></script>
 </body>
 </html>

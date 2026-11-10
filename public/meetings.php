@@ -25,6 +25,19 @@ if (!$isAdmin && !$isRM) {
 }
 $myRegion = Scope::region($user);                 // 0 for admin / region-less supervisor
 $regionName = $myRegion ? (string) DB::val('SELECT name FROM regions WHERE id = ?', [$myRegion]) : '';
+$rmScoped = $isRM && $regionName !== '';
+// What this page starts: the three broadcasts (Broadcast 1 'broadcast'; Broadcast 2 'channel' on the
+// TV-channel stage; Broadcast 3 'guest', via link, rings nobody) and the earlier meeting types.
+$roLabel = $rmScoped ? $regionName . ', ' : '';
+$startTypes = [
+    'broadcast' => '📢 Broadcast — ' . $roLabel . 'sabka video',
+    'channel'   => '📺 Broadcast 2 — ' . $roLabel . 'sabka video (TV मंच)',
+    'guest'     => '🔗 Broadcast 3 — Other via link, sabka video (BC/CBC ko call nahi)',
+    'all'       => $rmScoped ? 'Everyone — ' . $regionName : 'Everyone (BC + CBC)',
+    'cbc'       => $rmScoped ? 'CBCs — ' . $regionName : 'All CBC supervisors',
+    'bc'        => $rmScoped ? 'BCs — ' . $regionName : 'All BCs',
+    'branch'    => "One branch's BCs / एक शाखा के बीसी",
+];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) p('action');
@@ -35,6 +48,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $regionId = $isRM ? ($myRegion ?: null) : null;   // a BC Supervisor's meeting is pinned to their region
         if ($title === '' || mb_strlen($title) > 160) {
             flash('danger', 'Meeting title 1–160 characters');
+            redirect('/meetings.php');
+        }
+        if (!isset($startTypes[$audience])) {
+            flash('danger', '"Kaun jud sakta hai" list se chunein / सूची से चुनें');
             redirect('/meetings.php');
         }
         if ($audience === 'branch') {
@@ -50,8 +67,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $mode = p('mode') === 'voice' ? 'voice' : 'video';
         $id = Meetings::create($title, $audience, $mode, $branchId, (int) $user['id'], $regionId);
         Audit::log((int) $user['id'], 'meeting_start', 'meeting', $id, ['title' => $title, 'audience' => $audience, 'branch_id' => $branchId, 'region_id' => $regionId]);
-        flash('success', $audience === 'broadcast'
-            ? '📢 Broadcast shuru ho gaya – ' . ($isRM && $regionName ? $regionName . ' ke' : 'sabke') . ' phone pe ring + notification ja raha hai. Aap bhi "Join" se judein.'
+        if ($audience === 'guest') {
+            // Broadcast 3: nobody is rung; the first guest link is ready at once (shown once below the meeting)
+            $_SESSION['guest_link_new'] = ['meeting_id' => $id, 'url' => GuestLinks::create($id, (int) $user['id'])];
+            Audit::log((int) $user['id'], 'meeting_guest_link', 'meeting', $id);
+            flash('success', '🔗 Broadcast 3 shuru ho gaya – kisi BC/CBC ko call nahi gayi. Neeche ka link copy karke bhejein, aur aap "Join" se judein.');
+            redirect('/meetings.php');
+        }
+        flash('success', in_array($audience, ['broadcast', 'channel'], true)
+            ? ($audience === 'channel' ? '📺 Broadcast 2' : '📢 Broadcast') . ' shuru ho gaya – ' . ($isRM && $regionName ? $regionName . ' ke' : 'sabke') . ' phone pe ring + notification ja raha hai. Aap bhi "Join" se judein.'
             : 'Meeting shuru ho gayi – audience ko notification bhej diya. Aap bhi "Join" se judein.');
         // Answer the browser now, then fan out the ring in the background.
         header('Location: /meetings.php');
@@ -109,8 +133,8 @@ if ($isAdmin) {
 }
 $newGuest = $_SESSION['guest_link_new'] ?? null;   // the new link is shown once, then only its hash exists
 unset($_SESSION['guest_link_new']);
-$audLabel = ['broadcast' => '📢 Broadcast', 'all' => 'Everyone', 'bc' => 'All BCs', 'cbc' => 'All CBC supervisors', 'branch' => 'Branch'];
-$rmScoped = $isRM && $regionName !== '';
+$audLabel = ['broadcast' => '📢 Broadcast', 'channel' => '📺 Broadcast 2', 'guest' => '🔗 Broadcast 3 (link)',
+    'all' => 'Everyone', 'bc' => 'All BCs', 'cbc' => 'All CBC supervisors', 'branch' => 'Branch'];
 
 View::header('Meetings / मीटिंग', 'meetings');
 ?>
@@ -128,11 +152,7 @@ View::header('Meetings / मीटिंग', 'meetings');
         <div class="col-12"><label class="form-label small"><?= L('Title', 'शीर्षक') ?></label><input name="title" class="form-control form-control-sm" required maxlength="160" placeholder="e.g. Monthly review / मासिक समीक्षा"></div>
         <div class="col-7"><label class="form-label small"><?= L('Who can join', 'कौन जुड़ सकता है') ?></label>
           <select name="audience" id="aud" class="form-select form-select-sm">
-            <option value="broadcast">📢 Broadcast — <?= $rmScoped ? e($regionName) . ', ' : '' ?>sabka video</option>
-            <option value="all"><?= $rmScoped ? 'Everyone — ' . e($regionName) : 'Everyone (BC + CBC)' ?></option>
-            <option value="cbc"><?= $rmScoped ? 'CBCs — ' . e($regionName) : 'All CBC supervisors' ?></option>
-            <option value="bc"><?= $rmScoped ? 'BCs — ' . e($regionName) : 'All BCs' ?></option>
-            <option value="branch"><?= L("One branch's BCs", 'एक शाखा के बीसी') ?></option>
+            <?php foreach ($startTypes as $k => $label): ?><option value="<?= e($k) ?>"><?= e($label) ?></option><?php endforeach; ?>
           </select></div>
         <div class="col-12"><label class="form-label small"><?= L('Type', 'प्रकार') ?></label>
           <select name="mode" class="form-select form-select-sm"><option value="video">📹 Video meeting</option><option value="voice">🎙️ Voice only</option></select></div>
@@ -143,7 +163,9 @@ View::header('Meetings / मीटिंग', 'meetings');
         <div class="col-12"><button class="btn btn-success btn-sm"><i class="bi bi-camera-video-fill"></i> <?= L('Start & notify', 'शुरू करें और सूचित करें') ?></button></div>
       </form>
       <p class="small text-muted mt-2 mb-0">Start karte hi audience ke phone pe <b>ring + notification</b> jaata hai aur app mein "Join" banner dikhta hai. Call hamare apne server (LiveKit) par khulti hai (camera/mic allow karein).<br>
-        <b>📢 Broadcast</b> = <?= $rmScoped ? e($regionName) . ' ke' : 'har' ?> BC + staff ko ring jaata hai. Video call jaisa: aap bade screen par, aur <b>sabka camera</b> niche dikhta hai. Mic sirf aapka; kisi ka haath uthe (✋) to "🎤 Allow" se use bolne dein.</p>
+        <b>📢 Broadcast</b> = <?= $rmScoped ? e($regionName) . ' ke' : 'har' ?> BC + staff ko ring jaata hai. Video call jaisa: aap bade screen par, aur <b>sabka camera</b> niche dikhta hai. Mic sirf aapka; kisi ka haath uthe (✋) to "🎤 Allow" se use bolne dein.<br>
+        <b>📺 Broadcast 2</b> = Broadcast jaisa hi (ring sabko), lekin मंच TV news channel jaisa: bank logo, स्वागत संदेश, APY / PMJJBY / PMSBY ke card aur सूचना पट्टी.<br>
+        <b>🔗 Broadcast 3</b> = kisi BC/CBC ko call nahi jaati. Start karte hi ek link banta hai; jise link bhejenge wahi apna naam likh kar judega aur uska camera chalu rahega. Zarurat ho to "Guest link" se aur link banayein.</p>
     </div></div>
   </div>
   <div class="col-lg-7">
@@ -172,7 +194,9 @@ View::header('Meetings / मीटिंग', 'meetings');
               <div class="input-group input-group-sm"><input class="form-control" readonly value="<?= e($newGuest['url']) ?>" onclick="this.select()">
                 <button type="button" class="btn btn-outline-secondary" data-copy="<?= e($newGuest['url']) ?>"><i class="bi bi-clipboard"></i> Copy</button>
                 <a class="btn btn-success" target="_blank" rel="noopener" href="<?= e($wa) ?>"><i class="bi bi-whatsapp"></i> WhatsApp</a></div>
-              <div class="text-muted mt-1">Officer naam likh kar judega, pehle sirf dekh-sun sakega. Mic/camera ke liye meeting screen mein uske naam par tap karke <b>⭐ मंच पर लाएँ</b>.</div>
+              <div class="text-muted mt-1"><?= Meetings::isGuestBroadcast($m)
+                  ? 'Link kholne wala naam likh kar judega aur uska camera chalu rahega. Bolne ke liye ✋ par <b>🎤 Allow</b>, ya naam par tap karke <b>⭐ मंच पर लाएँ</b>.'
+                  : 'Officer naam likh kar judega, pehle sirf dekh-sun sakega. Mic/camera ke liye meeting screen mein uske naam par tap karke <b>⭐ मंच पर लाएँ</b>.' ?></div>
             </div>
           <?php endif; ?>
           <?php if ($canGuest): foreach (GuestLinks::forMeeting((int) $m['id']) as $gl): ?>
