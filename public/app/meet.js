@@ -471,7 +471,7 @@
   // In broadcasts and meetings they come first, right after the host: tiles, gallery, people list.
   function supKey(k) {
     var r = String((P[k] && P[k].role) || roleOf(k) || '').trim();
-    return /^bc supervisor$/i.test(r) || / - BC SUPERVISOR( |$)/.test(String(nameOf(k) || ''));
+    return /^bc supervisor$/i.test(r) || /(^| - )BC SUPERVISOR( |$)/.test(String(nameOf(k) || ''));   // also "BC SUPERVISOR AGRA RO"
   }
   // the name strip on someone's video; for the host the server sends it (a BC Supervisor: only that label)
   function stripText(k) {
@@ -566,8 +566,9 @@
     if (!ro) return cfg.title || '';
     return 'Regional Office – ' + (ro.replace(/^(R\.?O\.?|Regional Office)[\s\-–:]+/i, '').replace(/[\s\-–]+R\.?O\.?$/i, '').trim() || ro);
   }
-  function chCard(cls, name, code, body, art) {
-    return '<div class="ch-card ' + cls + '"><div class="ch-ch"><span>' + name + '</span><b>(' + code + ')</b></div><div class="ch-cb">' + body + '<i>' + art + '</i></div></div>';
+  // a scheme card: the scheme's name and code only (the user removed the lines under them)
+  function chCard(cls, name, code) {
+    return '<div class="ch-card ' + cls + '"><div class="ch-ch"><span>' + name + '</span><b>(' + code + ')</b></div></div>';
   }
   function buildChannel() {
     var c = document.createElement('div'); c.className = 'bcs-ch'; c.setAttribute('aria-hidden', 'true');
@@ -575,13 +576,13 @@
     c.innerHTML =
       '<div class="ch-head"><div class="ch-logo' + (cfg.logo ? ' img' : '') + '">' + logo + '</div>' +
         '<div class="ch-ttl"><b>Central Bank BC Meeting Channel</b><span>' + esc(roLine()) + '</span></div><div class="ch-live"><i></i>LIVE</div></div>' +
+      // welcome, topic (wide stage only) and the scheme cards; the yellow "महत्वपूर्ण सूचना" bar was removed at the user's request
       '<div class="ch-info"><div class="ch-welcome"><i>📢</i><b>आप सभी का मीटिंग में स्वागत है!</b></div>' +
-        '<div class="ch-notice">सभी BC साथियों के लिए <b>महत्वपूर्ण सूचना</b></div>' +
         '<div class="ch-topic"><span>आज की विशेष BC मीटिंग में हमारा मुख्य विषय –</span><span><b>APY, PMJJBY और PMSBY</b> में अधिकतम नामांकन करना है!</span></div>' +
         '<div class="ch-cards">' +
-          chCard('apy', 'अटल पेंशन योजना', 'APY', '<p>हर पात्र ग्राहक को सुरक्षित भविष्य दें</p>', '👴👵') +
-          chCard('jjby', 'प्रधानमंत्री जीवन ज्योति बीमा योजना', 'PMJJBY', '<p><span>मात्र <em>₹436/-</em> में</span>2 लाख तक का जीवन बीमा</p>', '👪') +
-          chCard('sby', 'प्रधानमंत्री सुरक्षा बीमा योजना', 'PMSBY', '<p><span>मात्र <em>₹20/-</em> में</span>2 लाख तक का दुर्घटना बीमा</p>', '🛡️') +
+          chCard('apy', 'अटल पेंशन योजना', 'APY') +
+          chCard('jjby', 'प्रधानमंत्री जीवन ज्योति बीमा योजना', 'PMJJBY') +
+          chCard('sby', 'प्रधानमंत्री सुरक्षा बीमा योजना', 'PMSBY') +
         '</div></div>' +
       '<div class="ch-ticker"><span class="ch-tag">सूचना <i>›</i></span><div class="ch-tw"><div class="ch-tm"></div></div></div>' +
       '<div class="ch-slogans">' + CH.slogans.map(function (s) { return '<span><i>' + s[0] + '</i>' + s[1] + '</span>'; }).join('') + '</div>' +
@@ -612,7 +613,8 @@
     // a tall stage grows the design to its own shape (the presenter gets the extra height); wide stays 1280x720
     var tall = W / H < 1.25, dw = tall ? 720 : 1280, dh = tall ? Math.max(820, Math.min(1100, Math.round(dw * H / W))) : 720;
     var s = Math.min(W / dw, H / dh), ox = (W - dw * s) / 2, oy = (H - dh * s) / 2;
-    var r = tall ? [16, 112, 688, dh - 500] : [16, 108, 384, 458];   // presenter box in design pixels: x, y, w, h
+    // presenter box in design pixels: x, y, w, h. Tall: it ends 12px above the cards (welcome + cards = 160, ticker = 60).
+    var r = tall ? [16, 112, 688, dh - 344] : [16, 108, 384, 458];
     var was = S.stage.classList.contains('ch-tall'); S.chKey = key;
     S.stage.classList.toggle('ch-tall', tall); S.stage.classList.toggle('ch-wide', !tall);
     S.ch.style.width = dw + 'px'; S.ch.style.height = dh + 'px';

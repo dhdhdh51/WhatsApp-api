@@ -444,35 +444,24 @@ html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
   background:linear-gradient(#ff2d2d,#c4000b);font:900 38px 'Inter',sans-serif;letter-spacing:1px;box-shadow:0 6px 14px rgba(0,0,0,.4)}
 .ch-live i{width:0;height:0;border-left:22px solid #fff;border-top:14px solid transparent;border-bottom:14px solid transparent;animation:mt-pulse 1.3s infinite}
 
-/* right of the presenter: welcome, notice, topic, scheme cards */
-.ch-info{position:absolute;left:416px;right:16px;top:108px;height:458px;display:flex;flex-direction:column;gap:8px}
-.ch-welcome{position:relative;flex:none;height:72px;display:flex;align-items:center;justify-content:center;padding-left:70px;border-radius:16px;
+/* right of the presenter: welcome, topic, scheme cards (each card = the scheme's name and code, filling the card) */
+.ch-info{position:absolute;left:416px;right:16px;top:108px;height:458px;display:flex;flex-direction:column;gap:10px}
+.ch-welcome{position:relative;flex:none;height:80px;display:flex;align-items:center;justify-content:center;padding-left:70px;border-radius:16px;
   background:linear-gradient(#f42c33,#c2050e);border:3px solid #ffd21f;box-shadow:0 8px 18px -6px rgba(0,0,0,.55)}
 .ch-welcome i{position:absolute;left:12px;top:50%;transform:translateY(-50%) rotate(-12deg);font-style:normal;font-size:50px;line-height:1}
 .ch-welcome b{font-size:42px;font-weight:800;white-space:nowrap;text-shadow:0 3px 6px rgba(0,0,0,.35)}
-.ch-notice{flex:none;height:50px;margin:0 30px;display:flex;align-items:center;justify-content:center;gap:10px;border-radius:10px;
-  background:linear-gradient(#ffe24f,#ffc400);color:#0b2a7a;font-size:30px;font-weight:800;box-shadow:0 6px 14px -6px rgba(0,0,0,.5)}
-.ch-notice b{color:#d10a14}
-.ch-topic{flex:none;height:86px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;border-radius:12px;
-  background:rgba(5,22,88,.92);border:2px solid rgba(255,255,255,.75);font-size:26px;font-weight:700;line-height:1.32}
+.ch-topic{flex:none;height:118px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;border-radius:12px;
+  background:rgba(5,22,88,.92);border:2px solid rgba(255,255,255,.75);font-size:29px;font-weight:700;line-height:1.35}
 .ch-topic b{color:#ffd21f}
 .ch-cards{flex:1;min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-.ch-card{display:flex;flex-direction:column;min-width:0;border-radius:14px;overflow:hidden;background:#fff;border:2px solid rgba(255,255,255,.9);
+.ch-card{display:flex;flex-direction:column;min-width:0;border-radius:14px;overflow:hidden;border:2px solid rgba(255,255,255,.9);
   box-shadow:0 10px 20px -8px rgba(0,0,0,.6)}
-.ch-ch{flex:none;height:92px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:4px 10px;line-height:1.15}
-.ch-ch span{font-size:22px;font-weight:800}
-.ch-ch b{font:900 28px 'Inter',sans-serif;color:#ffd21f;margin-top:3px}
+.ch-ch{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:6px 12px;line-height:1.2}
+.ch-ch span{font-size:26px;font-weight:800}
+.ch-ch b{font:900 36px 'Inter',sans-serif;color:#ffd21f;margin-top:8px}
 .ch-card.apy .ch-ch{background:linear-gradient(#2463e2,#0f3dab)}
 .ch-card.jjby .ch-ch{background:linear-gradient(#19a84d,#0a7632)}
 .ch-card.sby .ch-ch{background:linear-gradient(#7b41d2,#4c1d95)}
-.ch-cb{flex:1;min-height:0;display:flex;align-items:center;gap:6px;padding:8px 12px;color:#0b2a6e}
-.ch-cb p{margin:0;flex:1;min-width:0;font-size:23px;font-weight:800;line-height:1.3}
-.ch-cb p span{display:block;font-size:27px}
-.ch-cb em{font:normal 900 1.08em 'Inter','Noto Sans Devanagari',sans-serif;color:#d10a14}
-.ch-cb i{flex:none;font-style:normal;font-size:52px;line-height:1}
-.ch-card.apy .ch-cb{flex-direction:column;justify-content:center;gap:4px;text-align:center}   /* text on top, the couple under it */
-.ch-card.apy .ch-cb p{flex:none}
-.ch-card.apy .ch-cb i{font-size:46px}
 
 /* bottom: सूचना line, three slogans, "Central Bank of India – Always with you..." */
 .ch-ticker{position:absolute;left:0;width:1060px;top:576px;height:50px;display:flex;align-items:center;overflow:hidden;
@@ -501,19 +490,16 @@ html, body { margin: 0; height: 100%; background: #0b1512; color: #fff;
 .bcs-stage.ch-tall .ch-ttl span{font-size:22px;margin-top:3px}
 .bcs-stage.ch-tall .ch-live{font-size:28px;padding:8px 14px;gap:8px}
 .bcs-stage.ch-tall .ch-live i{border-left-width:16px;border-top-width:10px;border-bottom-width:10px}
-.bcs-stage.ch-tall .ch-info{left:16px;right:16px;top:auto;bottom:60px;height:316px}
+/* welcome 66 + gap 8 + cards 86 = 160 (meet.js layoutChannel gives the presenter everything above it) */
+.bcs-stage.ch-tall .ch-info{left:16px;right:16px;top:auto;bottom:60px;height:160px;gap:8px}
 .bcs-stage.ch-tall .ch-welcome{height:66px;padding-left:62px}
 .bcs-stage.ch-tall .ch-welcome i{font-size:44px}
 .bcs-stage.ch-tall .ch-welcome b{font-size:36px}
-.bcs-stage.ch-tall .ch-notice{height:46px;margin:0 10px;font-size:27px}
-.bcs-stage.ch-tall .ch-topic,.bcs-stage.ch-tall .ch-slogans,.bcs-stage.ch-tall .ch-brand,.bcs-stage.ch-tall .ch-cb i{display:none}
+.bcs-stage.ch-tall .ch-topic,.bcs-stage.ch-tall .ch-slogans,.bcs-stage.ch-tall .ch-brand{display:none}
 .bcs-stage.ch-tall .ch-cards{gap:10px}
-.bcs-stage.ch-tall .ch-ch{height:84px;padding:4px 6px}
+.bcs-stage.ch-tall .ch-ch{padding:4px 6px;line-height:1.15}
 .bcs-stage.ch-tall .ch-ch span{font-size:19px}
-.bcs-stage.ch-tall .ch-ch b{font-size:26px}
-.bcs-stage.ch-tall .ch-cb{justify-content:center;padding:6px 8px;text-align:center}
-.bcs-stage.ch-tall .ch-cb p{font-size:21px}
-.bcs-stage.ch-tall .ch-cb p span{font-size:25px}
+.bcs-stage.ch-tall .ch-ch b{font-size:26px;margin-top:3px}
 .bcs-stage.ch-tall .ch-ticker{width:auto;right:0;top:auto;bottom:0}
 
 /* phones: a long name ("DEEPAK SHARMA - BC SUPERVISOR AGRA RO") gets one more line on the small tiles, so it is never cut */

@@ -110,7 +110,7 @@ meetings started from the app (`cbc_bcs`, `one_bc`, `selected`) are unchanged.
 | Panel label | `audience` | Who is rung | Stage |
 |---|---|---|---|
 | 📢 Broadcast | `broadcast` | every active BC + staff in reach | studio stage (host, lower third, सूचना ticker) |
-| 📺 Broadcast 2 | `channel` | the same as Broadcast 1 | TV news-channel frame: bank logo, "Central Bank BC Meeting Channel" + RO, LIVE, welcome / notice / topic, APY · PMJJBY · PMSBY cards, सूचना line, slogans |
+| 📺 Broadcast 2 | `channel` | the same as Broadcast 1 | TV news-channel frame: bank logo, "Central Bank BC Meeting Channel" + RO, LIVE, welcome / topic, APY · PMJJBY · PMSBY cards (scheme names only), सूचना line, slogans |
 | 🔗 Broadcast 3 | `guest` | nobody | studio stage; people join only through guest links |
 
 All three are group video calls: everyone shows their camera, and the mic is for
@@ -118,9 +118,11 @@ the host and the people he allows (✋ → "🎤 Allow", or "⭐ मंच प�
 
 A BC Supervisor's name in every meeting reads `DEEPAK SHARMA - BC SUPERVISOR AGRA RO`
 (`Meetings::displayName` / `supervisorLabel`): name, role and RO in capitals. The RO
-is written `<CITY> RO` however the region is named. When a BC Supervisor hosts, the
-strip on the host's video shows only that label (`host_label`). Admin and CBC names
-are unchanged.
+is written `<CITY> RO` however the region is named. An account named only after the
+post ("Agra RO Supervisor", "BC Supervisor") has no person's name to show, so its
+label is just `BC SUPERVISOR AGRA RO`. Set the person's name on the Users page to get
+`DEEPAK SHARMA - BC SUPERVISOR AGRA RO`. When a BC Supervisor hosts, the strip on the
+host's video shows only that label (`host_label`). Admin and CBC names are unchanged.
 
 BC Supervisors come first, right after the host (`supKey` in `meet.js`; role taken from
 the participant's token metadata). This applies to the meeting tiles, the broadcast

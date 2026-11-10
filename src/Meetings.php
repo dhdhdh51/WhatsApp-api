@@ -397,8 +397,8 @@ final class Meetings
 
     /**
      * Name shown in a meeting for a staff user (video tiles, the stage, the people list, chat).
-     * A BC Supervisor: name, role and RO in capitals, e.g. "DEEPAK SHARMA - BC SUPERVISOR AGRA RO".
-     * Everyone else: the plain name.
+     * A BC Supervisor: name, role and RO in capitals, e.g. "DEEPAK SHARMA - BC SUPERVISOR AGRA RO"
+     * ("BC SUPERVISOR AGRA RO" when the account is named only after the post). Everyone else: the plain name.
      */
     public static function displayName(array $user): string
     {
@@ -412,17 +412,31 @@ final class Meetings
     /**
      * "DEEPAK SHARMA - BC SUPERVISOR AGRA RO". The RO is written "<CITY> RO" however the region is
      * named ("Agra RO", "RO Agra", "Agra", "Regional Office – Agra"). No region: just name and role.
+     * An account named only after its post ("Agra RO Supervisor", "BC Supervisor Agra") has no
+     * person's name in it, so the label is just "BC SUPERVISOR AGRA RO" (not the post twice).
      */
     public static function supervisorLabel(string $name, string $region): string
     {
-        $name = trim($name);
-        $label = mb_strtoupper($name !== '' ? $name : 'BC Supervisor') . ' - ' . mb_strtoupper(Auth::roleLabel('supervisor'));
         $ro = '(?:R\.?\s?O\.?|Regional\s+Office)';
-        $city = trim((string) preg_replace(["/^\\s*{$ro}(?:[\\s\\-–—:.]+|$)/iu", "/(?:^|[\\s\\-–—:.]+){$ro}\\s*$/iu"], '', trim($region)));
-        if ($city === '') {
-            return trim($region) !== '' ? $label . ' ' . mb_strtoupper(trim($region)) : $label;
+        $region = trim($region);
+        $city = trim((string) preg_replace(["/^\\s*{$ro}(?:[\\s\\-–—:.]+|$)/iu", "/(?:^|[\\s\\-–—:.]+){$ro}\\s*$/iu"], '', $region));
+        $tail = mb_strtoupper(Auth::roleLabel('supervisor'));
+        if ($city !== '') {
+            $tail .= ' ' . mb_strtoupper($city) . ' RO';
+        } elseif ($region !== '') {
+            $tail .= ' ' . mb_strtoupper($region);
         }
-        return $label . ' ' . mb_strtoupper($city) . ' RO';
+        $name = trim($name);
+        return self::isPostName($name, $city) ? $tail : mb_strtoupper($name) . ' - ' . $tail;
+    }
+
+    /** Is this account name only the post ("Agra RO Supervisor", "RO Agra", "BC Supervisor", empty), without a person's name? */
+    private static function isPostName(string $name, string $city): bool
+    {
+        $post = ['BC', 'BCS', 'SUPERVISOR', 'SUPERVISER', 'RO', 'R', 'O', 'REGIONAL', 'REGION', 'OFFICE',
+            'सुपरवाइज़र', 'सुपरवाइजर', 'बीसी', 'आरओ', 'क्षेत्रीय', 'कार्यालय'];
+        $words = static fn (string $s): array => preg_split('/[^\p{L}\p{M}\p{N}]+/u', mb_strtoupper($s), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        return array_diff($words($name), $post, $words($city)) === [];
     }
 
     /**
